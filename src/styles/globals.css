@@ -1,0 +1,229 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;0,9..40,900;1,9..40,300;1,9..40,400;1,9..40,500;1,9..40,600;1,9..40,700;1,9..40,800;1,9..40,900&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+:root {
+  /* Colors — Darks */
+  --color-ink: #12110F;
+  --color-carbon: #1C1B18;
+  --color-stone: #2A2822;
+  --color-sandstone: #3D3A30;
+  --color-clay: #5C5647;
+
+  /* Colors — Accents */
+  --color-sprout: #4ADE80;
+  --color-sprout-dim: #22C55E;
+  --color-sprout-muted: rgba(74,222,128,0.12);
+  --color-sprout-glow: rgba(74,222,128,0.06);
+  --color-terracotta: #D97706;
+  --color-terracotta-dim: #B45309;
+  --color-terracotta-muted: rgba(217,119,6,0.08);
+
+  /* Colors — Lights */
+  --color-chalk: #FAF9F6;
+  --color-bone: #E8E5DE;
+  --color-dust: #C4BFB3;
+  --color-fog: #9C9686;
+  --color-slate: #706B5F;
+
+  /* Colors — Semantic */
+  --color-blue: #60A5FA;
+  --color-blue-muted: rgba(96,165,250,0.12);
+  --color-purple: #A78BFA;
+  --color-purple-muted: rgba(167,139,250,0.12);
+  --color-red: #F87171;
+  --color-red-muted: rgba(248,113,113,0.12);
+  --color-yellow: #FBBF24;
+  --color-yellow-muted: rgba(251,191,36,0.12);
+
+  /* Fonts */
+  --font-display: 'Instrument Serif', Georgia, serif;
+  --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+
+  /* Spacing (8px grid) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* Layout */
+  --sidebar-width: 240px;
+  --topbar-height: 56px;
+}
+
+/* Reset */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--color-ink);
+  color: var(--color-chalk);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-sandstone);
+  border-radius: 4px;
+}
+
+a {
+  color: var(--color-sprout);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--color-sprout-dim);
+  text-decoration: underline;
+}
+
+/* Form elements */
+input, select, textarea {
+  background: var(--color-ink);
+  border: 1px solid var(--color-stone);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: var(--color-chalk);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  outline: none;
+  width: 100%;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--color-sprout);
+  box-shadow: 0 0 0 2px var(--color-sprout-muted);
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--color-clay);
+}
+
+select option {
+  background: var(--color-carbon);
+  color: var(--color-chalk);
+}
+
+button {
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, opacity 150ms ease;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Utility classes */
+.nexa-card {
+  background: var(--color-carbon);
+  border: 1px solid var(--color-stone);
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.nexa-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.nexa-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.nexa-table th {
+  padding: 10px 16px;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-fog);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 600;
+  border-bottom: 1px solid var(--color-stone);
+}
+
+.nexa-table td {
+  padding: 10px 16px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--color-stone);
+  color: var(--color-dust);
+}
+
+.nexa-table tr:nth-child(even) {
+  background: rgba(255,255,255,0.01);
+}
+
+.nexa-table tr:hover {
+  background: var(--color-sprout-glow);
+}
+
+/* Label style (mono uppercase) */
+.nexa-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-fog);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.nexa-fade-in {
+  animation: fadeIn 300ms ease;
+}
+
+.nexa-success-banner {
+  background: var(--color-sprout-muted);
+  border: 1px solid var(--color-sprout);
+  border-radius: 8px;
+  padding: 10px 16px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--color-sprout);
+  animation: fadeIn 300ms ease;
+}

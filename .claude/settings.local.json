@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__claude_ai_Supabase__list_tables",
+      "mcp__claude_ai_Supabase__apply_migration",
+      "mcp__claude_ai_Supabase__list_projects",
+      "mcp__claude_ai_Supabase__execute_sql",
+      "Bash(npm run:*)",
+      "mcp__claude_ai_Supabase__get_project_url",
+      "mcp__claude_ai_Supabase__deploy_edge_function",
+      "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")",
+      "Bash(npx vite:*)",
+      "Bash(find 'C:\\\\Users\\\\Windows 11\\\\nexa\\\\src\\\\domain' -name *enum* -o -name *status*)",
+      "Bash(npx tsc:*)",
+      "mcp__claude_ai_Vercel__deploy_to_vercel",
+      "Bash(npx vercel:*)",
+      "WebFetch(domain:nexa-taupe-two.vercel.app)",
+      "Bash(curl -s https://nexa-taupe-two.vercel.app/)",
+      "Bash(curl -sI https://nexa-taupe-two.vercel.app/assets/index-CrH3w1HT.js)",
+      "Bash(curl -s https://nexa-taupe-two.vercel.app/assets/index-CrH3w1HT.js)",
+      "Bash(curl -sI https://nexa-taupe-two.vercel.app/assets/index-C5BauIcT.css)",
+      "mcp__claude_ai_Vercel__get_deployment_build_logs",
+      "Bash(find '/c/Users/Windows 11/nexa' -type f -name *.sql -o -name *schema*)",
+      "Bash(xargs ls:*)",
+      "Bash(npm install:*)",
+      "mcp__claude_ai_Supabase__get_edge_function",
+      "mcp__claude_ai_Supabase__get_logs"
+    ]
+  }
+}
