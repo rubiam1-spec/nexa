@@ -3,175 +3,129 @@ import { useAuth } from "../../../app/contexts/AuthContext";
 import { useAccount } from "../../../app/contexts/AccountContext";
 import { useDevelopment } from "../../../app/contexts/DevelopmentContext";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
-import { useMyDay, type OperationalAlert, type BrokerSummary } from "../hooks/useMyDay";
+import { useMyDay, type ScheduledActivity, type TeamMember, type PendingAction } from "../hooks/useMyDay";
 
 // ── Helpers ──
 
-function greeting(): string {
-  const h = new Date().getHours();
-  if (h < 12) return "Bom dia";
-  if (h < 18) return "Boa tarde";
-  return "Boa noite";
+function greeting() { const h = new Date().getHours(); return h < 12 ? "Bom dia" : h < 18 ? "Boa tarde" : "Boa noite"; }
+function weekday() { return new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" }); }
+function fmtDate(d: string) { return new Date(d + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "short", day: "numeric", month: "short" }); }
+function todayStr() { return new Date().toISOString().slice(0, 10); }
+
+const ROLE_LABELS: Record<string, string> = { owner: "Dono", director: "Diretor", manager: "Gestor", commercial_consultant: "Consultora", broker: "Corretor", administrative: "Administrativo" };
+const STATUS_COLORS = { active: "#4ADE80", warning: "#FBBF24", inactive: "#F87171" };
+
+// ── Sub-components ──
+
+function SectionLabel({ children, count }: { children: React.ReactNode; count?: number }) {
+  return (
+    <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, color: "var(--text-disabled)", letterSpacing: "0.12em", textTransform: "uppercase", marginTop: 24, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+      {children}
+      {count != null && count > 0 && <span style={{ background: "var(--surface-hover)", borderRadius: 10, padding: "1px 7px", fontSize: 10, fontWeight: 600, color: "var(--text-muted)" }}>{count}</span>}
+    </div>
+  );
 }
 
-function weekday(): string {
-  return new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
+function StatCard({ label, value, alert, sub }: { label: string; value: string | number; alert?: string | null; sub?: string }) {
+  return (
+    <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 10, padding: "14px 16px" }}>
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--text-disabled)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 22, fontWeight: 700, color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>{value}</div>
+      {alert && <div style={{ fontSize: 10, color: "#FBBF24", marginTop: 4 }}>{alert}</div>}
+      {sub && <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>{sub}</div>}
+    </div>
+  );
 }
 
-function formatDaysIdle(hours: number): string {
-  const days = Math.floor(hours / 24);
-  if (days < 1) return `${Math.round(hours)}h`;
-  return `${days} dia${days > 1 ? "s" : ""}`;
-}
-
-// ── Severity colors ──
-
-const SEV = {
-  red: { bg: "rgba(248,113,113,0.10)", border: "rgba(248,113,113,0.25)", text: "#F87171", icon: "var(--text-primary)" },
-  abandoned: { bg: "rgba(248,113,113,0.10)", border: "rgba(248,113,113,0.25)", text: "#F87171", icon: "var(--text-primary)" },
-  yellow: { bg: "rgba(251,191,36,0.10)", border: "rgba(251,191,36,0.25)", text: "#FBBF24", icon: "var(--text-primary)" },
-  warning: { bg: "rgba(251,191,36,0.08)", border: "rgba(251,191,36,0.15)", text: "#FBBF24", icon: "var(--text-secondary)" },
-  upcoming: { bg: "rgba(74,222,128,0.08)", border: "rgba(74,222,128,0.15)", text: "var(--interactive-primary)", icon: "var(--text-secondary)" },
-};
-
-// ── Alert card ──
-
-function AlertCard({ alert, onClick }: { alert: OperationalAlert; onClick?: () => void }) {
-  const sev = SEV[alert.severity] ?? SEV.warning;
-  const label = alert.entity_type === "proposal" ? "Proposta" : "Negociação";
-  const idle = formatDaysIdle(alert.hours_idle);
+function AgendaCard({ a, navigate }: { a: ScheduledActivity; navigate: (p: string) => void }) {
+  const today = todayStr();
+  const isOverdue = a.activity_date < today;
+  const isToday = a.activity_date === today;
+  const isExpired = a.status === "expired";
+  const color = isOverdue || isExpired ? "#F87171" : isToday ? "#60A5FA" : "var(--text-muted)";
+  const badge = isExpired ? "EXPIRADA" : isOverdue ? "ATRASADA" : isToday ? `HOJE${a.start_time ? ` ${a.start_time.substring(0, 5)}` : ""}` : fmtDate(a.activity_date);
 
   return (
-    <div
-      onClick={onClick}
-      style={{
-        background: sev.bg,
-        border: `1px solid ${sev.border}`,
-        borderRadius: 10,
-        padding: "14px 16px",
-        cursor: onClick ? "pointer" : "default",
-        transition: "transform 120ms ease",
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-        <span style={{ color: sev.text, fontSize: 16, lineHeight: 1, marginTop: 1, flexShrink: 0 }}>
-          {alert.severity === "red" || alert.severity === "abandoned" ? "\u25CF" : alert.severity === "yellow" ? "\u25B2" : "\u25CB"}
-        </span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: sev.icon, lineHeight: 1.4 }}>
-            {alert.alert_message}
-            {alert.hours_idle > 0 && alert.alert_type !== "followup_upcoming"
-              ? ` — ${idle}`
-              : ""}
-          </div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4, display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {alert.client_name && <span>{alert.client_name}</span>}
-            {alert.unit_label && <span style={{ color: "var(--text-disabled)" }}>{alert.unit_label}</span>}
-            {alert.broker_name && <span style={{ color: "var(--text-disabled)" }}>{label} · {alert.broker_name}</span>}
-          </div>
-        </div>
+    <div onClick={() => navigate("/atividades")} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: isOverdue || isExpired ? "rgba(248,113,113,0.06)" : isToday ? "rgba(96,165,250,0.06)" : "var(--surface-raised)", border: `1px solid ${isOverdue || isExpired ? "rgba(248,113,113,0.2)" : isToday ? "rgba(96,165,250,0.2)" : "var(--border-default)"}`, borderRadius: 10, cursor: "pointer" }}>
+      <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 6, border: `1px solid ${color}`, color, whiteSpace: "nowrap", flexShrink: 0 }}>{badge}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.title}</div>
+        {a.contact_name && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 1 }}>{a.contact_name}</div>}
       </div>
     </div>
   );
 }
 
-// ── Section header ──
-
-function SectionLabel({ children, count }: { children: string; count?: number }) {
+function TeamRow({ m }: { m: TeamMember }) {
+  const color = STATUS_COLORS[m.status];
+  const statText = m.activitiesToday > 0 ? `${m.activitiesToday} atividade${m.activitiesToday > 1 ? "s" : ""} hoje` : m.lastActivityDaysAgo === 0 ? "ativo hoje" : m.lastActivityDaysAgo < 999 ? `sem atividade há ${m.lastActivityDaysAgo}d` : "sem atividades";
   return (
-    <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-disabled)", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 10, marginTop: 24, display: "flex", alignItems: "center", gap: 8 }}>
-      {children}
-      {count !== undefined && count > 0 && (
-        <span style={{ background: "var(--border-default)", borderRadius: 10, padding: "2px 8px", fontSize: 10, color: "var(--text-muted)" }}>{count}</span>
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 10, marginBottom: 6 }}>
+      <div style={{ width: 36, height: 36, borderRadius: "50%", background: color + "20", color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{m.initials}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-secondary)" }}>{m.name}</div>
+        <div style={{ fontSize: 11, color: "var(--text-disabled)" }}>{ROLE_LABELS[m.role] || m.role}{m.activeNegotiations > 0 ? ` · ${m.activeNegotiations} neg.` : ""}</div>
+      </div>
+      <div style={{ fontSize: 11, color, fontFamily: "var(--font-mono)", textAlign: "right", flexShrink: 0 }}>{statText}</div>
+    </div>
+  );
+}
+
+function PendingCard({ a, navigate }: { a: PendingAction; navigate: (p: string) => void }) {
+  const colors: Record<string, string> = { reservation_request: "#A78BFA", expiring_reservation: "#F87171", proposal: "#FBBF24" };
+  const c = colors[a.type] || "#9C9686";
+  return (
+    <div onClick={() => navigate(`/negociacoes/${a.entityId}`)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderLeft: `3px solid ${c}`, background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: "0 10px 10px 0", cursor: "pointer", marginBottom: 6 }}>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-secondary)" }}>{a.label}</div>
+        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{a.detail}</div>
+      </div>
+      <span style={{ fontSize: 11, color: c, fontWeight: 600 }}>→</span>
+    </div>
+  );
+}
+
+function FunnelBar({ label, value, max }: { label: string; value: number; max: number }) {
+  const pct = max > 0 ? Math.round((value / max) * 100) : 0;
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{label}</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>{value}</span>
+      </div>
+      <div style={{ height: 6, borderRadius: 3, background: "var(--surface-hover)", overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${pct}%`, background: "var(--interactive-primary)", borderRadius: 3, transition: "width 300ms" }} />
+      </div>
+    </div>
+  );
+}
+
+function AgendaSection({ agenda, navigate, compact }: { agenda: { overdue: ScheduledActivity[]; today: ScheduledActivity[]; upcoming: ScheduledActivity[] }; navigate: (p: string) => void; compact?: boolean }) {
+  const hasContent = agenda.overdue.length > 0 || agenda.today.length > 0 || agenda.upcoming.length > 0;
+  if (!hasContent) return (
+    <div style={{ padding: "20px 16px", background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 10, textAlign: "center" }}>
+      <div style={{ fontSize: 13, color: "var(--text-muted)" }}>Nenhuma atividade agendada.</div>
+      <button type="button" onClick={() => navigate("/atividades")} style={{ marginTop: 10, background: "var(--interactive-primary)", color: "var(--interactive-on-primary)", border: "none", borderRadius: 8, padding: "8px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Agendar atividade</button>
+    </div>
+  );
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      {agenda.overdue.map((a) => <AgendaCard key={a.id} a={a} navigate={navigate} />)}
+      {agenda.today.map((a) => <AgendaCard key={a.id} a={a} navigate={navigate} />)}
+      {!compact && agenda.upcoming.length > 0 && (
+        <>
+          <div style={{ fontSize: 10, color: "var(--text-disabled)", fontFamily: "var(--font-mono)", letterSpacing: "0.08em", textTransform: "uppercase", marginTop: 8, marginBottom: 2 }}>PRÓXIMOS DIAS</div>
+          {agenda.upcoming.slice(0, 6).map((a) => <AgendaCard key={a.id} a={a} navigate={navigate} />)}
+          {agenda.upcoming.length > 6 && <div style={{ textAlign: "center", padding: 6 }}><span onClick={() => navigate("/atividades")} style={{ fontSize: 12, color: "var(--interactive-primary)", cursor: "pointer" }}>Ver agenda completa →</span></div>}
+        </>
       )}
     </div>
   );
 }
 
-// ── Progress bar ──
-
-function HealthBar({ pct }: { pct: number }) {
-  const color = pct >= 80 ? "var(--interactive-primary)" : pct >= 50 ? "#FBBF24" : "#F87171";
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-      <div style={{ flex: 1, height: 8, background: "var(--border-subtle)", borderRadius: 4, overflow: "hidden" }}>
-        <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: color, borderRadius: 4, transition: "width 600ms ease" }} />
-      </div>
-      <span style={{ fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 700, color }}>{pct}%</span>
-    </div>
-  );
-}
-
-// ── Broker card (consultant/director) ──
-
-function BrokerCard({ broker }: { broker: BrokerSummary }) {
-  const redAlerts = broker.alerts.filter(a => a.severity === "red" || a.severity === "abandoned").length;
-  const yellowAlerts = broker.alerts.filter(a => a.severity === "yellow").length;
-  const inactive = broker.daysSinceActivity >= 3;
-
-  return (
-    <div style={{
-      background: "var(--surface-raised)",
-      border: `1px solid ${inactive ? "rgba(248,113,113,0.25)" : "var(--border-default)"}`,
-      borderRadius: 10,
-      padding: "16px 18px",
-    }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>{broker.name}</span>
-        {inactive && (
-          <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "#F87171", background: "rgba(248,113,113,0.10)", padding: "2px 8px", borderRadius: 4, letterSpacing: "0.05em" }}>
-            SEM ATIVIDADE {broker.daysSinceActivity}D
-          </span>
-        )}
-      </div>
-      <div style={{ fontSize: 12, color: "var(--text-muted)", display: "flex", gap: 12 }}>
-        <span>{broker.activeNegotiations} neg. ativa{broker.activeNegotiations !== 1 ? "s" : ""}</span>
-        {redAlerts > 0 && <span style={{ color: "#F87171" }}>{redAlerts} alerta{redAlerts !== 1 ? "s" : ""} vermelho{redAlerts !== 1 ? "s" : ""}</span>}
-        {yellowAlerts > 0 && <span style={{ color: "#FBBF24" }}>{yellowAlerts} alerta{yellowAlerts !== 1 ? "s" : ""}</span>}
-      </div>
-    </div>
-  );
-}
-
-// ── Stat card ──
-
-function Stat({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color?: string }) {
-  return (
-    <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 10, padding: "16px 18px" }}>
-      <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--text-disabled)", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 8 }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: color ?? "var(--text-primary)", fontFamily: "var(--font-mono)" }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>{sub}</div>}
-    </div>
-  );
-}
-
-// ── Empty state ──
-
-function EmptyState({ role }: { role: string | null }) {
-  const isBroker = role === "broker";
-  return (
-    <div style={{ textAlign: "center", padding: "60px 20px" }}>
-      <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.3 }}>
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--interactive-primary)" }}>
-          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-        </svg>
-      </div>
-      <div style={{ fontSize: 18, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 8 }}>
-        Tudo em dia!
-      </div>
-      <div style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.6, maxWidth: 360, margin: "0 auto" }}>
-        {isBroker
-          ? "Nenhuma ação pendente no momento. Continue registrando atividades para manter o ritmo."
-          : "Nenhum alerta operacional no momento. A operação está saudável."
-        }
-      </div>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════
-// MEU DIA — Main Page
-// ══════════════════════════════════════════════
+// ══════════════════════════════════════
+// MAIN PAGE
+// ══════════════════════════════════════
 
 export default function MeuDiaPage() {
   const navigate = useNavigate();
@@ -184,310 +138,129 @@ export default function MeuDiaPage() {
   const accountId = account?.accountId ?? null;
   const developmentId = development?.developmentId ?? null;
   const userId = authenticatedProfile?.id ?? null;
-  const role = account?.role ?? null;
-  const firstName = (authenticatedProfile?.fullName ?? "").split(" ")[0] || "Usuário";
-  const devName = development?.developmentName ?? "";
+  const role = account?.role ?? authenticatedProfile?.role ?? null;
+  const firstName = (authenticatedProfile?.fullName || "").split(" ")[0] || "você";
 
-  const { data, loading } = useMyDay(accountId, developmentId, userId, role);
+  const effectiveView = (() => {
+    if ((role as string) === "owner" || role === "director") return "director";
+    if (role === "manager") return "manager";
+    if (role === "commercial_consultant") return "consultant";
+    if (role === "broker") return "broker";
+    return "manager";
+  })();
 
-  const isBroker = role === "broker";
-  const isConsultant = role === "commercial_consultant";
-  const isDirector = role === "director" || (role as string) === "owner";
-  const isManager = role === "manager";
+  const { data, loading } = useMyDay(userId, accountId, developmentId, role as string);
 
-  function goToNeg(id: string) { navigate(`/negociacoes/${id}`); }
+  if (loading) return <div style={{ padding: isMobile ? 16 : 32 }}><div style={{ fontSize: 13, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>Carregando seu dia...</div></div>;
 
-  if (loading) {
-    return (
-      <div style={{ padding: isMobile ? 16 : 32 }}>
-        <div style={{ fontSize: 13, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>Carregando seu dia...</div>
-      </div>
-    );
-  }
-
-  const hasActivities = data.activitiesForToday.length > 0 || data.activitiesOverdue.length > 0 || data.activitiesUpcoming.length > 0;
-  const hasAlerts = data.urgent.length > 0 || data.today.length > 0 || data.overdue.length > 0 || hasActivities;
-  const totalAlerts = data.alertsByType.red + data.alertsByType.yellow + data.alertsByType.warning;
+  const colGrid = isMobile ? "repeat(2, 1fr)" : "repeat(4, 1fr)";
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: isMobile ? "16px 12px" : "24px 0" }}>
-
-      {/* ── Greeting ── */}
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: isMobile ? 22 : 26, fontWeight: 700, color: "var(--text-primary)", margin: 0, fontFamily: "var(--font-display)", fontStyle: "italic" }}>
-          {greeting()}, {firstName}
-        </h1>
-        <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4 }}>
-          {weekday()}{devName ? ` · ${devName}` : ""}
-        </div>
+      {/* Greeting */}
+      <div style={{ marginBottom: 24 }}>
+        <h1 style={{ fontSize: isMobile ? 22 : 26, fontWeight: 700, color: "var(--text-primary)", margin: 0, fontFamily: "var(--font-display)", fontStyle: "italic" }}>{greeting()}, {firstName}</h1>
+        <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4, textTransform: "capitalize" }}>{weekday()}{development?.developmentName ? ` · ${development.developmentName}` : ""}</div>
       </div>
 
-      {/* ═══════════════════════════════════════ */}
-      {/* BROKER VIEW */}
-      {/* ═══════════════════════════════════════ */}
-      {isBroker && (
+      {/* ═══ DIRECTOR VIEW ═══ */}
+      {effectiveView === "director" && (
         <>
-          {!hasAlerts && <EmptyState role={role} />}
-
-          {data.urgent.length > 0 && (
-            <>
-              <div style={{
-                background: "rgba(248,113,113,0.06)",
-                border: "1px solid rgba(248,113,113,0.20)",
-                borderRadius: 12,
-                padding: isMobile ? 14 : 18,
-                marginBottom: 8,
-              }}>
-                <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700, color: "#F87171", letterSpacing: "0.1em", marginBottom: 12 }}>
-                  PARA AGORA
-                </div>
-                <div style={{ display: "grid", gap: 8 }}>
-                  {data.urgent.map(a => (
-                    <AlertCard key={a.entity_id} alert={a} onClick={() => goToNeg(a.entity_id)} />
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
-
-          {data.today.length > 0 && (
-            <>
-              <SectionLabel count={data.today.length}>Para hoje</SectionLabel>
-              <div style={{ display: "grid", gap: 8 }}>
-                {data.today.map(a => (
-                  <AlertCard key={a.entity_id} alert={a} onClick={() => goToNeg(a.entity_id)} />
-                ))}
-              </div>
-            </>
-          )}
-
-          {data.overdue.length > 0 && (
-            <>
-              <SectionLabel count={data.overdue.length}>Atrasados</SectionLabel>
-              <div style={{ display: "grid", gap: 8 }}>
-                {data.overdue.map(a => (
-                  <AlertCard key={a.entity_id} alert={a} onClick={() => goToNeg(a.entity_id)} />
-                ))}
-              </div>
-            </>
-          )}
-
-          {/* Atividades atrasadas */}
-          {data.activitiesOverdue.length > 0 && (
-            <>
-              <SectionLabel count={data.activitiesOverdue.length}>Atividades atrasadas</SectionLabel>
-              <div style={{ display: "grid", gap: 8 }}>
-                {data.activitiesOverdue.map(a => (
-                  <div key={a.id} onClick={() => navigate("/atividades")} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: "rgba(248,113,113,0.06)", border: "1px solid rgba(248,113,113,0.2)", borderRadius: 10, cursor: "pointer" }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 6, border: "1px solid #F87171", color: "#F87171" }}>ATRASADA</span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 500 }}>{a.title}</div>
-                      {a.contact_name && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{a.contact_name}</div>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
-          {/* Atividades para hoje */}
-          {data.activitiesForToday.length > 0 && (
-            <>
-              <SectionLabel count={data.activitiesForToday.length}>Atividades de hoje</SectionLabel>
-              <div style={{ display: "grid", gap: 8 }}>
-                {data.activitiesForToday.map(a => (
-                  <div key={a.id} onClick={() => navigate("/atividades")} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: "rgba(96,165,250,0.06)", border: "1px solid rgba(96,165,250,0.2)", borderRadius: 10, cursor: "pointer" }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 6, border: "1px solid #60A5FA", color: "#60A5FA" }}>HOJE</span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 500 }}>{a.title}</div>
-                      <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{a.start_time ? `às ${a.start_time.substring(0, 5)}` : ""}{a.contact_name ? ` · ${a.contact_name}` : ""}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
-          {/* Próximos dias */}
-          {data.activitiesUpcoming.length > 0 && (
-            <>
-              <SectionLabel count={data.activitiesUpcoming.length}>Próximos dias</SectionLabel>
-              <div style={{ display: "grid", gap: 6 }}>
-                {data.activitiesUpcoming.slice(0, 8).map(a => {
-                  const d = new Date(a.activity_date + "T12:00:00");
-                  const dayLabel = d.toLocaleDateString("pt-BR", { weekday: "short", day: "numeric", month: "short" });
-                  return (
-                    <div key={a.id} onClick={() => navigate("/atividades")} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 8, cursor: "pointer" }}>
-                      <span style={{ fontSize: 10, color: "#60A5FA", fontFamily: "var(--font-mono)", fontWeight: 600, minWidth: 70 }}>{dayLabel}</span>
-                      <div style={{ flex: 1, fontSize: 13, color: "var(--text-secondary)" }}>{a.title}</div>
-                      {a.start_time && <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>{a.start_time.substring(0, 5)}</span>}
-                    </div>
-                  );
-                })}
-                {data.activitiesUpcoming.length > 8 && (
-                  <div style={{ textAlign: "center", padding: 8 }}>
-                    <span onClick={() => navigate("/atividades")} style={{ fontSize: 12, color: "var(--interactive-primary)", cursor: "pointer" }}>Ver agenda completa →</span>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-
-          {/* Seu Ritmo */}
-          <SectionLabel>Seu ritmo</SectionLabel>
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr", gap: 10 }}>
-            <Stat label="Conversões mês" value={data.conversionsMonth} />
-            <Stat label="Neg. ativas" value={data.totalActiveNegotiations} />
-            <Stat label="Alertas" value={totalAlerts} color={totalAlerts > 0 ? "#FBBF24" : "var(--interactive-primary)"} />
+          <SectionLabel>Saúde da operação</SectionLabel>
+          <div style={{ display: "grid", gridTemplateColumns: colGrid, gap: 8, marginBottom: 4 }}>
+            <StatCard label="Negociações" value={data.stats.activeNegotiations} />
+            <StatCard label="Reservas" value={data.stats.activeReservations} alert={data.stats.expiringReservationsCount > 0 ? `${data.stats.expiringReservationsCount} vencem em 48h` : null} />
+            <StatCard label="Vendas mês" value={data.stats.salesThisMonth} />
+            <StatCard label="Unid. disponíveis" value={`${data.stats.availableUnits}/${data.stats.totalUnits}`} />
           </div>
 
-          {/* Actions */}
-          <div style={{ display: "flex", gap: 10, marginTop: 28 }}>
-            <button type="button" onClick={() => navigate("/atividades")} style={{ flex: 1, padding: "12px", borderRadius: 10, border: "1px solid var(--border-default)", background: "var(--surface-raised)", color: "var(--text-secondary)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-              Registrar atividade
-            </button>
-            <button type="button" onClick={() => navigate("/pipeline")} style={{ flex: 1, padding: "12px", borderRadius: 10, border: "none", background: "var(--interactive-primary)", color: "var(--interactive-on-primary)", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-              Ir para Pipeline
-            </button>
+          {data.pendingActions.length > 0 && (
+            <>
+              <SectionLabel count={data.pendingActions.length}>Precisa da sua ação</SectionLabel>
+              {data.pendingActions.map((a) => <PendingCard key={a.id} a={a} navigate={navigate} />)}
+            </>
+          )}
+          {data.pendingActions.length === 0 && (
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 16, marginBottom: 8, fontStyle: "italic" }}>Nenhuma ação pendente — operação fluindo.</div>
+          )}
+
+          <SectionLabel count={data.team.members.length}>Equipe</SectionLabel>
+          {data.team.members.length > 0 ? data.team.members.map((m) => <TeamRow key={m.id} m={m} />) : <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Nenhum membro encontrado.</div>}
+
+          <SectionLabel>Funil</SectionLabel>
+          <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 10, padding: 16 }}>
+            {(() => { const max = Math.max(data.funnel.negotiation, data.funnel.proposal, data.funnel.reservation, data.funnel.sale, 1); return (<>
+              <FunnelBar label="Negociação" value={data.funnel.negotiation} max={max} />
+              <FunnelBar label="Proposta" value={data.funnel.proposal} max={max} />
+              <FunnelBar label="Reserva" value={data.funnel.reservation} max={max} />
+              <FunnelBar label="Venda" value={data.funnel.sale} max={max} />
+            </>); })()}
           </div>
         </>
       )}
 
-      {/* ═══════════════════════════════════════ */}
-      {/* CONSULTANT VIEW */}
-      {/* ═══════════════════════════════════════ */}
-      {isConsultant && (
+      {/* ═══ MANAGER VIEW ═══ */}
+      {effectiveView === "manager" && (
         <>
-          {/* Follow-ups summary */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}>
-            <Stat label="Follow-ups hoje" value={data.myFollowUps.today} color="var(--interactive-primary)" />
-            <Stat label="Atrasados" value={data.myFollowUps.overdue} color={data.myFollowUps.overdue > 0 ? "#F87171" : "var(--text-muted)"} />
-          </div>
+          <SectionLabel count={data.agenda.overdue.length + data.agenda.today.length}>Minha agenda</SectionLabel>
+          <AgendaSection agenda={data.agenda} navigate={navigate} />
 
-          {/* Urgent alerts */}
-          {data.urgent.length > 0 && (
-            <>
-              <SectionLabel count={data.urgent.length}>Alertas urgentes</SectionLabel>
-              <div style={{ display: "grid", gap: 8 }}>
-                {data.urgent.slice(0, 5).map(a => (
-                  <AlertCard key={a.entity_id} alert={a} onClick={() => goToNeg(a.entity_id)} />
-                ))}
-              </div>
-            </>
-          )}
+          <SectionLabel count={data.team.members.length}>Equipe</SectionLabel>
+          {data.team.members.length > 0 ? data.team.members.map((m) => <TeamRow key={m.id} m={m} />) : <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Nenhum membro encontrado.</div>}
 
-          {/* Broker cards */}
-          {data.brokerSummaries.length > 0 && (
-            <>
-              <SectionLabel count={data.brokerSummaries.length}>Corretores que acompanho</SectionLabel>
-              <div style={{ display: "grid", gap: 8 }}>
-                {data.brokerSummaries.map(b => <BrokerCard key={b.id} broker={b} />)}
-              </div>
-            </>
-          )}
-
-          {/* Operation summary */}
           <SectionLabel>Operação</SectionLabel>
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr", gap: 10 }}>
-            <Stat label="Neg. ativas" value={data.totalActiveNegotiations} />
-            <Stat label="Alertas" value={totalAlerts} color={totalAlerts > 0 ? "#FBBF24" : "var(--interactive-primary)"} />
-            <Stat label="Conversões mês" value={data.conversionsMonth} />
-          </div>
-
-          {!hasAlerts && data.brokerSummaries.length === 0 && <EmptyState role={role} />}
-        </>
-      )}
-
-      {/* ═══════════════════════════════════════ */}
-      {/* DIRECTOR / MANAGER VIEW */}
-      {/* ═══════════════════════════════════════ */}
-      {(isDirector || isManager) && (
-        <>
-          {/* Health */}
-          <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 12, padding: "20px 22px", marginBottom: 20 }}>
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-disabled)", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 12 }}>
-              Saúde da operação
-            </div>
-            <HealthBar pct={data.healthPct} />
-            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8 }}>
-              {data.totalActiveNegotiations} negociação{data.totalActiveNegotiations !== 1 ? "ões" : ""} ativa{data.totalActiveNegotiations !== 1 ? "s" : ""}
-            </div>
-          </div>
-
-          {/* Alert summary */}
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 10, marginBottom: 8 }}>
-            <Stat label="Alertas vermelhos" value={data.alertsByType.red} color={data.alertsByType.red > 0 ? "#F87171" : "var(--text-muted)"} />
-            <Stat label="Alertas amarelos" value={data.alertsByType.yellow} color={data.alertsByType.yellow > 0 ? "#FBBF24" : "var(--text-muted)"} />
-            <Stat label="Corretores inativos" value={data.inactiveBrokers.length} color={data.inactiveBrokers.length > 0 ? "#F87171" : "var(--text-muted)"} sub={data.inactiveBrokers.length > 0 ? `+3 dias sem atividade` : "Todos ativos"} />
-            <Stat label="Vendas mês" value={data.conversionsMonth} color="var(--interactive-primary)" />
-          </div>
-
-          {/* Urgent alerts */}
-          {data.urgent.length > 0 && (
-            <>
-              <SectionLabel count={data.urgent.length}>Alertas urgentes</SectionLabel>
-              <div style={{ display: "grid", gap: 8 }}>
-                {data.urgent.slice(0, 8).map(a => (
-                  <AlertCard key={a.entity_id} alert={a} onClick={() => goToNeg(a.entity_id)} />
-                ))}
-              </div>
-            </>
-          )}
-
-          {/* Inactive brokers */}
-          {data.inactiveBrokers.length > 0 && (
-            <>
-              <SectionLabel count={data.inactiveBrokers.length}>Corretores inativos</SectionLabel>
-              <div style={{ display: "grid", gap: 8 }}>
-                {data.inactiveBrokers.map(b => <BrokerCard key={b.id} broker={b} />)}
-              </div>
-            </>
-          )}
-
-          {/* Overdue */}
-          {data.overdue.length > 0 && (
-            <>
-              <SectionLabel count={data.overdue.length}>Atenção necessária</SectionLabel>
-              <div style={{ display: "grid", gap: 8 }}>
-                {data.overdue.slice(0, 8).map(a => (
-                  <AlertCard key={a.entity_id} alert={a} onClick={() => goToNeg(a.entity_id)} />
-                ))}
-              </div>
-            </>
-          )}
-
-          {!hasAlerts && data.inactiveBrokers.length === 0 && <EmptyState role={role} />}
-
-          {/* Actions */}
-          <div style={{ display: "flex", gap: 10, marginTop: 28 }}>
-            <button type="button" onClick={() => navigate("/")} style={{ flex: 1, padding: "12px", borderRadius: 10, border: "1px solid var(--border-default)", background: "var(--surface-raised)", color: "var(--text-secondary)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-              Ver Dashboard
-            </button>
-            <button type="button" onClick={() => navigate("/pipeline")} style={{ flex: 1, padding: "12px", borderRadius: 10, border: "none", background: "var(--interactive-primary)", color: "var(--interactive-on-primary)", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-              Ir para Pipeline
-            </button>
+          <div style={{ display: "grid", gridTemplateColumns: colGrid, gap: 8 }}>
+            <StatCard label="Negociações" value={data.stats.activeNegotiations} />
+            <StatCard label="Reservas" value={data.stats.activeReservations} />
+            <StatCard label="Vendas mês" value={data.stats.salesThisMonth} />
+            <StatCard label="Unid. disponíveis" value={`${data.stats.availableUnits}/${data.stats.totalUnits}`} />
           </div>
         </>
       )}
 
-      {/* Administrative — simplified */}
-      {role === "administrative" && (
+      {/* ═══ CONSULTANT VIEW ═══ */}
+      {effectiveView === "consultant" && (
         <>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <Stat label="Neg. ativas" value={data.totalActiveNegotiations} />
-            <Stat label="Vendas mês" value={data.conversionsMonth} />
+          <SectionLabel count={data.agenda.overdue.length + data.agenda.today.length}>Minha agenda</SectionLabel>
+          <AgendaSection agenda={data.agenda} navigate={navigate} />
+
+          <SectionLabel count={data.team.members.filter((m) => m.role === "broker").length}>Meus corretores</SectionLabel>
+          {(() => { const brokers = data.team.members.filter((m) => m.role === "broker"); return brokers.length > 0 ? brokers.map((m) => <TeamRow key={m.id} m={m} />) : <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Nenhum corretor vinculado.</div>; })()}
+
+          <SectionLabel>Minhas negociações</SectionLabel>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+            <StatCard label="Ativas" value={data.myNegotiations.active} />
+            <StatCard label="Propostas" value={data.myNegotiations.pendingProposals} />
+            <StatCard label="Reservas" value={data.myNegotiations.reservations} />
           </div>
-          {totalAlerts > 0 && (
-            <>
-              <SectionLabel count={totalAlerts}>Alertas operacionais</SectionLabel>
-              <div style={{ display: "grid", gap: 8 }}>
-                {[...data.urgent, ...data.overdue].slice(0, 5).map(a => (
-                  <AlertCard key={a.entity_id} alert={a} />
-                ))}
-              </div>
-            </>
-          )}
-          {!hasAlerts && <EmptyState role={role} />}
+        </>
+      )}
+
+      {/* ═══ BROKER VIEW ═══ */}
+      {effectiveView === "broker" && (
+        <>
+          <SectionLabel count={data.agenda.overdue.length + data.agenda.today.length}>Minha agenda</SectionLabel>
+          <AgendaSection agenda={data.agenda} navigate={navigate} compact />
+
+          <SectionLabel>Meu pipeline</SectionLabel>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+            <StatCard label="Negociações" value={data.myNegotiations.active} />
+            <StatCard label="Propostas" value={data.myNegotiations.pendingProposals} />
+            <StatCard label="Simulações" value={data.myNegotiations.simulations} />
+          </div>
+
+          <SectionLabel>Ações rápidas</SectionLabel>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, 1fr)", gap: 8 }}>
+            {[
+              { label: "Nova simulação", path: "/simulador", icon: "📊" },
+              { label: "Registrar atividade", path: "/atividades", icon: "📝" },
+              { label: "Ver mapa", path: "/unidades", icon: "🗺" },
+            ].map((btn) => (
+              <button key={btn.path} type="button" onClick={() => navigate(btn.path)} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "14px 20px", borderRadius: 10, border: "1px solid var(--border-default)", background: "var(--surface-raised)", color: "var(--text-secondary)", fontSize: 14, fontWeight: 500, cursor: "pointer", minHeight: 48 }}>
+                <span>{btn.icon}</span> {btn.label}
+              </button>
+            ))}
+          </div>
         </>
       )}
     </div>
