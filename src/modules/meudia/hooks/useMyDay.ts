@@ -77,13 +77,13 @@ export function useMyDay(userId: string | null, accountId: string | null, develo
       if (teamRaw && teamRaw.length > 0) {
         const memberIds = (teamRaw as Record<string, unknown>[]).map((t) => t.user_id as string);
 
-        // Batch: activities today per member
-        const { data: todayActs } = await supabase.from("activities").select("profile_id").eq("account_id", accountId).eq("activity_date", today).eq("status", "completed");
+        // Batch: activities today per member (all statuses count)
+        const { data: todayActs } = await supabase.from("activities").select("profile_id").eq("account_id", accountId).eq("activity_date", today);
         const todayByUser: Record<string, number> = {};
         (todayActs ?? []).forEach((a: Record<string, unknown>) => { const pid = a.profile_id as string; todayByUser[pid] = (todayByUser[pid] || 0) + 1; });
 
         // Batch: last activity per member
-        const { data: lastActs } = await supabase.from("activities").select("profile_id, activity_date").eq("account_id", accountId).eq("status", "completed").in("profile_id", memberIds).order("activity_date", { ascending: false });
+        const { data: lastActs } = await supabase.from("activities").select("profile_id, activity_date").eq("account_id", accountId).in("profile_id", memberIds).order("activity_date", { ascending: false });
         const lastByUser: Record<string, string> = {};
         (lastActs ?? []).forEach((a: Record<string, unknown>) => { const pid = a.profile_id as string; if (!lastByUser[pid]) lastByUser[pid] = a.activity_date as string; });
 
@@ -96,9 +96,11 @@ export function useMyDay(userId: string | null, accountId: string | null, develo
           if (oid) negCountByUser[oid] = (negCountByUser[oid] || 0) + 1;
         });
 
+        const excludeRoles = new Set(["owner", "director", "administrative"]);
         for (const row of teamRaw as Record<string, unknown>[]) {
           const p = (Array.isArray(row.profiles) ? row.profiles[0] : row.profiles) as Record<string, unknown> | null;
           if (!p || (p.id as string) === userId) continue;
+          if (excludeRoles.has(row.role as string)) continue;
           const pid = p.id as string;
           const lastDate = lastByUser[pid];
           const daysAgo = lastDate ? Math.floor((Date.now() - new Date(lastDate + "T12:00:00").getTime()) / 864e5) : 999;
