@@ -52,7 +52,7 @@ function sortEntries(entries: UnitQueueEntry[]) {
 }
 
 function canViewFullQueue(role: UserRole | null) {
-  return role === "director" || role === "manager";
+  return role === "director" || role === "manager" || (role as string) === "owner";
 }
 
 export function useUnitQueue(
