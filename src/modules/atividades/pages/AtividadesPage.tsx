@@ -20,7 +20,7 @@ const T = {
 
 type ActivityType = "visit_broker" | "visit_client" | "visit_development" | "training" | "phone_call" | "follow_up" | "meeting_internal" | "meeting_external" | "other";
 
-type ActivityStatus = "completed" | "scheduled" | "cancelled";
+type ActivityStatus = "completed" | "scheduled" | "skipped" | "expired";
 
 interface Activity {
   id: string; account_id: string; development_id: string; profile_id: string;
@@ -29,7 +29,7 @@ interface Activity {
   contact_name: string | null; contact_company: string | null;
   activity_date: string; start_time: string | null; duration_minutes: number;
   outcome: string | null; next_action: string | null; next_action_date: string | null;
-  description: string | null; created_at: string; updated_at?: string | null;
+  description: string | null; skip_reason: string | null; created_at: string; updated_at?: string | null;
   clients?: { name: string } | null; brokers?: { name: string } | null;
   profiles?: { name: string; role: string } | null;
 }
@@ -120,14 +120,17 @@ function TypeBadge({ type }: { type: string }) {
   return <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap", background: color + "20", color }}>{badgeLabels[type] || type}</span>;
 }
 
-function ActivityCard({ activity, showAuthor, isOwner, canManage, onDelete, onEdit, onComplete, onCancel }: { activity: Activity; showAuthor?: boolean; isOwner?: boolean; canManage?: boolean; onDelete?: (id: string) => void; onEdit?: (activity: Activity) => void; onComplete?: (activity: Activity) => void; onCancel?: (activity: Activity) => void }) {
+function ActivityCard({ activity, showAuthor, isOwner, canManage, onDelete, onEdit, onComplete, onSkip }: { activity: Activity; showAuthor?: boolean; isOwner?: boolean; canManage?: boolean; onDelete?: (id: string) => void; onEdit?: (activity: Activity) => void; onComplete?: (activity: Activity) => void; onSkip?: (activity: Activity) => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const canEdit = isOwner || canManage;
+  const canEditCard = isOwner || canManage;
   const wasEdited = activity.updated_at && activity.created_at && new Date(activity.updated_at).getTime() - new Date(activity.created_at).getTime() > 5000;
-  const isScheduled = activity.status === "scheduled";
-  const isCancelled = activity.status === "cancelled";
+  const st = activity.status || "completed";
+  const isScheduled = st === "scheduled";
+  const isExpired = st === "expired";
+  const isSkipped = st === "skipped";
+  const isFinal = isSkipped; // skipped = final state, no actions
   const isOverdue = isScheduled && activity.activity_date < todayStr();
   const isToday = activity.activity_date === todayStr();
 
@@ -142,12 +145,12 @@ function ActivityCard({ activity, showAuthor, isOwner, canManage, onDelete, onEd
   }
 
   return (
-    <div style={{ display: "flex", gap: 12, padding: "14px 16px", borderRadius: 10, border: `1px solid ${isOverdue ? T.red + "50" : isScheduled ? T.blue + "40" : T.stone}`, marginBottom: 8, background: isCancelled ? T.ink : isOverdue ? T.red + "08" : isScheduled && isToday ? T.blue + "08" : T.carbon, position: "relative", opacity: isCancelled ? 0.5 : 1 }}>
+    <div style={{ display: "flex", gap: 12, padding: "14px 16px", borderRadius: 10, border: `1px solid ${isOverdue ? T.red + "50" : isScheduled ? T.blue + "40" : isExpired ? T.slate + "40" : T.stone}`, marginBottom: 8, background: isOverdue ? T.red + "08" : isScheduled && isToday ? T.blue + "08" : T.carbon, position: "relative", opacity: isSkipped ? 0.5 : isExpired ? 0.7 : 1 }}>
       <div style={{ paddingTop: 2 }}>
-        {isScheduled ? <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap", background: "transparent", border: `1px solid ${isOverdue ? T.red : T.blue}`, color: isOverdue ? T.red : T.blue }}>{isOverdue ? "ATRASADA" : isToday ? "HOJE" : "AGENDADA"}</span> : <TypeBadge type={activity.type} />}
+        {isScheduled || isExpired ? <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap", background: "transparent", border: `1px solid ${isOverdue ? T.red : isExpired ? T.slate : T.blue}`, color: isOverdue ? T.red : isExpired ? T.slate : T.blue }}>{isExpired ? "EXPIRADA" : isOverdue ? "ATRASADA" : isToday ? "HOJE" : "AGENDADA"}</span> : <TypeBadge type={activity.type} />}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 14, fontWeight: 500, color: T.chalk, textDecoration: isCancelled ? "line-through" : "none" }}>{activity.title}</div>
+        <div style={{ fontSize: 14, fontWeight: 500, color: T.chalk, textDecoration: isSkipped ? "line-through" : "none" }}>{activity.title}</div>
         <div style={{ fontSize: 12, color: T.fog, display: "flex", gap: 10, marginTop: 3, flexWrap: "wrap" }}>
           {activity.contact_name && <span>Com: {activity.contact_name}</span>}
           {activity.clients?.name && <span>Cliente: {activity.clients.name}</span>}
@@ -165,20 +168,22 @@ function ActivityCard({ activity, showAuthor, isOwner, canManage, onDelete, onEd
             {activity.next_action_date && ` (${new Date(activity.next_action_date + "T12:00:00").toLocaleDateString("pt-BR")})`}
           </div>
         )}
+        {isSkipped && activity.skip_reason && <div style={{ fontSize: 12, color: T.slate, marginTop: 4 }}>Motivo: {activity.skip_reason}</div>}
         {showAuthor && activity.profiles?.name && <div style={{ fontSize: 11, color: T.slate, marginTop: 4 }}>{activity.profiles.name}</div>}
-        {wasEdited && <div style={{ fontSize: 10, color: T.slate, marginTop: 4, fontStyle: "italic" }} title={activity.updated_at ? `Editado em ${new Date(activity.updated_at).toLocaleString("pt-BR")}` : ""}>editado ✎</div>}
+        {wasEdited && !isSkipped && <div style={{ fontSize: 10, color: T.slate, marginTop: 4, fontStyle: "italic" }} title={activity.updated_at ? `Editado em ${new Date(activity.updated_at).toLocaleString("pt-BR")}` : ""}>editado ✎</div>}
+        {isSkipped && <div style={{ fontSize: 10, color: T.slate, marginTop: 4, fontStyle: "italic" }}>pulada ⊘</div>}
       </div>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0, gap: 2 }}>
-        {canEdit && !isCancelled && (
+        {canEditCard && !isFinal && (
           <div style={{ position: "relative" }}>
             <button type="button" onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }} style={{ background: "transparent", border: "none", color: T.fog, fontSize: 16, cursor: "pointer", padding: "2px 6px", lineHeight: 1 }}>⋮</button>
             {menuOpen && (
               <>
                 <div style={{ position: "fixed", inset: 0, zIndex: 99 }} onClick={() => setMenuOpen(false)} />
-                <div style={{ position: "absolute", right: 0, top: 24, background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 8, zIndex: 100, minWidth: 150, boxShadow: "0 4px 12px rgba(0,0,0,0.3)" }}>
-                  {isScheduled && onComplete && <button type="button" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onComplete(activity); }} onMouseEnter={(e) => { e.currentTarget.style.background = T.stone; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }} style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", color: T.sprout, fontSize: 13, fontWeight: 600, padding: "8px 16px", cursor: "pointer", borderRadius: "8px 8px 0 0" }}>✓ Concluir</button>}
-                  {onEdit && <button type="button" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onEdit(activity); }} onMouseEnter={(e) => { e.currentTarget.style.background = T.stone; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }} style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", color: T.bone, fontSize: 13, padding: "8px 16px", cursor: "pointer" }}>✎ Editar</button>}
-                  {isScheduled && onCancel && <button type="button" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onCancel(activity); }} onMouseEnter={(e) => { e.currentTarget.style.background = T.stone; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }} style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", color: T.amber, fontSize: 13, padding: "8px 16px", cursor: "pointer" }}>✕ Cancelar</button>}
+                <div style={{ position: "absolute", right: 0, top: 24, background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 8, zIndex: 100, minWidth: 160, boxShadow: "0 4px 12px rgba(0,0,0,0.3)" }}>
+                  {(isScheduled || isExpired) && onComplete && <button type="button" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onComplete(activity); }} onMouseEnter={(e) => { e.currentTarget.style.background = T.stone; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }} style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", color: T.sprout, fontSize: 13, fontWeight: 600, padding: "8px 16px", cursor: "pointer", borderRadius: "8px 8px 0 0" }}>{isExpired ? "✓ Concluir mesmo assim" : "✓ Concluir"}</button>}
+                  {!isExpired && onEdit && <button type="button" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onEdit(activity); }} onMouseEnter={(e) => { e.currentTarget.style.background = T.stone; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }} style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", color: T.bone, fontSize: 13, padding: "8px 16px", cursor: "pointer" }}>✎ Editar</button>}
+                  {(isScheduled || isExpired) && onSkip && <button type="button" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onSkip(activity); }} onMouseEnter={(e) => { e.currentTarget.style.background = T.stone; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }} style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", color: T.amber, fontSize: 13, padding: "8px 16px", cursor: "pointer" }}>⊘ Pular</button>}
                   <button type="button" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); setConfirmOpen(true); }} onMouseEnter={(e) => { e.currentTarget.style.background = T.stone; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }} style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", color: T.red, fontSize: 13, padding: "8px 16px", cursor: "pointer", borderRadius: "0 0 8px 8px" }}>Excluir</button>
                 </div>
               </>
@@ -444,11 +449,14 @@ export default function AtividadesPage() {
   const [editingActivity, setEditingActivity] = useState<Activity | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const canManage = isDirector || isManager || (role as string) === "owner";
-  const [statusFilter, setStatusFilter] = useState<"all" | "scheduled" | "completed">("all");
+  const [statusFilter, setStatusFilter] = useState<"pending" | "completed" | "all">("pending");
   const [completingActivity, setCompletingActivity] = useState<Activity | null>(null);
   const [completeOutcome, setCompleteOutcome] = useState("");
   const [completeDuration, setCompleteDuration] = useState(60);
   const [completing, setCompleting] = useState(false);
+  const [skippingActivity, setSkippingActivity] = useState<Activity | null>(null);
+  const [skipReason, setSkipReason] = useState("");
+  const [skipping, setSkipping] = useState(false);
   const [periodFilter, setPeriodFilter] = useState("month");
   const [typeFilter, setTypeFilter] = useState("all");
   const [viewMode, setViewMode] = useState<"mine" | "team">("team");
@@ -473,7 +481,11 @@ export default function AtividadesPage() {
     finally { setLoading(false); }
   }, [accountId, developmentId, profileId, isConsultant, isManager, viewMode, consultantFilter]);
 
-  useEffect(() => { fetchActivities(); }, [fetchActivities]);
+  useEffect(() => {
+    // Expirar atividades atrasadas 7+ dias antes de carregar
+    if (supabase && accountId) supabase.rpc("expire_overdue_activities", { p_account_id: accountId }).then(() => {}, () => {});
+    fetchActivities();
+  }, [fetchActivities, accountId]);
 
   // ── Fetch team profiles (manager/director) ──
 
@@ -519,16 +531,24 @@ export default function AtividadesPage() {
   const monthStart = startOfMonth();
 
   const filteredActivities = useMemo(() => {
-    let f = activities.filter((a) => (a.status || "completed") !== "cancelled");
-    if (statusFilter === "scheduled") f = f.filter((a) => a.status === "scheduled");
-    else if (statusFilter === "completed") f = f.filter((a) => (a.status || "completed") === "completed");
-    if (statusFilter !== "scheduled") {
+    let f = activities;
+    if (statusFilter === "pending") {
+      // Pending = scheduled + expired (atrasadas/expiradas), ordered by date asc
+      f = f.filter((a) => a.status === "scheduled" || a.status === "expired");
+      f = [...f].sort((a, b) => a.activity_date.localeCompare(b.activity_date));
+    } else if (statusFilter === "completed") {
+      f = f.filter((a) => (a.status || "completed") === "completed");
+      if (periodFilter === "today") f = f.filter((a) => a.activity_date === today);
+      else if (periodFilter === "week") f = f.filter((a) => a.activity_date >= weekStart);
+      else if (periodFilter === "month") f = f.filter((a) => a.activity_date >= monthStart);
+    } else {
+      // all — show everything except skipped by default
+      f = f.filter((a) => a.status !== "skipped");
       if (periodFilter === "today") f = f.filter((a) => a.activity_date === today);
       else if (periodFilter === "week") f = f.filter((a) => a.activity_date >= weekStart);
       else if (periodFilter === "month") f = f.filter((a) => a.activity_date >= monthStart);
     }
     if (typeFilter !== "all") f = f.filter((a) => a.type === typeFilter);
-    if (statusFilter === "scheduled") f = f.sort((a, b) => a.activity_date.localeCompare(b.activity_date));
     return f;
   }, [activities, statusFilter, periodFilter, typeFilter, today, weekStart, monthStart]);
 
@@ -606,12 +626,14 @@ export default function AtividadesPage() {
     finally { setCompleting(false); }
   }
 
-  async function handleCancelActivity(activity: Activity) {
-    if (!supabase) return;
+  async function handleSkipActivity() {
+    if (!skippingActivity || !supabase || !skipReason) return;
+    setSkipping(true);
     try {
-      await supabase.from("activities").update({ status: "cancelled", updated_at: new Date().toISOString() }).eq("id", activity.id);
-      setToast("Atividade cancelada"); fetchActivities();
-    } catch { setToast("Erro ao cancelar"); }
+      await supabase.from("activities").update({ status: "skipped", skip_reason: skipReason, updated_at: new Date().toISOString() }).eq("id", skippingActivity.id);
+      setToast("Atividade pulada"); setSkippingActivity(null); setSkipReason(""); fetchActivities();
+    } catch { setToast("Erro ao pular"); }
+    finally { setSkipping(false); }
   }
 
   const showRegister = isConsultant || isManager;
@@ -718,12 +740,18 @@ export default function AtividadesPage() {
         </div>
       )}
 
-      {/* Status tabs */}
-      <div style={{ display: "inline-flex", border: `1px solid ${T.stone}`, borderRadius: 8, overflow: "hidden", marginBottom: 16 }}>
-        {([["all", "Todas"], ["scheduled", "Agendadas"], ["completed", "Concluídas"]] as const).map(([k, l]) => (
-          <button key={k} type="button" onClick={() => setStatusFilter(k)} style={{ background: statusFilter === k ? T.sprout : "transparent", color: statusFilter === k ? T.ink : T.fog, border: "none", padding: "7px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{l}</button>
-        ))}
-      </div>
+      {/* Status tabs with counts */}
+      {(() => {
+        const pendingCount = activities.filter((a) => a.status === "scheduled" || a.status === "expired").length;
+        const completedCount = activities.filter((a) => (a.status || "completed") === "completed").length;
+        return (
+          <div style={{ display: "inline-flex", border: `1px solid ${T.stone}`, borderRadius: 8, overflow: "hidden", marginBottom: 16 }}>
+            {([["pending", `Pendentes${pendingCount ? ` (${pendingCount})` : ""}`], ["completed", `Concluídas (${completedCount})`], ["all", "Todas"]] as const).map(([k, l]) => (
+              <button key={k} type="button" onClick={() => setStatusFilter(k as "pending" | "completed" | "all")} style={{ background: statusFilter === k ? T.sprout : "transparent", color: statusFilter === k ? T.ink : T.fog, border: "none", padding: "7px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{l}</button>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* Filters */}
       <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
@@ -769,7 +797,7 @@ export default function AtividadesPage() {
           {groupedByDate.map(([date, acts]) => (
             <div key={date}>
               <div style={{ fontSize: 11, fontWeight: 600, color: T.fog, fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8, paddingBottom: 6, borderBottom: `1px solid ${T.stone}` }}>{formatDateLabel(date)}</div>
-              {acts.map((a) => <ActivityCard key={a.id} activity={a} showAuthor={showAuthor} isOwner={a.profile_id === profileId} canManage={canManage} onDelete={(id) => { setActivities((prev) => prev.filter((x) => x.id !== id)); setToast("Atividade excluída"); }} onEdit={openEditModal} onComplete={(act) => { setCompletingActivity(act); setCompleteOutcome(""); setCompleteDuration(60); }} onCancel={handleCancelActivity} />)}
+              {acts.map((a) => <ActivityCard key={a.id} activity={a} showAuthor={showAuthor} isOwner={a.profile_id === profileId} canManage={canManage} onDelete={(id) => { setActivities((prev) => prev.filter((x) => x.id !== id)); setToast("Atividade excluída"); }} onEdit={openEditModal} onComplete={(act) => { setCompletingActivity(act); setCompleteOutcome(""); setCompleteDuration(60); }} onSkip={(act) => { setSkippingActivity(act); setSkipReason(""); }} />)}
             </div>
           ))}
         </div>
@@ -778,6 +806,35 @@ export default function AtividadesPage() {
       {modalOpen && profileId && accountId && developmentId && (
         <RegistrationModal accountId={accountId} developmentId={developmentId} profileId={profileId} initialType={modalType} initialTitle={modalTitle} editActivity={editingActivity} canManageDate={canManage} onClose={() => { setModalOpen(false); setModalType(undefined); setModalTitle(undefined); setEditingActivity(null); }} onSaved={handleSaved} />
       )}
+      {/* Skip activity modal */}
+      {skippingActivity && createPortal(
+        <>
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 9000 }} onClick={() => setSkippingActivity(null)} />
+          <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 14, padding: 24, width: 400, maxWidth: "90vw", zIndex: 9001 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: T.chalk, margin: 0 }}>Pular atividade</h3>
+              <button type="button" onClick={() => setSkippingActivity(null)} style={{ background: "none", border: "none", color: T.fog, fontSize: 20, cursor: "pointer" }}>×</button>
+            </div>
+            <div style={{ fontSize: 13, color: T.fog, marginBottom: 16, padding: "10px 14px", background: T.carbon, borderRadius: 8, border: `1px solid ${T.stone}` }}>
+              <div style={{ fontWeight: 500, color: T.chalk }}>{skippingActivity.title}</div>
+              <div style={{ fontSize: 11, marginTop: 2 }}>{badgeLabels[skippingActivity.type]} · {new Date(skippingActivity.activity_date + "T12:00:00").toLocaleDateString("pt-BR")}</div>
+            </div>
+            <label style={{ fontSize: 10, color: T.fog, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "var(--font-mono)", display: "block", marginBottom: 10 }}>Por que esta atividade não será realizada?</label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
+              {["Cliente desistiu", "Reagendada para outra data", "Negociação encerrada", "Não foi possível contato"].map((r) => (
+                <button key={r} type="button" onClick={() => setSkipReason(r)} style={{ padding: "10px 14px", borderRadius: 8, border: skipReason === r ? `2px solid ${T.amber}` : `1px solid ${T.stone}`, background: skipReason === r ? T.amber + "10" : T.carbon, color: skipReason === r ? T.amber : T.bone, fontSize: 13, textAlign: "left", cursor: "pointer" }}>{r}</button>
+              ))}
+              <input placeholder="Outro motivo..." value={skipReason.startsWith("Outro:") ? skipReason.slice(7) : (!["Cliente desistiu", "Reagendada para outra data", "Negociação encerrada", "Não foi possível contato"].includes(skipReason) && skipReason) ? skipReason : ""} onChange={(e) => setSkipReason(e.target.value || "")} style={{ padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.stone}`, background: T.carbon, color: T.chalk, fontSize: 13, outline: "none" }} />
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" onClick={() => setSkippingActivity(null)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.bone, fontSize: 13, cursor: "pointer" }}>Cancelar</button>
+              <button type="button" onClick={handleSkipActivity} disabled={!skipReason || skipping} style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: T.amber, color: T.ink, fontSize: 13, fontWeight: 700, cursor: !skipReason || skipping ? "not-allowed" : "pointer", opacity: !skipReason || skipping ? 0.6 : 1 }}>{skipping ? "Salvando..." : "⊘ Pular atividade"}</button>
+            </div>
+          </div>
+        </>,
+        document.body,
+      )}
+
       {/* Complete activity modal */}
       {completingActivity && createPortal(
         <>
