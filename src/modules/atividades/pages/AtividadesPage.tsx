@@ -423,7 +423,7 @@ export default function AtividadesPage() {
   const [modalTitle, setModalTitle] = useState<string | undefined>(undefined);
   const [editingActivity, setEditingActivity] = useState<Activity | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const canManage = isDirector || isManager;
+  const canManage = isDirector || isManager || (role as string) === "owner";
   const [periodFilter, setPeriodFilter] = useState("month");
   const [typeFilter, setTypeFilter] = useState("all");
   const [viewMode, setViewMode] = useState<"mine" | "team">("team");
