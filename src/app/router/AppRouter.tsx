@@ -1,4 +1,4 @@
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { ErrorBoundary } from "../../shared/components/ErrorBoundary";
 import AppLayout from "../layout/AppLayout";
 import ProtectedRoute from "./ProtectedRoute";
@@ -9,6 +9,7 @@ import DashboardPage from "../../modules/dashboard/pages/DashboardPage";
 import NegotiationsPage from "../../modules/negociacoes/pages/NegotiationsPage";
 import NegotiationDetailPage from "../../modules/negociacoes/pages/NegotiationDetailPage";
 import ClientsPage from "../../modules/clientes/pages/ClientsPage";
+import ClientDetailPage from "../../modules/clientes/pages/ClientDetailPage";
 import BrokersPage from "../../modules/corretores/pages/BrokersPage";
 import BrokeragesPage from "../../modules/imobiliarias/pages/BrokeragesPage";
 import UsersPage from "../../modules/usuarios/pages/UsersPage";
@@ -17,7 +18,18 @@ import SettingsPage from "../../modules/configuracoes/pages/SettingsPage";
 import DevelopmentsPage from "../../modules/empreendimentos/pages/DevelopmentsPage";
 import DevelopmentDetailPage from "../../modules/empreendimentos/pages/DevelopmentDetailPage";
 import SimuladorPage from "../../modules/simulador/pages/SimuladorPage";
+import KanbanPage from "../../modules/negociacoes/pages/KanbanPage";
 import GoogleCallbackPage from "../../modules/auth/pages/GoogleCallbackPage";
+import DefinirSenhaPage from "../../modules/auth/pages/DefinirSenhaPage";
+import RecuperarSenhaPage from "../../modules/auth/pages/RecuperarSenhaPage";
+import EsqueciSenhaPage from "../../modules/auth/pages/EsqueciSenhaPage";
+import SuperadminPage from "../../modules/superadmin/pages/SuperadminPage";
+import ProfilePage from "../../modules/perfil/pages/ProfilePage";
+import MateriaisPage from "../../modules/materiais/pages/MateriaisPage";
+import AtividadesPage from "../../modules/atividades/pages/AtividadesPage";
+import RelatoriosPage from "../../modules/relatorios/pages/RelatoriosPage";
+import MeuDiaPage from "../../modules/meudia/pages/MeuDiaPage";
+import LandingPage from "../../pages/LandingPage";
 
 function ProtectedAppPage({ children }: { children: React.ReactNode }) {
   return (
@@ -34,8 +46,13 @@ export default function AppRouter() {
     <ErrorBoundary>
     <BrowserRouter>
       <Routes>
+        <Route path="/landing" element={<LandingPage />} />
         <Route path="/entrar" element={<LoginPage />} />
         <Route path="/auth/google/callback" element={<GoogleCallbackPage />} />
+        <Route path="/auth/definir-senha" element={<DefinirSenhaPage />} />
+        <Route path="/auth/recuperar-senha" element={<RecuperarSenhaPage />} />
+        <Route path="/auth/esqueci-senha" element={<EsqueciSenhaPage />} />
+        <Route path="/superadmin" element={<ProtectedRoute><SuperadminPage /></ProtectedRoute>} />
         <Route
           path="/selecionar-empreendimento"
           element={
@@ -46,6 +63,14 @@ export default function AppRouter() {
         />
         <Route
           path="/"
+          element={
+            <ProtectedAppPage>
+              <MeuDiaPage />
+            </ProtectedAppPage>
+          }
+        />
+        <Route
+          path="/dashboard"
           element={
             <ProtectedAppPage>
               <DashboardPage />
@@ -85,6 +110,14 @@ export default function AppRouter() {
           }
         />
         <Route
+          path="/pipeline"
+          element={
+            <ProtectedAppPage>
+              <KanbanPage />
+            </ProtectedAppPage>
+          }
+        />
+        <Route
           path="/empreendimentos"
           element={
             <ProtectedAppPage>
@@ -109,6 +142,14 @@ export default function AppRouter() {
           }
         />
         <Route
+          path="/clientes/:id"
+          element={
+            <ProtectedAppPage>
+              <ClientDetailPage />
+            </ProtectedAppPage>
+          }
+        />
+        <Route
           path="/corretores"
           element={
             <ProtectedAppPage>
@@ -129,6 +170,42 @@ export default function AppRouter() {
           element={
             <ProtectedAppPage>
               <UsersPage />
+            </ProtectedAppPage>
+          }
+        />
+        <Route
+          path="/mapa"
+          element={<Navigate to="/unidades?view=mapa" replace />}
+        />
+        <Route
+          path="/atividades"
+          element={
+            <ProtectedAppPage>
+              <AtividadesPage />
+            </ProtectedAppPage>
+          }
+        />
+        <Route
+          path="/relatorios"
+          element={
+            <ProtectedAppPage>
+              <RelatoriosPage />
+            </ProtectedAppPage>
+          }
+        />
+        <Route
+          path="/materiais"
+          element={
+            <ProtectedAppPage>
+              <MateriaisPage />
+            </ProtectedAppPage>
+          }
+        />
+        <Route
+          path="/perfil"
+          element={
+            <ProtectedAppPage>
+              <ProfilePage />
             </ProtectedAppPage>
           }
         />

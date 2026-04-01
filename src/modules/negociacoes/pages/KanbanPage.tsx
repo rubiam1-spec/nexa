@@ -239,7 +239,7 @@ export default function KanbanPage() {
                         {/* Cliente + badge + score */}
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 6, marginBottom: 6 }}>
                           <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", lineHeight: 1.3, flex: 1 }}>
-                            {c.clienteNome || "Cliente não informado"}
+                            {c.clienteId && c.clienteNome ? <span onClick={(e) => { e.stopPropagation(); navigate(`/clientes/${c.clienteId}`); }} style={{ cursor: "pointer", borderBottom: "1px dashed var(--text-disabled)" }}>{c.clienteNome}</span> : (c.clienteNome || "Cliente não informado")}
                             {dias >= 7 ? <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: "rgba(248,113,113,0.15)", color: "#F87171", marginLeft: 5 }}>{dias}d</span> : null}
                           </span>
                           <div style={{ display: "flex", gap: 4, alignItems: "center", flexShrink: 0 }}>
