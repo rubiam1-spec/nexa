@@ -1,38 +1,34 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;0,9..40,900;1,9..40,300;1,9..40,400;1,9..40,500;1,9..40,600;1,9..40,700;1,9..40,800;1,9..40,900&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
 :root {
-  /* Colors — Darks */
-  --color-ink: #12110F;
-  --color-carbon: #1C1B18;
-  --color-stone: #2A2822;
-  --color-sandstone: #3D3A30;
-  --color-clay: #5C5647;
-
-  /* Colors — Accents */
-  --color-sprout: #4ADE80;
-  --color-sprout-dim: #22C55E;
-  --color-sprout-muted: rgba(74,222,128,0.12);
+  /* Theme-aware aliases — these change with data-theme */
+  --color-ink: var(--surface-base);
+  --color-carbon: var(--surface-raised);
+  --color-stone: var(--border-default);
+  --color-sandstone: var(--surface-hover);
+  --color-clay: var(--surface-disabled);
+  --color-chalk: var(--text-primary);
+  --color-bone: var(--text-secondary);
+  --color-dust: var(--text-tertiary);
+  --color-fog: var(--text-muted);
+  --color-slate: var(--text-disabled);
+  --color-sprout: var(--interactive-primary);
+  --color-sprout-dim: var(--interactive-hover);
+  --color-sprout-muted: var(--status-sprout-muted);
   --color-sprout-glow: rgba(74,222,128,0.06);
+
+  /* Status colors — these do NOT change between themes */
   --color-terracotta: #D97706;
   --color-terracotta-dim: #B45309;
   --color-terracotta-muted: rgba(217,119,6,0.08);
-
-  /* Colors — Lights */
-  --color-chalk: #FAF9F6;
-  --color-bone: #E8E5DE;
-  --color-dust: #C4BFB3;
-  --color-fog: #9C9686;
-  --color-slate: #706B5F;
-
-  /* Colors — Semantic */
   --color-blue: #60A5FA;
-  --color-blue-muted: rgba(96,165,250,0.12);
+  --color-blue-muted: var(--status-blue-muted);
   --color-purple: #A78BFA;
-  --color-purple-muted: rgba(167,139,250,0.12);
+  --color-purple-muted: var(--status-purple-muted);
   --color-red: #F87171;
-  --color-red-muted: rgba(248,113,113,0.12);
+  --color-red-muted: var(--status-red-muted);
   --color-yellow: #FBBF24;
-  --color-yellow-muted: rgba(251,191,36,0.12);
+  --color-yellow-muted: var(--status-yellow-muted);
 
   /* Fonts */
   --font-display: 'Instrument Serif', Georgia, serif;
@@ -61,10 +57,15 @@
 }
 
 /* Reset */
+html {
+  scroll-behavior: smooth;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
@@ -75,6 +76,17 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+#root {
+  overflow-x: hidden;
+  max-width: 100vw;
 }
 
 ::-webkit-scrollbar {
@@ -202,10 +214,101 @@ button:disabled {
   font-weight: 600;
 }
 
+/* Mobile responsiveness */
+@media (max-width: 767px) {
+  input, select, textarea {
+    font-size: 16px !important; /* Prevents iOS auto-zoom */
+    min-height: 44px;
+  }
+  button {
+    min-height: 44px;
+  }
+  .nexa-card {
+    padding: 16px;
+    border-radius: 10px;
+  }
+  .nexa-table th,
+  .nexa-table td {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+}
+
+/* Responsive form grids */
+.nexa-form-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+@media (max-width: 1023px) {
+  .nexa-form-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 767px) {
+  .nexa-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .nexa-form-grid label[style*="gridColumn"] {
+    grid-column: 1 / -1 !important;
+  }
+}
+
+/* Responsive page headers */
+.nexa-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  gap: 12px;
+}
+
+@media (max-width: 767px) {
+  .nexa-page-header {
+    flex-wrap: wrap;
+  }
+  .nexa-page-header h1 {
+    font-size: 18px !important;
+  }
+}
+
+/* Modal fullscreen on mobile */
+@media (max-width: 767px) {
+  .nexa-modal-content {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-height: 100vh !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    padding: 20px !important;
+  }
+}
+
+/* Display utilities */
+.nexa-hide-mobile { display: block; }
+.nexa-show-mobile { display: none; }
+
+@media (max-width: 767px) {
+  .nexa-hide-mobile { display: none !important; }
+  .nexa-show-mobile { display: block !important; }
+}
+
 /* Animations */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes cardpulse {
+  0%, 100% { border-color: rgba(248, 113, 113, 0.3); }
+  50% { border-color: rgba(248, 113, 113, 0.9); box-shadow: 0 0 0 2px rgba(248,113,113,0.15); }
+}
+
+@keyframes dotpulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(1.5); }
 }
 
 @keyframes fadeOut {
@@ -226,4 +329,25 @@ button:disabled {
   font-size: 13px;
   color: var(--color-sprout);
   animation: fadeIn 300ms ease;
+}
+
+/* Celebration toast */
+@keyframes celebrationSlideIn {
+  from { opacity: 0; transform: translateX(40px) scale(0.95); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+@keyframes celebrationParticle {
+  0%   { transform: scale(0) translate(0, 0); opacity: 1; }
+  100% { transform: scale(1.5) translate(var(--px, 20px), var(--py, -30px)); opacity: 0; }
+}
+
+/* Page transition */
+@keyframes pageFade {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.nexa-page-enter {
+  animation: pageFade 0.25s ease-out;
 }

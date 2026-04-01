@@ -400,7 +400,7 @@ function SimDrawer({ open, unidade, onClose, onCriarProposta }: { open: boolean;
   return createPortal(
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 9998, opacity: open ? 1 : 0, pointerEvents: open ? "all" : "none", transition: "opacity 0.25s" }} />
-      <div style={{ position: "fixed", right: 0, top: 0, bottom: 0, width: 480, maxWidth: "95vw", background: "var(--surface-raised)", borderLeft: "1px solid var(--border-default)", zIndex: 9999, transform: open ? "translateX(0)" : "translateX(100%)", transition: "transform 0.3s cubic-bezier(0.32,0.72,0,1)", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: open ? "-8px 0 32px rgba(0,0,0,0.4)" : "none" }}>
+      <div style={{ position: "fixed", right: 0, top: 0, bottom: 0, width: window.innerWidth < 768 ? "100%" : 480, maxWidth: "100vw", background: "var(--surface-raised)", borderLeft: window.innerWidth >= 768 ? "1px solid var(--border-default)" : "none", zIndex: 9999, transform: open ? "translateX(0)" : "translateX(100%)", transition: "transform 0.3s cubic-bezier(0.32,0.72,0,1)", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: open ? "-8px 0 32px rgba(0,0,0,0.4)" : "none" }}>
         <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid var(--border-default)", flexShrink: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
