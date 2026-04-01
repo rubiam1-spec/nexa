@@ -113,33 +113,69 @@ export default function FeedPage() {
 
   useEffect(() => { void loadFeed(); }, [loadFeed]);
 
-  async function toggleReaction(postId: string, type: string) {
+  function toggleReaction(postId: string, type: string) {
     if (!supabase || !userId) return;
-    const post = posts.find((p) => p.id === postId);
-    if (!post) return;
-    const existing = post.reactions.find((r) => r.user_id === userId);
-    if (existing) {
-      await supabase.from("feed_reactions").delete().eq("activity_id", postId).eq("user_id", userId);
-    } else {
-      await supabase.from("feed_reactions").upsert({ activity_id: postId, user_id: userId, reaction_type: type }, { onConflict: "activity_id,user_id" });
-    }
+    const userName = authenticatedProfile?.fullName || "Você";
+
+    // Optimistic update
+    setPosts((prev) => prev.map((p) => {
+      if (p.id !== postId) return p;
+      const existing = p.reactions.find((r) => r.user_id === userId);
+      if (existing) {
+        return { ...p, reactions: p.reactions.filter((r) => r.user_id !== userId) };
+      }
+      return { ...p, reactions: [...p.reactions, { user_id: userId, reaction_type: type }] };
+    }));
     setShowReactionPicker(null);
-    loadFeed();
+
+    // Background save
+    const post = posts.find((p) => p.id === postId);
+    const wasReacted = post?.reactions.some((r) => r.user_id === userId);
+    if (wasReacted) {
+      supabase.from("feed_reactions").delete().eq("activity_id", postId).eq("user_id", userId).then(({ error }) => {
+        if (error) setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, reactions: [...p.reactions, { user_id: userId!, reaction_type: type }] } : p));
+      });
+    } else {
+      supabase.from("feed_reactions").upsert({ activity_id: postId, user_id: userId, reaction_type: type }, { onConflict: "activity_id,user_id" }).then(({ error }) => {
+        if (error) setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, reactions: p.reactions.filter((r) => r.user_id !== userId) } : p));
+      });
+    }
+    void userName; // used for future notifications
   }
 
-  async function addComment(postId: string) {
+  function addComment(postId: string) {
     if (!supabase || !userId) return;
     const text = (commentText[postId] || "").trim();
     if (!text) return;
-    await supabase.from("feed_comments").insert({ activity_id: postId, user_id: userId, content: text });
+    const userName = authenticatedProfile?.fullName || "Você";
+
+    // Optimistic update
+    const tempId = "temp-" + Date.now();
+    setPosts((prev) => prev.map((p) => {
+      if (p.id !== postId) return p;
+      return { ...p, comments: [...p.comments, { id: tempId, user_id: userId, user_name: userName, content: text, created_at: new Date().toISOString() }] };
+    }));
     setCommentText((prev) => ({ ...prev, [postId]: "" }));
-    loadFeed();
+
+    // Background save
+    supabase.from("feed_comments").insert({ activity_id: postId, user_id: userId, content: text }).select("id").single().then(({ data, error }) => {
+      if (data) {
+        setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, comments: p.comments.map((c) => c.id === tempId ? { ...c, id: data.id } : c) } : p));
+      }
+      if (error) console.error("Comment save error:", error);
+    });
   }
 
-  async function deleteComment(commentId: string) {
+  function deleteComment(commentId: string, postId: string) {
     if (!supabase) return;
-    await supabase.from("feed_comments").delete().eq("id", commentId);
-    loadFeed();
+
+    // Optimistic update
+    setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, comments: p.comments.filter((c) => c.id !== commentId) } : p));
+
+    // Background delete
+    if (!commentId.startsWith("temp-")) {
+      supabase.from("feed_comments").delete().eq("id", commentId).then(() => {});
+    }
   }
 
   if (loading) return <div style={{ padding: 32, textAlign: "center" }}><div style={{ fontSize: 13, color: T.fog, fontFamily: "var(--font-mono)" }}>Carregando mural...</div></div>;
@@ -235,7 +271,7 @@ export default function FeedPage() {
                     <div style={{ flex: 1 }}>
                       <span style={{ fontSize: 13, fontWeight: 600, color: T.bone }}>{c.user_name}</span>
                       <span style={{ fontSize: 11, color: T.slate, marginLeft: 6 }}>{timeAgo(c.created_at)}</span>
-                      {c.user_id === userId && <button type="button" onClick={() => deleteComment(c.id)} style={{ background: "none", border: "none", color: T.slate, fontSize: 10, cursor: "pointer", marginLeft: 6 }}>excluir</button>}
+                      {c.user_id === userId && <button type="button" onClick={() => deleteComment(c.id, post.id)} style={{ background: "none", border: "none", color: T.slate, fontSize: 10, cursor: "pointer", marginLeft: 6 }}>excluir</button>}
                       <div style={{ fontSize: 13, color: T.chalk, marginTop: 2 }}>{c.content}</div>
                     </div>
                   </div>

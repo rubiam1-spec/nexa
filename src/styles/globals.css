@@ -306,6 +306,12 @@ button:disabled {
   50% { border-color: rgba(248, 113, 113, 0.9); box-shadow: 0 0 0 2px rgba(248,113,113,0.15); }
 }
 
+@keyframes reactionPop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.4); }
+  100% { transform: scale(1); }
+}
+
 @keyframes dotpulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.4; transform: scale(1.5); }
