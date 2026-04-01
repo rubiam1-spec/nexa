@@ -205,7 +205,8 @@ export default function MeuDiaPage() {
     );
   }
 
-  const hasAlerts = data.urgent.length > 0 || data.today.length > 0 || data.overdue.length > 0;
+  const hasActivities = data.activitiesForToday.length > 0 || data.activitiesOverdue.length > 0 || data.activitiesUpcoming.length > 0;
+  const hasAlerts = data.urgent.length > 0 || data.today.length > 0 || data.overdue.length > 0 || hasActivities;
   const totalAlerts = data.alertsByType.red + data.alertsByType.yellow + data.alertsByType.warning;
 
   return (
@@ -267,6 +268,67 @@ export default function MeuDiaPage() {
                 {data.overdue.map(a => (
                   <AlertCard key={a.entity_id} alert={a} onClick={() => goToNeg(a.entity_id)} />
                 ))}
+              </div>
+            </>
+          )}
+
+          {/* Atividades atrasadas */}
+          {data.activitiesOverdue.length > 0 && (
+            <>
+              <SectionLabel count={data.activitiesOverdue.length}>Atividades atrasadas</SectionLabel>
+              <div style={{ display: "grid", gap: 8 }}>
+                {data.activitiesOverdue.map(a => (
+                  <div key={a.id} onClick={() => navigate("/atividades")} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: "rgba(248,113,113,0.06)", border: "1px solid rgba(248,113,113,0.2)", borderRadius: 10, cursor: "pointer" }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 6, border: "1px solid #F87171", color: "#F87171" }}>ATRASADA</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 500 }}>{a.title}</div>
+                      {a.contact_name && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{a.contact_name}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* Atividades para hoje */}
+          {data.activitiesForToday.length > 0 && (
+            <>
+              <SectionLabel count={data.activitiesForToday.length}>Atividades de hoje</SectionLabel>
+              <div style={{ display: "grid", gap: 8 }}>
+                {data.activitiesForToday.map(a => (
+                  <div key={a.id} onClick={() => navigate("/atividades")} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: "rgba(96,165,250,0.06)", border: "1px solid rgba(96,165,250,0.2)", borderRadius: 10, cursor: "pointer" }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 6, border: "1px solid #60A5FA", color: "#60A5FA" }}>HOJE</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 500 }}>{a.title}</div>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{a.start_time ? `às ${a.start_time.substring(0, 5)}` : ""}{a.contact_name ? ` · ${a.contact_name}` : ""}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* Próximos dias */}
+          {data.activitiesUpcoming.length > 0 && (
+            <>
+              <SectionLabel count={data.activitiesUpcoming.length}>Próximos dias</SectionLabel>
+              <div style={{ display: "grid", gap: 6 }}>
+                {data.activitiesUpcoming.slice(0, 8).map(a => {
+                  const d = new Date(a.activity_date + "T12:00:00");
+                  const dayLabel = d.toLocaleDateString("pt-BR", { weekday: "short", day: "numeric", month: "short" });
+                  return (
+                    <div key={a.id} onClick={() => navigate("/atividades")} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 8, cursor: "pointer" }}>
+                      <span style={{ fontSize: 10, color: "#60A5FA", fontFamily: "var(--font-mono)", fontWeight: 600, minWidth: 70 }}>{dayLabel}</span>
+                      <div style={{ flex: 1, fontSize: 13, color: "var(--text-secondary)" }}>{a.title}</div>
+                      {a.start_time && <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>{a.start_time.substring(0, 5)}</span>}
+                    </div>
+                  );
+                })}
+                {data.activitiesUpcoming.length > 8 && (
+                  <div style={{ textAlign: "center", padding: 8 }}>
+                    <span onClick={() => navigate("/atividades")} style={{ fontSize: 12, color: "var(--interactive-primary)", cursor: "pointer" }}>Ver agenda completa →</span>
+                  </div>
+                )}
               </div>
             </>
           )}

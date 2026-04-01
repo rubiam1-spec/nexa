@@ -6,6 +6,8 @@ import { useAuth } from "../../../app/contexts/AuthContext";
 import { supabase } from "../../../infra/supabase/supabaseClient";
 import { useIsMobile } from "../../../shared/hooks/useIsMobile";
 import { IcVisita, IcClientes, IcEmpreendimentos, IcTreinamento, IcLigacao, IcFollowUp, IcReuniao, IcImobiliarias, IcOutro } from "../../../shared/components/icons/NexaIcons";
+import ParticipantInput, { type Participant } from "../../../shared/components/ParticipantInput";
+import ActivityDetailModal from "../../../shared/components/ActivityDetailModal";
 
 // ── Tokens ──
 
@@ -120,7 +122,7 @@ function TypeBadge({ type }: { type: string }) {
   return <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap", background: color + "20", color }}>{badgeLabels[type] || type}</span>;
 }
 
-function ActivityCard({ activity, showAuthor, isOwner, canManage, onDelete, onEdit, onComplete, onSkip }: { activity: Activity; showAuthor?: boolean; isOwner?: boolean; canManage?: boolean; onDelete?: (id: string) => void; onEdit?: (activity: Activity) => void; onComplete?: (activity: Activity) => void; onSkip?: (activity: Activity) => void }) {
+function ActivityCard({ activity, showAuthor, isOwner, canManage, onDelete, onEdit, onComplete, onSkip, onClick }: { activity: Activity; showAuthor?: boolean; isOwner?: boolean; canManage?: boolean; onDelete?: (id: string) => void; onEdit?: (activity: Activity) => void; onComplete?: (activity: Activity) => void; onSkip?: (activity: Activity) => void; onClick?: (activity: Activity) => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -145,7 +147,7 @@ function ActivityCard({ activity, showAuthor, isOwner, canManage, onDelete, onEd
   }
 
   return (
-    <div style={{ display: "flex", gap: 12, padding: "14px 16px", borderRadius: 10, border: `1px solid ${isOverdue ? T.red + "50" : isScheduled ? T.blue + "40" : isExpired ? T.slate + "40" : T.stone}`, marginBottom: 8, background: isOverdue ? T.red + "08" : isScheduled && isToday ? T.blue + "08" : T.carbon, position: "relative", opacity: isSkipped ? 0.5 : isExpired ? 0.7 : 1 }}>
+    <div onClick={() => onClick?.(activity)} style={{ display: "flex", gap: 12, padding: "14px 16px", borderRadius: 10, border: `1px solid ${isOverdue ? T.red + "50" : isScheduled ? T.blue + "40" : isExpired ? T.slate + "40" : T.stone}`, marginBottom: 8, background: isOverdue ? T.red + "08" : isScheduled && isToday ? T.blue + "08" : T.carbon, position: "relative", opacity: isSkipped ? 0.5 : isExpired ? 0.7 : 1, cursor: "pointer" }}>
       <div style={{ paddingTop: 2 }}>
         {isScheduled || isExpired ? <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap", background: "transparent", border: `1px solid ${isOverdue ? T.red : isExpired ? T.slate : T.blue}`, color: isOverdue ? T.red : isExpired ? T.slate : T.blue }}>{isExpired ? "EXPIRADA" : isOverdue ? "ATRASADA" : isToday ? "HOJE" : "AGENDADA"}</span> : <TypeBadge type={activity.type} />}
       </div>
@@ -247,7 +249,8 @@ function RegistrationModal({ accountId, developmentId, profileId, initialType, i
   const isEdit = !!editActivity;
   const [type, setType] = useState<ActivityType | null>(editActivity?.type ?? initialType ?? null);
   const [title, setTitle] = useState(editActivity?.title ?? initialTitle ?? "");
-  const [contactName, setContactName] = useState(editActivity?.contact_name ?? "");
+  const contactName = editActivity?.contact_name ?? "";
+  const [participants, setParticipants] = useState<Participant[]>([]);
   const [activityDate, setActivityDate] = useState(editActivity?.activity_date ?? todayStr());
   const [startTime, setStartTime] = useState(editActivity?.start_time?.substring(0, 5) ?? "");
   const [duration, setDuration] = useState(editActivity?.duration_minutes ?? 60);
@@ -292,19 +295,24 @@ function RegistrationModal({ accountId, developmentId, profileId, initialType, i
         // Insert mode — detect scheduled vs completed
         const isFutureDate = activityDate > todayStr();
         const actStatus = isFutureDate ? "scheduled" : "completed";
-        const { error } = await supabase.from("activities").insert({
+        const contactStr = participants.length > 0 ? participants.map((p) => p.name).join(", ") : contactName.trim() || null;
+        const { data: inserted, error } = await supabase.from("activities").insert({
           account_id: accountId, development_id: developmentId, profile_id: profileId,
-          type, title: title.trim(), contact_name: contactName.trim() || null,
+          type, title: title.trim(), contact_name: contactStr,
           activity_date: activityDate, start_time: startTime || null,
           duration_minutes: isFutureDate ? 0 : duration,
           outcome: isFutureDate ? null : (outcome.trim() || null),
-          next_action: nextAction.trim() || null,
-          next_action_date: nextActionDate || null, description: description.trim() || null,
+          next_action: isFutureDate ? null : (nextAction.trim() || null),
+          next_action_date: isFutureDate ? null : (nextActionDate || null),
+          description: description.trim() || null,
           status: actStatus,
-        });
+        }).select("id").single();
         if (error) throw error;
+        // Save participants
+        if (inserted?.id && participants.length > 0) {
+          await supabase.from("activity_participants").insert(participants.map((p) => ({ activity_id: inserted.id, participant_type: p.type, participant_id: p.id, participant_name: p.name, participant_detail: p.detail || null })));
+        }
         onSaved();
-        // Skip step 2 for scheduled activities or if next action already set
         if (isFutureDate || (nextAction.trim() && nextActionDate)) { onClose(); return; }
         setStep(2);
       }
@@ -391,7 +399,9 @@ function RegistrationModal({ accountId, developmentId, profileId, initialType, i
         <label style={LBL}>Título *</label>
         <input id="activity-title" style={{ ...IS, marginBottom: 14 }} value={title} onChange={(e) => setTitle(e.target.value)} placeholder={type ? typePlaceholders[type] : "Selecione o tipo primeiro"} onFocus={focusIn} onBlur={focusOut} />
         <label style={LBL}>Com quem</label>
-        <input style={{ ...IS, marginBottom: 14 }} value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="Nome do contato" onFocus={focusIn} onBlur={focusOut} />
+        <div style={{ marginBottom: 14 }}>
+          <ParticipantInput accountId={accountId} value={participants} onChange={setParticipants} />
+        </div>
         <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
           <div style={{ flex: 1 }}><label style={LBL}>Data *{!dateEditable && isEdit ? <span style={{ fontSize: 9, color: T.red, marginLeft: 4 }}>(bloqueado após 24h)</span> : ""}</label><input type="date" style={{ ...IS, opacity: dateEditable ? 1 : 0.5 }} value={activityDate} onChange={(e) => dateEditable && setActivityDate(e.target.value)} disabled={!dateEditable} onFocus={focusIn} onBlur={focusOut} /></div>
           <div style={{ flex: 1 }}><label style={LBL}>Horário</label><input type="time" style={IS} value={startTime} onChange={(e) => setStartTime(e.target.value)} onFocus={focusIn} onBlur={focusOut} /></div>
@@ -407,15 +417,17 @@ function RegistrationModal({ accountId, developmentId, profileId, initialType, i
         <label style={LBL}>Resultado</label>
         <input style={{ ...IS, marginBottom: 14 }} value={outcome} onChange={(e) => setOutcome(e.target.value)} placeholder="O que aconteceu?" onFocus={focusIn} onBlur={focusOut} />
         </>)}
+        {!isFuture && (<>
         <label style={LBL}>Próxima ação</label>
         <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
           <input style={{ ...IS, flex: 2 }} value={nextAction} onChange={(e) => setNextAction(e.target.value)} placeholder="O que fazer em seguida?" onFocus={focusIn} onBlur={focusOut} />
           <input type="date" style={{ ...IS, flex: 1 }} value={nextActionDate} onChange={(e) => setNextActionDate(e.target.value)} onFocus={focusIn} onBlur={focusOut} />
         </div>
+        </>)}
         <label style={LBL}>Observações</label>
         <textarea rows={2} style={{ ...IS, resize: "vertical", marginBottom: 20 }} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Anotações adicionais..." onFocus={focusIn} onBlur={focusOut as unknown as React.FocusEventHandler<HTMLTextAreaElement>} />
         <button type="button" onClick={handleSave} disabled={!canSave || saving} style={{ width: "100%", height: 40, background: T.sprout, color: T.ink, border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: canSave && !saving ? "pointer" : "not-allowed", opacity: canSave && !saving ? 1 : 0.5 }}>
-          {saving ? "Salvando..." : isEdit ? "Salvar alterações" : "Registrar atividade"}
+          {saving ? "Salvando..." : isEdit ? "Salvar alterações" : isFuture ? "📅 Agendar atividade" : "Registrar atividade"}
         </button>
         </>
         )}
@@ -457,6 +469,8 @@ export default function AtividadesPage() {
   const [skippingActivity, setSkippingActivity] = useState<Activity | null>(null);
   const [skipReason, setSkipReason] = useState("");
   const [skipping, setSkipping] = useState(false);
+  const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
+  const [selectedParticipants, setSelectedParticipants] = useState<{ participant_type: string; participant_name: string; participant_detail: string | null }[]>([]);
   const [periodFilter, setPeriodFilter] = useState("month");
   const [typeFilter, setTypeFilter] = useState("all");
   const [viewMode, setViewMode] = useState<"mine" | "team">("team");
@@ -797,7 +811,7 @@ export default function AtividadesPage() {
           {groupedByDate.map(([date, acts]) => (
             <div key={date}>
               <div style={{ fontSize: 11, fontWeight: 600, color: T.fog, fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8, paddingBottom: 6, borderBottom: `1px solid ${T.stone}` }}>{formatDateLabel(date)}</div>
-              {acts.map((a) => <ActivityCard key={a.id} activity={a} showAuthor={showAuthor} isOwner={a.profile_id === profileId} canManage={canManage} onDelete={(id) => { setActivities((prev) => prev.filter((x) => x.id !== id)); setToast("Atividade excluída"); }} onEdit={openEditModal} onComplete={(act) => { setCompletingActivity(act); setCompleteOutcome(""); setCompleteDuration(60); }} onSkip={(act) => { setSkippingActivity(act); setSkipReason(""); }} />)}
+              {acts.map((a) => <ActivityCard key={a.id} activity={a} showAuthor={showAuthor} isOwner={a.profile_id === profileId} canManage={canManage} onDelete={(id) => { setActivities((prev) => prev.filter((x) => x.id !== id)); setToast("Atividade excluída"); }} onEdit={openEditModal} onComplete={(act) => { setCompletingActivity(act); setCompleteOutcome(""); setCompleteDuration(60); }} onSkip={(act) => { setSkippingActivity(act); setSkipReason(""); }} onClick={async (act) => { setSelectedActivity(act); if (supabase) { const { data } = await supabase.from("activity_participants").select("participant_type, participant_name, participant_detail").eq("activity_id", act.id); setSelectedParticipants((data ?? []) as typeof selectedParticipants); } }} />)}
             </div>
           ))}
         </div>
@@ -863,6 +877,19 @@ export default function AtividadesPage() {
           </div>
         </>,
         document.body,
+      )}
+      {/* Activity detail modal */}
+      {selectedActivity && (
+        <ActivityDetailModal
+          activity={selectedActivity}
+          participants={selectedParticipants}
+          onClose={() => setSelectedActivity(null)}
+          canEdit={selectedActivity.profile_id === profileId || canManage}
+          onEdit={() => { const a = selectedActivity; setSelectedActivity(null); openEditModal(a); }}
+          onComplete={() => { const a = selectedActivity; setSelectedActivity(null); setCompletingActivity(a); setCompleteOutcome(""); setCompleteDuration(60); }}
+          onSkip={() => { const a = selectedActivity; setSelectedActivity(null); setSkippingActivity(a); setSkipReason(""); }}
+          onDelete={async () => { if (!supabase) return; await supabase.from("activities").delete().eq("id", selectedActivity.id); setActivities((prev) => prev.filter((x) => x.id !== selectedActivity.id)); setSelectedActivity(null); setToast("Atividade excluída"); }}
+        />
       )}
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
     </div>
