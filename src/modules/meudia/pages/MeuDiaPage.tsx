@@ -37,18 +37,41 @@ function StatCard({ label, value, alert, sub }: { label: string; value: string |
   );
 }
 
-function AgendaCard({ a, navigate }: { a: ScheduledActivity; navigate: (p: string) => void }) {
+const TYPE_BADGE_COLORS: Record<string, string> = { visit_broker: "#60A5FA", visit_client: "#A78BFA", visit_development: "#FBBF24", training: "#60A5FA", phone_call: "#F87171", follow_up: "#4ADE80", meeting_internal: "#FBBF24", meeting_external: "#60A5FA", other: "#9C9686" };
+const TYPE_BADGE_LABELS: Record<string, string> = { visit_broker: "VISITA", visit_client: "VISITA CLIENTE", visit_development: "VISITA EMPR.", training: "TREINAMENTO", phone_call: "LIGAÇÃO", follow_up: "FOLLOW-UP", meeting_internal: "REUNIÃO", meeting_external: "REUNIÃO EXT.", other: "OUTRO" };
+
+function AgendaCard({ a, navigate, showDate }: { a: ScheduledActivity; navigate: (p: string) => void; showDate?: boolean }) {
   const today = todayStr();
   const isOverdue = a.activity_date < today;
   const isToday = a.activity_date === today;
   const isExpired = a.status === "expired";
-  const color = isOverdue || isExpired ? "#F87171" : isToday ? "#60A5FA" : "var(--text-muted)";
-  const badge = isExpired ? "EXPIRADA" : isOverdue ? "ATRASADA" : isToday ? `HOJE${a.start_time ? ` ${a.start_time.substring(0, 5)}` : ""}` : fmtDate(a.activity_date);
+  const borderColor = isOverdue || isExpired ? "#F87171" : isToday ? "#60A5FA" : "var(--border-default)";
+  const typeColor = TYPE_BADGE_COLORS[a.type] || "#9C9686";
+  const typeLabel = TYPE_BADGE_LABELS[a.type] || a.type.toUpperCase();
+  const timeStr = a.start_time ? a.start_time.substring(0, 5) : null;
+
+  // Date label for grouped display
+  let dateLabel = "";
+  if (showDate) {
+    const tmrw = new Date(); tmrw.setDate(tmrw.getDate() + 1);
+    const tmrwStr = tmrw.toISOString().slice(0, 10);
+    dateLabel = isOverdue ? `atrasada ${Math.abs(Math.floor((Date.now() - new Date(a.activity_date + "T12:00:00").getTime()) / 864e5))}d` : a.activity_date === tmrwStr ? "amanhã" : fmtDate(a.activity_date);
+  }
 
   return (
-    <div onClick={() => navigate("/atividades")} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: isOverdue || isExpired ? "rgba(248,113,113,0.06)" : isToday ? "rgba(96,165,250,0.06)" : "var(--surface-raised)", border: `1px solid ${isOverdue || isExpired ? "rgba(248,113,113,0.2)" : isToday ? "rgba(96,165,250,0.2)" : "var(--border-default)"}`, borderRadius: 10, cursor: "pointer" }}>
-      <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 6, border: `1px solid ${color}`, color, whiteSpace: "nowrap", flexShrink: 0 }}>{badge}</span>
+    <div onClick={() => navigate("/atividades")} style={{ display: "flex", gap: 12, padding: "12px 14px", background: isOverdue || isExpired ? "rgba(248,113,113,0.04)" : isToday ? "rgba(96,165,250,0.04)" : "var(--surface-raised)", borderLeft: `3px solid ${borderColor}`, border: `1px solid var(--border-default)`, borderLeftWidth: 3, borderLeftColor: borderColor, borderRadius: "0 10px 10px 0", cursor: "pointer" }}>
+      {/* Time */}
+      <div style={{ minWidth: 44, flexShrink: 0, textAlign: "right" }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: isOverdue ? "#F87171" : isToday ? "#60A5FA" : "var(--text-secondary)", fontFamily: "var(--font-mono)", lineHeight: 1.2 }}>{timeStr || "—"}</div>
+        {showDate && dateLabel && <div style={{ fontSize: 10, color: isOverdue ? "#F87171" : "var(--text-disabled)", marginTop: 2 }}>{dateLabel}</div>}
+        {!showDate && !timeStr && <div style={{ fontSize: 10, color: "var(--text-disabled)" }}>o dia todo</div>}
+      </div>
+      {/* Content */}
       <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+          <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: typeColor + "15", color: typeColor, letterSpacing: "0.04em", whiteSpace: "nowrap" }}>{typeLabel}</span>
+          {(isOverdue || isExpired) && <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: "rgba(248,113,113,0.15)", color: "#F87171" }}>{isExpired ? "EXPIRADA" : "ATRASADA"}</span>}
+        </div>
         <div style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.title}</div>
         {a.contact_name && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 1 }}>{a.contact_name}</div>}
       </div>
@@ -108,17 +131,44 @@ function AgendaSection({ agenda, navigate, compact }: { agenda: { overdue: Sched
       <button type="button" onClick={() => navigate("/atividades")} style={{ marginTop: 10, background: "var(--interactive-primary)", color: "var(--interactive-on-primary)", border: "none", borderRadius: 8, padding: "8px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Agendar atividade</button>
     </div>
   );
+
+  // Group upcoming by date
+  const upcomingByDate: Record<string, ScheduledActivity[]> = {};
+  for (const a of agenda.upcoming) {
+    if (!upcomingByDate[a.activity_date]) upcomingByDate[a.activity_date] = [];
+    upcomingByDate[a.activity_date].push(a);
+  }
+  const tmrw = new Date(); tmrw.setDate(tmrw.getDate() + 1);
+  const tmrwStr = tmrw.toISOString().slice(0, 10);
+  function dayGroupLabel(dateStr: string): string {
+    if (dateStr === tmrwStr) return "AMANHÃ";
+    return new Date(dateStr + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "short", day: "numeric", month: "short" }).toUpperCase();
+  }
+
   return (
     <div style={{ display: "grid", gap: 6 }}>
-      {agenda.overdue.map((a) => <AgendaCard key={a.id} a={a} navigate={navigate} />)}
-      {agenda.today.map((a) => <AgendaCard key={a.id} a={a} navigate={navigate} />)}
-      {!compact && agenda.upcoming.length > 0 && (
+      {/* Overdue */}
+      {agenda.overdue.length > 0 && (
         <>
-          <div style={{ fontSize: 10, color: "var(--text-disabled)", fontFamily: "var(--font-mono)", letterSpacing: "0.08em", textTransform: "uppercase", marginTop: 8, marginBottom: 2 }}>PRÓXIMOS DIAS</div>
-          {agenda.upcoming.slice(0, 6).map((a) => <AgendaCard key={a.id} a={a} navigate={navigate} />)}
-          {agenda.upcoming.length > 6 && <div style={{ textAlign: "center", padding: 6 }}><span onClick={() => navigate("/atividades")} style={{ fontSize: 12, color: "var(--interactive-primary)", cursor: "pointer" }}>Ver agenda completa →</span></div>}
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#F87171", fontFamily: "var(--font-mono)", letterSpacing: "0.1em", marginBottom: -2 }}>ATRASADAS</div>
+          {agenda.overdue.map((a) => <AgendaCard key={a.id} a={a} navigate={navigate} showDate />)}
         </>
       )}
+      {/* Today */}
+      {agenda.today.length > 0 && (
+        <>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#60A5FA", fontFamily: "var(--font-mono)", letterSpacing: "0.1em", marginTop: agenda.overdue.length > 0 ? 8 : 0, marginBottom: -2 }}>HOJE</div>
+          {agenda.today.map((a) => <AgendaCard key={a.id} a={a} navigate={navigate} />)}
+        </>
+      )}
+      {/* Upcoming grouped by day */}
+      {!compact && Object.entries(upcomingByDate).slice(0, 5).map(([date, acts]) => (
+        <div key={date}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-disabled)", fontFamily: "var(--font-mono)", letterSpacing: "0.1em", marginTop: 8, marginBottom: 2 }}>{dayGroupLabel(date)}</div>
+          {acts.map((a) => <AgendaCard key={a.id} a={a} navigate={navigate} />)}
+        </div>
+      ))}
+      {!compact && agenda.upcoming.length > 10 && <div style={{ textAlign: "center", padding: 6 }}><span onClick={() => navigate("/atividades")} style={{ fontSize: 12, color: "var(--interactive-primary)", cursor: "pointer" }}>Ver agenda completa →</span></div>}
     </div>
   );
 }
