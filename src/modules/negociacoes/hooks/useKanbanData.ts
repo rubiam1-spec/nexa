@@ -24,6 +24,7 @@ export interface KanbanCard {
   isSimulacao?: boolean;
   lostReason?: string | null;
   score?: number | null;
+  stageChangedAt?: string | null;
 }
 
 export function useKanbanData(accountId: string | null, developmentId: string | null, refreshKey = 0, filters?: { brokerId?: string | null; ownerProfileId?: string | null }) {
@@ -41,7 +42,7 @@ export function useKanbanData(accountId: string | null, developmentId: string | 
 
     let query = supabase!
       .from("negotiations")
-      .select("id, status, created_at, updated_at, unit_id, client_id, broker_id, lost_reason, score, clients ( name ), units ( quadra, lote, valor, status ), brokers ( name ), proposals ( id, status, created_at ), reservations ( id, status, expires_at ), reservation_requests ( id, status )")
+      .select("id, status, created_at, updated_at, unit_id, client_id, broker_id, lost_reason, score, stage_changed_at, clients ( name ), units ( quadra, lote, valor, status ), brokers ( name ), proposals ( id, status, created_at ), reservations ( id, status, expires_at ), reservation_requests ( id, status )")
       .eq("account_id", accountId).eq("development_id", developmentId);
     if (filters?.brokerId) query = query.eq("broker_id", filters.brokerId);
     if (filters?.ownerProfileId) query = query.eq("owner_profile_id", filters.ownerProfileId);
@@ -80,6 +81,7 @@ export function useKanbanData(accountId: string | null, developmentId: string | 
             reservaRequestStatus: ((Array.isArray(n.reservation_requests) ? (n.reservation_requests as Record<string, unknown>[])[0] : null) as Record<string, unknown> | null)?.status as string | null ?? null,
             lostReason: n.lost_reason as string | null ?? null,
             score: n.score as number | null ?? null,
+            stageChangedAt: n.stage_changed_at as string | null ?? null,
           };
         });
         // Also fetch pipeline_simulations (filtered by profile)

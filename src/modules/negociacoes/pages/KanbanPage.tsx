@@ -256,7 +256,16 @@ export default function KanbanPage() {
                         {/* Footer */}
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 7, borderTop: "1px solid var(--border-default)" }}>
                           <span style={{ fontSize: 11, color: "var(--text-disabled)" }}>{c.corretorNome || "—"}</span>
-                          <span style={{ fontSize: 10, color: "#5C5647", fontFamily: "var(--font-mono)" }}>{dRel(c.updatedAt)}</span>
+                          {(() => {
+                            if (c.isSimulacao || est.id === "perdido" || est.id === "venda") return <span style={{ fontSize: 10, color: "#5C5647", fontFamily: "var(--font-mono)" }}>{dRel(c.updatedAt)}</span>;
+                            const ref = c.stageChangedAt || c.updatedAt;
+                            const daysInStage = ref ? Math.floor((Date.now() - new Date(ref).getTime()) / 864e5) : 0;
+                            const threshold = 7; // default threshold days
+                            const timeColor = daysInStage < threshold * 0.5 ? "#4ADE80" : daysInStage < threshold ? "#FBBF24" : "#F87171";
+                            const timeIcon = daysInStage < threshold * 0.5 ? "✓" : daysInStage < threshold ? "⚠" : "●";
+                            const timeLabel = daysInStage === 0 ? "hoje" : daysInStage === 1 ? "há 1 dia" : `há ${daysInStage}d`;
+                            return <span style={{ fontSize: 10, color: timeColor, fontFamily: "var(--font-mono)", fontWeight: 600 }}>{timeLabel} {timeIcon}</span>;
+                          })()}
                         </div>
                         {/* Lost reason */}
                         {est.id === "perdido" && c.lostReason && (
