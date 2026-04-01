@@ -18,6 +18,8 @@ export function createNegotiation(input: {
     clientId: input.clientId,
     brokerId: input.brokerId,
     status: NegotiationStatus.OPEN,
+    score: 50,
+    temperature: "warm",
     createdAt: now,
     updatedAt: now,
   };

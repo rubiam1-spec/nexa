@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../../../app/contexts/AuthContext";
+import { useAccount } from "../../../app/contexts/AccountContext";
 import { UnidadeStatus } from "../../../domain/unidade/UnidadeStatus";
 import { getNegotiationStatusLabel } from "../../../domain/negociacao/NegotiationStatusLabel";
 import NexaBadge from "../../../shared/components/NexaBadge";
 import { useNegotiationsOverview } from "../hooks/useNegotiationsOverview";
+import { EmptyState } from "../../../shared/components/EmptyState";
+import { createClient } from "../../../infra/repositories/clientsSupabaseRepository";
+import { getPermissions } from "../../../shared/utils/permissoes";
+import { timeAgo } from "../../../shared/utils/timeAgo";
+import { useScreen } from "../../../shared/hooks/useIsMobile";
 
 const btnPrimary: React.CSSProperties = {
   background: "var(--color-sprout)",
@@ -29,9 +35,12 @@ const btnSecondary: React.CSSProperties = {
 };
 
 export default function NegotiationsPage() {
+  const navigateToSimulador = useNavigate();
   const [searchParams] = useSearchParams();
   const preselectedUnitId = searchParams.get("unitId");
   const { authenticatedProfile } = useAuth();
+  const { isBroker, brokerId } = useAccount();
+  const screen = useScreen();
   const {
     accountContext: {
       account,
@@ -51,7 +60,7 @@ export default function NegotiationsPage() {
       negotiations,
       status: negotiationStatus,
     },
-    clientsState: { clients, isLoading: isLoadingClients },
+    clientsState: { clients, isLoading: isLoadingClients, refetch: refetchClients },
     brokersState: { brokers, isLoading: isLoadingBrokers },
     unitsState: {
       errorMessage: unitsErrorMessage,
@@ -68,6 +77,17 @@ export default function NegotiationsPage() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const firstInputRef = useRef<HTMLSelectElement>(null);
 
+  // Quick client creation
+  const [showNewClient, setShowNewClient] = useState(false);
+  const [ncName, setNcName] = useState(""); const [ncEmail, setNcEmail] = useState(""); const [ncPhone, setNcPhone] = useState("");
+  const [ncSaving, setNcSaving] = useState(false); const [ncErr, setNcErr] = useState<string | null>(null);
+
+  // Table filters (director/manager only)
+  const [filterBroker, setFilterBroker] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [sortBy, setSortBy] = useState<"date" | "score">("date");
+  const canFilter = getPermissions(account?.role ?? null).canViewFullDashboard;
+
   useEffect(() => {
     if (showForm) firstInputRef.current?.focus();
   }, [showForm]);
@@ -83,12 +103,13 @@ export default function NegotiationsPage() {
 
   async function handleCreateNegotiation() {
     if (!account || !development || !selectedUnitId || !selectedClientId) return;
+    const effectiveBrokerId = isBroker ? brokerId : (selectedBrokerId || null);
     const result = await createNegotiation({
       accountId: account.accountId,
       developmentId: development.developmentId,
       unitId: selectedUnitId,
       clientId: selectedClientId,
-      brokerId: selectedBrokerId || null,
+      brokerId: effectiveBrokerId,
       performedBy: authenticatedProfile?.id ?? null,
     });
     if (result) {
@@ -97,8 +118,20 @@ export default function NegotiationsPage() {
       setSelectedClientId("");
       setSelectedBrokerId("");
       setSuccessMsg("Negociação criada com sucesso!");
-      setTimeout(() => setSuccessMsg(null), 3000);
+      setTimeout(() => navigateToSimulador("/pipeline"), 1500);
     }
+  }
+
+  async function handleQuickClient() {
+    if (!account?.accountId || !ncName.trim() || !ncEmail.trim() || !ncPhone.trim()) return;
+    setNcSaving(true); setNcErr(null);
+    try {
+      const c = await createClient({ accountId: account.accountId, name: ncName.trim(), email: ncEmail.trim(), phone: ncPhone.trim(), city: "", createdBy: authenticatedProfile?.id });
+      setSelectedClientId(c.id);
+      setShowNewClient(false); setNcName(""); setNcEmail(""); setNcPhone("");
+      refetchClients();
+    } catch (e: unknown) { setNcErr(e instanceof Error ? e.message : "Falha ao criar cliente."); }
+    finally { setNcSaving(false); }
   }
 
   if (isLoading) {
@@ -137,9 +170,12 @@ export default function NegotiationsPage() {
             {negotiations.length} registros
           </div>
         </div>
-        <button type="button" onClick={() => setShowForm((p) => !p)} style={showForm ? btnSecondary : btnPrimary}>
-          {showForm ? "Cancelar" : "Nova negociação"}
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <a href="/pipeline" style={{ ...btnSecondary, fontSize: 12, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>Pipeline</a>
+          <button type="button" onClick={() => setShowForm((p) => !p)} style={showForm ? btnSecondary : btnPrimary}>
+            {showForm ? "Cancelar" : "Nova negociação"}
+          </button>
+        </div>
       </div>
 
       {successMsg ? (
@@ -152,7 +188,7 @@ export default function NegotiationsPage() {
       {showForm ? (
         <div className="nexa-card" style={{ marginBottom: 24 }}>
           <div className="nexa-label" style={{ marginBottom: 16 }}>Criar nova negociação</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, maxWidth: 700 }}>
+          <div style={{ display: "grid", gridTemplateColumns: screen.isMobile ? "1fr" : screen.isTablet ? "1fr 1fr" : "1fr 1fr 1fr", gap: 12, maxWidth: 700 }}>
             <label>
               <span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Unidade *</span>
               <select ref={firstInputRef} value={selectedUnitId} onChange={(e) => setSelectedUnitId(e.target.value)}>
@@ -162,24 +198,29 @@ export default function NegotiationsPage() {
                 ))}
               </select>
             </label>
-            <label>
+            <div>
               <span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Cliente *</span>
-              <select value={selectedClientId} onChange={(e) => setSelectedClientId(e.target.value)}>
-                <option value="">Selecione</option>
-                {clients.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Corretor</span>
-              <select value={selectedBrokerId} onChange={(e) => setSelectedBrokerId(e.target.value)}>
-                <option value="">Opcional</option>
-                {brokers.map((b) => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
-                ))}
-              </select>
-            </label>
+              <div style={{ display: "flex", gap: 6 }}>
+                <select value={selectedClientId} onChange={(e) => setSelectedClientId(e.target.value)} style={{ flex: 1 }}>
+                  <option value="">{clients.length === 0 ? "Nenhum cliente" : "Selecione"}</option>
+                  {clients.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+                <button type="button" onClick={() => setShowNewClient(true)} style={{ padding: "0 10px", borderRadius: 6, border: "1px solid var(--color-stone)", background: "transparent", color: "var(--color-sprout)", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>+ Novo</button>
+              </div>
+            </div>
+            {!isBroker ? (
+              <label>
+                <span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Corretor</span>
+                <select value={selectedBrokerId} onChange={(e) => setSelectedBrokerId(e.target.value)}>
+                  <option value="">Opcional</option>
+                  {brokers.filter((b) => b.status === "active" && b.approvalStatus === "approved").map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
           </div>
           <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
             <button type="button" disabled={!selectedUnitId || !selectedClientId || isUpdating} onClick={() => void handleCreateNegotiation()} style={btnPrimary}>
@@ -191,10 +232,35 @@ export default function NegotiationsPage() {
       ) : null}
 
       {/* Table */}
-      {!negotiations || negotiations.length === 0 ? (
-        <div className="nexa-card">
-          <p style={{ color: "var(--color-fog)" }}>Nenhuma negociação encontrada.</p>
+      {/* Filters */}
+      {canFilter && negotiations.length > 0 ? (
+        <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+          <select value={filterBroker} onChange={(e) => setFilterBroker(e.target.value)} style={{ background: "var(--surface-raised)", border: "1px solid var(--color-stone)", borderRadius: 8, padding: "6px 12px", color: "var(--color-bone)", fontSize: 12 }}>
+            <option value="all">Todos os corretores</option>
+            {brokers.filter((b) => b.status === "active").map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} style={{ background: "var(--surface-raised)", border: "1px solid var(--color-stone)", borderRadius: 8, padding: "6px 12px", color: "var(--color-bone)", fontSize: 12 }}>
+            <option value="all">Todos os status</option>
+            <option value="OPEN">Aberta</option>
+            <option value="IN_PROGRESS">Em negociação</option>
+            <option value="WON">Ganha</option>
+            <option value="LOST">Perdida</option>
+            <option value="CANCELLED">Cancelada</option>
+          </select>
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as "date" | "score")} style={{ background: "var(--surface-raised)", border: "1px solid var(--color-stone)", borderRadius: 8, padding: "6px 12px", color: "var(--color-bone)", fontSize: 12 }}>
+            <option value="date">Ordenar por data</option>
+            <option value="score">Ordenar por score</option>
+          </select>
         </div>
+      ) : null}
+
+      {(() => {
+        let filtered = negotiations;
+        if (filterBroker !== "all") filtered = filtered.filter((n) => n.brokerId === filterBroker);
+        if (filterStatus !== "all") filtered = filtered.filter((n) => n.status === filterStatus);
+        if (sortBy === "score") filtered = [...filtered].sort((a, b) => (b.score ?? 50) - (a.score ?? 50));
+        return !filtered || filtered.length === 0 ? (
+        <EmptyState icone={"\u2197"} titulo="Nenhuma negociação ainda" descricao="Comece simulando uma condição comercial para um cliente e envie para o pipeline." ctaLabel="Abrir Simulador" onCta={() => navigateToSimulador("/simulador")} />
       ) : (
         <div style={{ overflowX: "auto" }}>
           <table className="nexa-table">
@@ -204,17 +270,19 @@ export default function NegotiationsPage() {
                 <th>Cliente</th>
                 <th>Corretor</th>
                 <th>Valor</th>
+                <th>Score</th>
                 <th>Status</th>
+                <th>Data</th>
                 <th>Ações</th>
               </tr>
             </thead>
             <tbody>
-              {negotiations.map((negotiation) => {
+              {filtered.map((negotiation) => {
                 const unit = unitsById.get(negotiation.unitId);
                 const cl = negotiation.clientId ? clientsById.get(negotiation.clientId) : null;
                 const br = negotiation.brokerId ? brokersById.get(negotiation.brokerId) : null;
                 return (
-                  <tr key={negotiation.id}>
+                  <tr key={negotiation.id} style={{ cursor: "pointer" }} onClick={() => navigateToSimulador(`/negociacoes/${negotiation.id}`)}>
                     <td style={{ color: "var(--color-bone)", fontWeight: 600 }}>
                       {unit ? `Q${unit.quadra} L${unit.lote}` : negotiation.unitId.slice(0, 8)}
                     </td>
@@ -222,10 +290,14 @@ export default function NegotiationsPage() {
                     <td>{br?.name ?? "—"}</td>
                     <td>{unit ? `R$ ${unit.valor.toLocaleString("pt-BR")}` : "—"}</td>
                     <td>
-                      <NexaBadge entity="negotiation" status={negotiation.status} label={getNegotiationStatusLabel(negotiation.status)} />
+                      <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "var(--font-mono)", padding: "2px 8px", borderRadius: 6, background: negotiation.score > 70 ? "rgba(74,222,128,0.15)" : negotiation.score >= 40 ? "rgba(251,191,36,0.15)" : "rgba(248,113,113,0.15)", color: negotiation.score > 70 ? "#4ADE80" : negotiation.score >= 40 ? "#FBBF24" : "#F87171" }}>{negotiation.score}</span>
                     </td>
                     <td>
-                      <Link to={`/negociacoes/${negotiation.id}`} style={{ fontSize: 12, fontWeight: 600 }}>
+                      <NexaBadge entity="negotiation" status={negotiation.status} label={getNegotiationStatusLabel(negotiation.status)} />
+                    </td>
+                    <td style={{ fontSize: 11, color: "var(--color-fog)", fontFamily: "var(--font-mono)" }}>{timeAgo(negotiation.createdAt)}</td>
+                    <td>
+                      <Link to={`/negociacoes/${negotiation.id}`} style={{ fontSize: 12, fontWeight: 600 }} onClick={(e) => e.stopPropagation()}>
                         Ver detalhes
                       </Link>
                     </td>
@@ -235,7 +307,27 @@ export default function NegotiationsPage() {
             </tbody>
           </table>
         </div>
-      )}
+      );
+      })()}
+
+      {/* Quick client creation modal */}
+      {showNewClient ? (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => { if (!ncSaving) setShowNewClient(false); }}>
+          <div style={{ background: "var(--color-carbon)", border: "1px solid var(--color-stone)", borderRadius: 16, padding: 32, width: "100%", maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--color-bone)", margin: "0 0 16px" }}>Novo cliente</h2>
+            <div style={{ display: "grid", gap: 12 }}>
+              <div><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Nome *</span><input type="text" value={ncName} onChange={(e) => setNcName(e.target.value)} placeholder="Nome completo" autoFocus /></div>
+              <div><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>E-mail *</span><input type="email" value={ncEmail} onChange={(e) => setNcEmail(e.target.value)} placeholder="email@exemplo.com" /></div>
+              <div><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Telefone *</span><input type="tel" value={ncPhone} onChange={(e) => setNcPhone(e.target.value)} placeholder="(00) 00000-0000" /></div>
+            </div>
+            {ncErr ? <div style={{ marginTop: 12, fontSize: 13, color: "#F87171" }}>{ncErr}</div> : null}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 20 }}>
+              <button type="button" disabled={ncSaving} onClick={() => setShowNewClient(false)} style={{ ...btnSecondary, height: 36 }}>Cancelar</button>
+              <button type="button" disabled={ncSaving || !ncName.trim() || !ncEmail.trim() || !ncPhone.trim()} onClick={() => void handleQuickClient()} style={{ ...btnPrimary, height: 36 }}>{ncSaving ? "Salvando..." : "Salvar cliente"}</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -31,6 +31,8 @@ type NegotiationRow = {
   client_id: string | null;
   broker_id: string | null;
   status: string;
+  score: number | null;
+  temperature: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -46,6 +48,7 @@ function normalizeNegotiationStatus(raw: string): NegotiationStatusType {
 }
 
 function mapNegotiationRowToNegotiation(row: NegotiationRow): Negotiation {
+  const score = row.score ?? 50;
   return {
     id: row.id,
     accountId: row.account_id,
@@ -54,22 +57,26 @@ function mapNegotiationRowToNegotiation(row: NegotiationRow): Negotiation {
     clientId: row.client_id,
     brokerId: row.broker_id,
     status: normalizeNegotiationStatus(row.status),
+    score,
+    temperature: (row.temperature as Negotiation["temperature"]) ?? (score > 70 ? "hot" : score >= 40 ? "warm" : "cold"),
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
   };
 }
 
-export async function getNegotiations(accountId: string, developmentId: string) {
+export async function getNegotiations(accountId: string, developmentId: string, filters?: { brokerId?: string | null; ownerProfileId?: string | null }) {
   const supabase = getSupabaseClientOrThrow("negotiations repository");
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("negotiations")
     .select(
-      "id, account_id, development_id, unit_id, client_id, broker_id, status, created_at, updated_at",
+      "id, account_id, development_id, unit_id, client_id, broker_id, status, score, temperature, created_at, updated_at",
     )
     .eq("account_id", accountId)
-    .eq("development_id", developmentId)
-    .order("created_at", { ascending: false });
+    .eq("development_id", developmentId);
+  if (filters?.brokerId) query = query.eq("broker_id", filters.brokerId);
+  if (filters?.ownerProfileId) query = query.eq("owner_profile_id", filters.ownerProfileId);
+  const { data, error } = await query.order("created_at", { ascending: false });
 
   const negotiations = (data ?? []).map((row) =>
     mapNegotiationRowToNegotiation(row as NegotiationRow),
@@ -88,22 +95,26 @@ export async function createNegotiation(input: {
   unitId: string;
   clientId: string | null;
   brokerId: string | null;
+  ownerProfileId?: string | null;
 }) {
   const supabase = getSupabaseClientOrThrow("negotiations repository");
 
+  const insertPayload: Record<string, unknown> = {
+    account_id: input.accountId,
+    development_id: input.developmentId,
+    unit_id: input.unitId,
+    client_id: input.clientId,
+    broker_id: input.brokerId,
+    status: enumToDbStatus[NegotiationStatus.OPEN],
+    updated_at: new Date().toISOString(),
+  };
+  if (input.ownerProfileId) insertPayload.owner_profile_id = input.ownerProfileId;
+
   const { data, error } = await supabase
     .from("negotiations")
-    .insert({
-      account_id: input.accountId,
-      development_id: input.developmentId,
-      unit_id: input.unitId,
-      client_id: input.clientId,
-      broker_id: input.brokerId,
-      status: enumToDbStatus[NegotiationStatus.OPEN],
-      updated_at: new Date().toISOString(),
-    })
+    .insert(insertPayload)
     .select(
-      "id, account_id, development_id, unit_id, client_id, broker_id, status, created_at, updated_at",
+      "id, account_id, development_id, unit_id, client_id, broker_id, status, score, temperature, created_at, updated_at",
     )
     .maybeSingle();
 
@@ -134,7 +145,7 @@ export async function updateNegotiationStatus(
     })
     .eq("id", negotiationId)
     .select(
-      "id, account_id, development_id, unit_id, client_id, broker_id, status, created_at, updated_at",
+      "id, account_id, development_id, unit_id, client_id, broker_id, status, score, temperature, created_at, updated_at",
     )
     .maybeSingle();
 
