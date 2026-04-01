@@ -27,7 +27,7 @@ interface Activity {
   contact_name: string | null; contact_company: string | null;
   activity_date: string; start_time: string | null; duration_minutes: number;
   outcome: string | null; next_action: string | null; next_action_date: string | null;
-  description: string | null; created_at: string;
+  description: string | null; created_at: string; updated_at?: string | null;
   clients?: { name: string } | null; brokers?: { name: string } | null;
   profiles?: { name: string; role: string } | null;
 }
@@ -118,10 +118,12 @@ function TypeBadge({ type }: { type: string }) {
   return <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap", background: color + "20", color }}>{badgeLabels[type] || type}</span>;
 }
 
-function ActivityCard({ activity, showAuthor, isOwner, onDelete }: { activity: Activity; showAuthor?: boolean; isOwner?: boolean; onDelete?: (id: string) => void }) {
+function ActivityCard({ activity, showAuthor, isOwner, canManage, onDelete, onEdit }: { activity: Activity; showAuthor?: boolean; isOwner?: boolean; canManage?: boolean; onDelete?: (id: string) => void; onEdit?: (activity: Activity) => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const canEdit = isOwner || canManage;
+  const wasEdited = activity.updated_at && activity.created_at && new Date(activity.updated_at).getTime() - new Date(activity.created_at).getTime() > 5000;
 
   async function handleDelete() {
     if (!supabase || !onDelete) return;
@@ -156,16 +158,18 @@ function ActivityCard({ activity, showAuthor, isOwner, onDelete }: { activity: A
           </div>
         )}
         {showAuthor && activity.profiles?.name && <div style={{ fontSize: 11, color: T.slate, marginTop: 4 }}>{activity.profiles.name}</div>}
+        {wasEdited && <div style={{ fontSize: 10, color: T.slate, marginTop: 4, fontStyle: "italic" }} title={activity.updated_at ? `Editado em ${new Date(activity.updated_at).toLocaleString("pt-BR")}` : ""}>editado ✎</div>}
       </div>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0, gap: 2 }}>
-        {isOwner && (
+        {canEdit && (
           <div style={{ position: "relative" }}>
             <button type="button" onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }} style={{ background: "transparent", border: "none", color: T.fog, fontSize: 16, cursor: "pointer", padding: "2px 6px", lineHeight: 1 }}>⋮</button>
             {menuOpen && (
               <>
                 <div style={{ position: "fixed", inset: 0, zIndex: 99 }} onClick={() => setMenuOpen(false)} />
-                <div style={{ position: "absolute", right: 0, top: 24, background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 8, zIndex: 100, minWidth: 120, boxShadow: "0 4px 12px rgba(0,0,0,0.3)" }}>
-                  <button type="button" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); setConfirmOpen(true); }} onMouseEnter={(e) => { e.currentTarget.style.background = T.stone; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }} style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", color: T.red, fontSize: 13, padding: "8px 16px", cursor: "pointer", borderRadius: 8 }}>Excluir</button>
+                <div style={{ position: "absolute", right: 0, top: 24, background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 8, zIndex: 100, minWidth: 140, boxShadow: "0 4px 12px rgba(0,0,0,0.3)" }}>
+                  {onEdit && <button type="button" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onEdit(activity); }} onMouseEnter={(e) => { e.currentTarget.style.background = T.stone; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }} style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", color: T.bone, fontSize: 13, padding: "8px 16px", cursor: "pointer", borderRadius: "8px 8px 0 0" }}>✎ Editar</button>}
+                  <button type="button" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); setConfirmOpen(true); }} onMouseEnter={(e) => { e.currentTarget.style.background = T.stone; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }} style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", color: T.red, fontSize: 13, padding: "8px 16px", cursor: "pointer", borderRadius: "0 0 8px 8px" }}>Excluir</button>
                 </div>
               </>
             )}
@@ -224,17 +228,20 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
 
 // ── Registration Modal ──
 
-function RegistrationModal({ accountId, developmentId, profileId, initialType, initialTitle, onClose, onSaved }: { accountId: string; developmentId: string; profileId: string; initialType?: ActivityType; initialTitle?: string; onClose: () => void; onSaved: () => void }) {
-  const [type, setType] = useState<ActivityType | null>(initialType ?? null);
-  const [title, setTitle] = useState(initialTitle ?? "");
-  const [contactName, setContactName] = useState("");
-  const [activityDate, setActivityDate] = useState(todayStr());
-  const [startTime, setStartTime] = useState("");
-  const [duration, setDuration] = useState(60);
-  const [outcome, setOutcome] = useState("");
-  const [nextAction, setNextAction] = useState("");
-  const [nextActionDate, setNextActionDate] = useState("");
-  const [description, setDescription] = useState("");
+function RegistrationModal({ accountId, developmentId, profileId, initialType, initialTitle, editActivity, canManageDate, onClose, onSaved }: { accountId: string; developmentId: string; profileId: string; initialType?: ActivityType; initialTitle?: string; editActivity?: Activity | null; canManageDate?: boolean; onClose: () => void; onSaved: () => void }) {
+  const isEdit = !!editActivity;
+  const [type, setType] = useState<ActivityType | null>(editActivity?.type ?? initialType ?? null);
+  const [title, setTitle] = useState(editActivity?.title ?? initialTitle ?? "");
+  const [contactName, setContactName] = useState(editActivity?.contact_name ?? "");
+  const [activityDate, setActivityDate] = useState(editActivity?.activity_date ?? todayStr());
+  const [startTime, setStartTime] = useState(editActivity?.start_time?.substring(0, 5) ?? "");
+  const [duration, setDuration] = useState(editActivity?.duration_minutes ?? 60);
+  const [outcome, setOutcome] = useState(editActivity?.outcome ?? "");
+  const [nextAction, setNextAction] = useState(editActivity?.next_action ?? "");
+  const [nextActionDate, setNextActionDate] = useState(editActivity?.next_action_date ?? "");
+  const [description, setDescription] = useState(editActivity?.description ?? "");
+  // Date editing: within 24h or manager/director
+  const dateEditable = !isEdit || canManageDate || (editActivity?.created_at ? (Date.now() - new Date(editActivity.created_at).getTime()) < 24 * 60 * 60 * 1000 : true);
   const [saving, setSaving] = useState(false);
   const [step, setStep] = useState<1 | 2>(1);
   const [followUpType, setFollowUpType] = useState<ActivityType>("follow_up");
@@ -250,19 +257,35 @@ function RegistrationModal({ accountId, developmentId, profileId, initialType, i
     if (!canSave || !supabase) return;
     setSaving(true);
     try {
-      const { error } = await supabase.from("activities").insert({
-        account_id: accountId, development_id: developmentId, profile_id: profileId,
-        type, title: title.trim(), contact_name: contactName.trim() || null,
-        activity_date: activityDate, start_time: startTime || null, duration_minutes: duration,
-        outcome: outcome.trim() || null, next_action: nextAction.trim() || null,
-        next_action_date: nextActionDate || null, description: description.trim() || null,
-      });
-      if (error) throw error;
-      onSaved();
-      // Se já definiu próxima ação com data, fechar direto
-      if (nextAction.trim() && nextActionDate) { onClose(); return; }
-      // Senão, mostrar step 2 para agendar próximo passo
-      setStep(2);
+      if (isEdit && editActivity) {
+        // Update mode
+        const updateData: Record<string, unknown> = {
+          type, title: title.trim(), contact_name: contactName.trim() || null,
+          duration_minutes: duration, outcome: outcome.trim() || null,
+          next_action: nextAction.trim() || null, next_action_date: nextActionDate || null,
+          description: description.trim() || null, updated_at: new Date().toISOString(),
+        };
+        if (dateEditable) {
+          updateData.activity_date = activityDate;
+          updateData.start_time = startTime || null;
+        }
+        const { error } = await supabase.from("activities").update(updateData).eq("id", editActivity.id);
+        if (error) throw error;
+        onSaved(); onClose();
+      } else {
+        // Insert mode
+        const { error } = await supabase.from("activities").insert({
+          account_id: accountId, development_id: developmentId, profile_id: profileId,
+          type, title: title.trim(), contact_name: contactName.trim() || null,
+          activity_date: activityDate, start_time: startTime || null, duration_minutes: duration,
+          outcome: outcome.trim() || null, next_action: nextAction.trim() || null,
+          next_action_date: nextActionDate || null, description: description.trim() || null,
+        });
+        if (error) throw error;
+        onSaved();
+        if (nextAction.trim() && nextActionDate) { onClose(); return; }
+        setStep(2);
+      }
     } catch (err) { console.error("Erro ao salvar atividade:", err); }
     finally { setSaving(false); }
   }
@@ -331,7 +354,7 @@ function RegistrationModal({ accountId, developmentId, profileId, initialType, i
         /* ── Step 1: Registro normal ── */
         <>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-          <h2 style={{ color: T.chalk, fontSize: 18, fontWeight: 700, margin: 0 }}>Registrar atividade</h2>
+          <h2 style={{ color: T.chalk, fontSize: 18, fontWeight: 700, margin: 0 }}>{isEdit ? "Editar atividade" : "Registrar atividade"}</h2>
           <button type="button" onClick={onClose} style={{ background: "none", border: "none", color: T.fog, fontSize: 20, cursor: "pointer" }}>&times;</button>
         </div>
         <label style={LBL}>Tipo de atividade</label>
@@ -348,7 +371,7 @@ function RegistrationModal({ accountId, developmentId, profileId, initialType, i
         <label style={LBL}>Com quem</label>
         <input style={{ ...IS, marginBottom: 14 }} value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="Nome do contato" onFocus={focusIn} onBlur={focusOut} />
         <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
-          <div style={{ flex: 1 }}><label style={LBL}>Data *</label><input type="date" style={IS} value={activityDate} onChange={(e) => setActivityDate(e.target.value)} onFocus={focusIn} onBlur={focusOut} /></div>
+          <div style={{ flex: 1 }}><label style={LBL}>Data *{!dateEditable && isEdit ? <span style={{ fontSize: 9, color: T.red, marginLeft: 4 }}>(bloqueado após 24h)</span> : ""}</label><input type="date" style={{ ...IS, opacity: dateEditable ? 1 : 0.5 }} value={activityDate} onChange={(e) => dateEditable && setActivityDate(e.target.value)} disabled={!dateEditable} onFocus={focusIn} onBlur={focusOut} /></div>
           <div style={{ flex: 1 }}><label style={LBL}>Horário</label><input type="time" style={IS} value={startTime} onChange={(e) => setStartTime(e.target.value)} onFocus={focusIn} onBlur={focusOut} /></div>
         </div>
         <label style={LBL}>Duração</label>
@@ -367,7 +390,7 @@ function RegistrationModal({ accountId, developmentId, profileId, initialType, i
         <label style={LBL}>Observações</label>
         <textarea rows={2} style={{ ...IS, resize: "vertical", marginBottom: 20 }} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Anotações adicionais..." onFocus={focusIn} onBlur={focusOut as unknown as React.FocusEventHandler<HTMLTextAreaElement>} />
         <button type="button" onClick={handleSave} disabled={!canSave || saving} style={{ width: "100%", height: 40, background: T.sprout, color: T.ink, border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: canSave && !saving ? "pointer" : "not-allowed", opacity: canSave && !saving ? 1 : 0.5 }}>
-          {saving ? "Salvando..." : "Registrar atividade"}
+          {saving ? "Salvando..." : isEdit ? "Salvar alterações" : "Registrar atividade"}
         </button>
         </>
         )}
@@ -398,7 +421,9 @@ export default function AtividadesPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalType, setModalType] = useState<ActivityType | undefined>(undefined);
   const [modalTitle, setModalTitle] = useState<string | undefined>(undefined);
+  const [editingActivity, setEditingActivity] = useState<Activity | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const canManage = isDirector || isManager;
   const [periodFilter, setPeriodFilter] = useState("month");
   const [typeFilter, setTypeFilter] = useState("all");
   const [viewMode, setViewMode] = useState<"mine" | "team">("team");
@@ -537,8 +562,9 @@ export default function AtividadesPage() {
   }, [activities, isDirector]);
   const chartMax = useMemo(() => Math.max(1, ...chartData.map((d) => d.count)), [chartData]);
 
-  function openModal(type?: ActivityType, title?: string) { setModalType(type); setModalTitle(title); setModalOpen(true); if (type) setTimeout(() => document.getElementById("activity-title")?.focus(), 200); }
-  function handleSaved() { setToast("Atividade registrada!"); fetchActivities(); }
+  function openModal(type?: ActivityType, title?: string) { setEditingActivity(null); setModalType(type); setModalTitle(title); setModalOpen(true); if (type) setTimeout(() => document.getElementById("activity-title")?.focus(), 200); }
+  function openEditModal(activity: Activity) { setEditingActivity(activity); setModalType(undefined); setModalTitle(undefined); setModalOpen(true); }
+  function handleSaved() { setToast(editingActivity ? "Atividade atualizada!" : "Atividade registrada!"); fetchActivities(); }
 
   const showRegister = isConsultant || isManager;
   const showAuthor = !isConsultant;
@@ -688,14 +714,14 @@ export default function AtividadesPage() {
           {groupedByDate.map(([date, acts]) => (
             <div key={date}>
               <div style={{ fontSize: 11, fontWeight: 600, color: T.fog, fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8, paddingBottom: 6, borderBottom: `1px solid ${T.stone}` }}>{formatDateLabel(date)}</div>
-              {acts.map((a) => <ActivityCard key={a.id} activity={a} showAuthor={showAuthor} isOwner={a.profile_id === profileId} onDelete={(id) => { setActivities((prev) => prev.filter((x) => x.id !== id)); setToast("Atividade excluída"); }} />)}
+              {acts.map((a) => <ActivityCard key={a.id} activity={a} showAuthor={showAuthor} isOwner={a.profile_id === profileId} canManage={canManage} onDelete={(id) => { setActivities((prev) => prev.filter((x) => x.id !== id)); setToast("Atividade excluída"); }} onEdit={openEditModal} />)}
             </div>
           ))}
         </div>
       )}
 
       {modalOpen && profileId && accountId && developmentId && (
-        <RegistrationModal accountId={accountId} developmentId={developmentId} profileId={profileId} initialType={modalType} initialTitle={modalTitle} onClose={() => { setModalOpen(false); setModalType(undefined); setModalTitle(undefined); }} onSaved={handleSaved} />
+        <RegistrationModal accountId={accountId} developmentId={developmentId} profileId={profileId} initialType={modalType} initialTitle={modalTitle} editActivity={editingActivity} canManageDate={canManage} onClose={() => { setModalOpen(false); setModalType(undefined); setModalTitle(undefined); setEditingActivity(null); }} onSaved={handleSaved} />
       )}
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
     </div>
