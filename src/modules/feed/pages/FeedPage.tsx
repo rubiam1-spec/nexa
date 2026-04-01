@@ -3,6 +3,7 @@ import { useAccount } from "../../../app/contexts/AccountContext";
 import { useAuth } from "../../../app/contexts/AuthContext";
 import { supabase } from "../../../infra/supabase/supabaseClient";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
+import Avatar from "../../../shared/components/Avatar";
 
 const T = {
   ink: "var(--surface-base)", carbon: "var(--surface-raised)", stone: "var(--border-default)",
@@ -21,13 +22,12 @@ const REACTIONS = [
 interface FeedPost {
   id: string; type: string; title: string; activity_date: string; description: string | null;
   contact_name: string | null; outcome: string | null;
-  profile_name: string; profile_role: string; created_at: string;
-  photos: { id: string; photo_url: string; caption: string | null }[];
+  profile_name: string; profile_role: string; profile_avatar: string | null; profile_id: string; created_at: string;
+  photos: { id: string; photo_url: string; storage_path: string; caption: string | null }[];
   reactions: { user_id: string; reaction_type: string }[];
-  comments: { id: string; user_id: string; user_name: string; content: string; created_at: string }[];
+  comments: { id: string; user_id: string; user_name: string; user_avatar: string | null; content: string; created_at: string }[];
 }
 
-function initials(name: string) { return name.split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase(); }
 function timeAgo(d: string) {
   const ms = Date.now() - new Date(d).getTime();
   const m = Math.floor(ms / 60000); if (m < 60) return `há ${m}min`;
@@ -56,23 +56,23 @@ export default function FeedPage() {
     setLoading(true);
     try {
       // Get activities that have photos
-      const { data: photosRaw } = await supabase.from("activity_photos").select("activity_id, id, photo_url, caption").order("created_at", { ascending: true });
+      const { data: photosRaw } = await supabase.from("activity_photos").select("activity_id, id, photo_url, storage_path, caption").order("created_at", { ascending: true });
       if (!photosRaw || photosRaw.length === 0) { setPosts([]); setLoading(false); return; }
 
       const activityIds = [...new Set((photosRaw as Record<string, unknown>[]).map((p) => p.activity_id as string))];
 
-      const { data: actsRaw } = await supabase.from("activities").select("id, type, title, activity_date, description, contact_name, outcome, created_at, profile_id, profiles!activities_profile_id_fkey(name, role)").eq("account_id", accountId).in("id", activityIds).order("created_at", { ascending: false }).limit(30);
+      const { data: actsRaw } = await supabase.from("activities").select("id, type, title, activity_date, description, contact_name, outcome, created_at, profile_id, profiles!activities_profile_id_fkey(name, role, avatar_url)").eq("account_id", accountId).in("id", activityIds).order("created_at", { ascending: false }).limit(30);
 
       // Get reactions and comments
       const { data: reactionsRaw } = await supabase.from("feed_reactions").select("activity_id, user_id, reaction_type").in("activity_id", activityIds);
-      const { data: commentsRaw } = await supabase.from("feed_comments").select("id, activity_id, user_id, content, created_at, profiles:user_id(name)").in("activity_id", activityIds).order("created_at", { ascending: true });
+      const { data: commentsRaw } = await supabase.from("feed_comments").select("id, activity_id, user_id, content, created_at, profiles:user_id(name, avatar_url)").in("activity_id", activityIds).order("created_at", { ascending: true });
 
       // Group photos by activity
-      const photosByActivity: Record<string, { id: string; photo_url: string; caption: string | null }[]> = {};
+      const photosByActivity: Record<string, { id: string; photo_url: string; storage_path: string; caption: string | null }[]> = {};
       for (const p of photosRaw as Record<string, unknown>[]) {
         const aid = p.activity_id as string;
         if (!photosByActivity[aid]) photosByActivity[aid] = [];
-        photosByActivity[aid].push({ id: p.id as string, photo_url: p.photo_url as string, caption: p.caption as string | null });
+        photosByActivity[aid].push({ id: p.id as string, photo_url: p.photo_url as string, storage_path: (p.storage_path as string) || "", caption: p.caption as string | null });
       }
 
       // Group reactions by activity
@@ -84,12 +84,12 @@ export default function FeedPage() {
       }
 
       // Group comments by activity
-      const commentsByActivity: Record<string, { id: string; user_id: string; user_name: string; content: string; created_at: string }[]> = {};
+      const commentsByActivity: Record<string, { id: string; user_id: string; user_name: string; user_avatar: string | null; content: string; created_at: string }[]> = {};
       for (const c of (commentsRaw ?? []) as Record<string, unknown>[]) {
         const aid = c.activity_id as string;
         if (!commentsByActivity[aid]) commentsByActivity[aid] = [];
         const prof = (Array.isArray(c.profiles) ? c.profiles[0] : c.profiles) as Record<string, unknown> | null;
-        commentsByActivity[aid].push({ id: c.id as string, user_id: c.user_id as string, user_name: (prof?.name as string) || "—", content: c.content as string, created_at: c.created_at as string });
+        commentsByActivity[aid].push({ id: c.id as string, user_id: c.user_id as string, user_name: (prof?.name as string) || "—", user_avatar: (prof?.avatar_url as string) || null, content: c.content as string, created_at: c.created_at as string });
       }
 
       const feedPosts: FeedPost[] = ((actsRaw ?? []) as Record<string, unknown>[]).map((a) => {
@@ -99,6 +99,7 @@ export default function FeedPage() {
           activity_date: a.activity_date as string, description: a.description as string | null,
           contact_name: a.contact_name as string | null, outcome: a.outcome as string | null,
           profile_name: (prof?.name as string) || "—", profile_role: (prof?.role as string) || "",
+          profile_avatar: (prof?.avatar_url as string) || null, profile_id: a.profile_id as string,
           created_at: a.created_at as string,
           photos: photosByActivity[a.id as string] || [],
           reactions: reactionsByActivity[a.id as string] || [],
@@ -153,7 +154,7 @@ export default function FeedPage() {
     const tempId = "temp-" + Date.now();
     setPosts((prev) => prev.map((p) => {
       if (p.id !== postId) return p;
-      return { ...p, comments: [...p.comments, { id: tempId, user_id: userId, user_name: userName, content: text, created_at: new Date().toISOString() }] };
+      return { ...p, comments: [...p.comments, { id: tempId, user_id: userId, user_name: userName, user_avatar: null, content: text, created_at: new Date().toISOString() }] };
     }));
     setCommentText((prev) => ({ ...prev, [postId]: "" }));
 
@@ -176,6 +177,18 @@ export default function FeedPage() {
     if (!commentId.startsWith("temp-")) {
       supabase.from("feed_comments").delete().eq("id", commentId).then(() => {});
     }
+  }
+
+  const userRole = account?.role as string ?? "";
+  const canManagePhotos = ["owner", "director", "manager"].includes(userRole);
+
+  function deletePhoto(photoId: string, storagePath: string, postId: string) {
+    if (!supabase) return;
+    // Optimistic
+    setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, photos: p.photos.filter((ph) => ph.id !== photoId) } : p).filter((p) => p.photos.length > 0));
+    // Background
+    supabase.from("activity_photos").delete().eq("id", photoId).then(() => {});
+    if (storagePath) supabase.storage.from("activity-photos").remove([storagePath]).then(() => {});
   }
 
   if (loading) return <div style={{ padding: 32, textAlign: "center" }}><div style={{ fontSize: 13, color: T.fog, fontFamily: "var(--font-mono)" }}>Carregando mural...</div></div>;
@@ -201,7 +214,7 @@ export default function FeedPage() {
           <div key={post.id} style={{ background: T.carbon, border: isMobile ? "none" : `1px solid ${T.stone}`, borderTop: isMobile ? `1px solid ${T.stone}` : undefined, borderRadius: isMobile ? 0 : 12, marginBottom: isMobile ? 0 : 16, overflow: "hidden" }}>
             {/* Author */}
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px 10px" }}>
-              <div style={{ width: 36, height: 36, borderRadius: "50%", background: T.sprout + "20", color: T.sprout, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{initials(post.profile_name)}</div>
+              <Avatar name={post.profile_name} avatarUrl={post.profile_avatar} size={36} />
               <div>
                 <div style={{ fontSize: 14, fontWeight: 600, color: T.chalk }}>{post.profile_name}</div>
                 <div style={{ fontSize: 11, color: T.slate }}>{ROLE_LABELS[post.profile_role] || post.profile_role} · {timeAgo(post.created_at)}</div>
@@ -215,13 +228,19 @@ export default function FeedPage() {
             </div>
 
             {/* Photos */}
-            <div style={{ padding: "0 0 0 0" }}>
+            <div style={{ position: "relative" }}>
               {post.photos.length === 1 ? (
-                <img src={post.photos[0].photo_url} alt="" onClick={() => setLightbox({ urls: post.photos.map((p) => p.photo_url), idx: 0 })} style={{ width: "100%", maxHeight: 400, objectFit: "cover", cursor: "pointer" }} />
+                <div style={{ position: "relative" }}>
+                  <img src={post.photos[0].photo_url} alt="" onClick={() => setLightbox({ urls: post.photos.map((p) => p.photo_url), idx: 0 })} style={{ width: "100%", maxHeight: 400, objectFit: "cover", cursor: "pointer" }} />
+                  {(post.profile_id === userId || canManagePhotos) && <button type="button" onClick={() => deletePhoto(post.photos[0].id, post.photos[0].storage_path, post.id)} style={{ position: "absolute", top: 8, right: 8, width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.6)", border: "none", color: "#fff", fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>}
+                </div>
               ) : (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
                   {post.photos.slice(0, 4).map((p, i) => (
-                    <img key={p.id} src={p.photo_url} alt="" onClick={() => setLightbox({ urls: post.photos.map((ph) => ph.photo_url), idx: i })} style={{ width: "100%", height: 180, objectFit: "cover", cursor: "pointer" }} />
+                    <div key={p.id} style={{ position: "relative" }}>
+                      <img src={p.photo_url} alt="" onClick={() => setLightbox({ urls: post.photos.map((ph) => ph.photo_url), idx: i })} style={{ width: "100%", height: 180, objectFit: "cover", cursor: "pointer" }} />
+                      {(post.profile_id === userId || canManagePhotos) && <button type="button" onClick={() => deletePhoto(p.id, p.storage_path, post.id)} style={{ position: "absolute", top: 4, right: 4, width: 24, height: 24, borderRadius: "50%", background: "rgba(0,0,0,0.6)", border: "none", color: "#fff", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>}
+                    </div>
                   ))}
                 </div>
               )}
@@ -267,7 +286,7 @@ export default function FeedPage() {
               <div style={{ borderTop: `1px solid ${T.stone}`, padding: "8px 16px" }}>
                 {post.comments.slice(-3).map((c) => (
                   <div key={c.id} style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                    <div style={{ width: 28, height: 28, borderRadius: "50%", background: T.stone, color: T.fog, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, flexShrink: 0 }}>{initials(c.user_name)}</div>
+                    <Avatar name={c.user_name} avatarUrl={c.user_avatar} size={28} />
                     <div style={{ flex: 1 }}>
                       <span style={{ fontSize: 13, fontWeight: 600, color: T.bone }}>{c.user_name}</span>
                       <span style={{ fontSize: 11, color: T.slate, marginLeft: 6 }}>{timeAgo(c.created_at)}</span>

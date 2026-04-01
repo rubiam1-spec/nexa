@@ -4,6 +4,7 @@ import { useAccount } from "../../../app/contexts/AccountContext";
 import { useDevelopment } from "../../../app/contexts/DevelopmentContext";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
 import { useMyDay, type ScheduledActivity, type TeamMember, type PendingAction } from "../hooks/useMyDay";
+import Avatar from "../../../shared/components/Avatar";
 
 // ── Helpers ──
 
@@ -84,7 +85,7 @@ function TeamRow({ m }: { m: TeamMember }) {
   const statText = m.activitiesToday > 0 ? `${m.activitiesToday} atividade${m.activitiesToday > 1 ? "s" : ""} hoje` : m.lastActivityDaysAgo === 0 ? "ativo hoje" : m.lastActivityDaysAgo < 999 ? `sem atividade há ${m.lastActivityDaysAgo}d` : "sem atividades";
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 10, marginBottom: 6 }}>
-      <div style={{ width: 36, height: 36, borderRadius: "50%", background: color + "20", color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{m.initials}</div>
+      <Avatar name={m.name} size={36} color={color} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-secondary)" }}>{m.name}</div>
         <div style={{ fontSize: 11, color: "var(--text-disabled)" }}>{ROLE_LABELS[m.role] || m.role}{m.activeNegotiations > 0 ? ` · ${m.activeNegotiations} neg.` : ""}</div>
