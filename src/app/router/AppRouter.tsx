@@ -29,6 +29,7 @@ import MateriaisPage from "../../modules/materiais/pages/MateriaisPage";
 import AtividadesPage from "../../modules/atividades/pages/AtividadesPage";
 import RelatoriosPage from "../../modules/relatorios/pages/RelatoriosPage";
 import MeuDiaPage from "../../modules/meudia/pages/MeuDiaPage";
+import FeedPage from "../../modules/feed/pages/FeedPage";
 import LandingPage from "../../pages/LandingPage";
 
 function ProtectedAppPage({ children }: { children: React.ReactNode }) {
@@ -176,6 +177,14 @@ export default function AppRouter() {
         <Route
           path="/mapa"
           element={<Navigate to="/unidades?view=mapa" replace />}
+        />
+        <Route
+          path="/feed"
+          element={
+            <ProtectedAppPage>
+              <FeedPage />
+            </ProtectedAppPage>
+          }
         />
         <Route
           path="/atividades"

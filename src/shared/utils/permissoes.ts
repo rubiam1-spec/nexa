@@ -89,11 +89,11 @@ export function getPermissions(role: string | null) {
 export function podeVerItem(key: string, role: string | null): boolean {
   if (!role) return false;
   if (role === "broker") {
-    const brokerAllowed = ["meudia", "dashboard", "simulador", "negociacoes", "pipeline", "clientes", "unidades", "materiais"];
+    const brokerAllowed = ["meudia", "dashboard", "simulador", "negociacoes", "pipeline", "clientes", "unidades", "materiais", "feed"];
     return brokerAllowed.includes(key);
   }
   if (role === "commercial_consultant") {
-    const consultantAllowed = ["meudia", "dashboard", "simulador", "negociacoes", "pipeline", "clientes", "unidades", "corretores", "atividades", "materiais"];
+    const consultantAllowed = ["meudia", "dashboard", "simulador", "negociacoes", "pipeline", "clientes", "unidades", "corretores", "atividades", "materiais", "feed"];
     return consultantAllowed.includes(key);
   }
   switch (key) {

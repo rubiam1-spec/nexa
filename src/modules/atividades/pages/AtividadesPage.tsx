@@ -8,6 +8,7 @@ import { useIsMobile } from "../../../shared/hooks/useIsMobile";
 import { IcVisita, IcClientes, IcEmpreendimentos, IcTreinamento, IcLigacao, IcFollowUp, IcReuniao, IcImobiliarias, IcOutro } from "../../../shared/components/icons/NexaIcons";
 import ParticipantInput, { type Participant } from "../../../shared/components/ParticipantInput";
 import ActivityDetailModal from "../../../shared/components/ActivityDetailModal";
+import PhotoUpload from "../../../shared/components/PhotoUpload";
 
 // ── Tokens ──
 
@@ -251,6 +252,8 @@ function RegistrationModal({ accountId, developmentId, profileId, initialType, i
   const [title, setTitle] = useState(editActivity?.title ?? initialTitle ?? "");
   const contactName = editActivity?.contact_name ?? "";
   const [participants, setParticipants] = useState<Participant[]>([]);
+  const [photos, setPhotos] = useState<{ file: File; preview: string }[]>([]);
+  const [photoCaption, setPhotoCaption] = useState("");
   const [activityDate, setActivityDate] = useState(editActivity?.activity_date ?? todayStr());
   const [startTime, setStartTime] = useState(editActivity?.start_time?.substring(0, 5) ?? "");
   const [duration, setDuration] = useState(editActivity?.duration_minutes ?? 60);
@@ -311,6 +314,18 @@ function RegistrationModal({ accountId, developmentId, profileId, initialType, i
         // Save participants
         if (inserted?.id && participants.length > 0) {
           await supabase.from("activity_participants").insert(participants.map((p) => ({ activity_id: inserted.id, participant_type: p.type, participant_id: p.id, participant_name: p.name, participant_detail: p.detail || null })));
+        }
+        // Upload photos
+        if (inserted?.id && photos.length > 0) {
+          for (const photo of photos) {
+            const ext = photo.file.name.split(".").pop() || "jpg";
+            const path = `${inserted.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+            const { error: upErr } = await supabase.storage.from("activity-photos").upload(path, photo.file, { contentType: "image/jpeg" });
+            if (!upErr) {
+              const { data: urlData } = supabase.storage.from("activity-photos").getPublicUrl(path);
+              await supabase.from("activity_photos").insert({ activity_id: inserted.id, photo_url: urlData.publicUrl, storage_path: path, caption: photoCaption.trim() || null, uploaded_by: profileId });
+            }
+          }
         }
         onSaved();
         if (isFutureDate || (nextAction.trim() && nextActionDate)) { onClose(); return; }
@@ -425,7 +440,16 @@ function RegistrationModal({ accountId, developmentId, profileId, initialType, i
         </div>
         </>)}
         <label style={LBL}>Observações</label>
-        <textarea rows={2} style={{ ...IS, resize: "vertical", marginBottom: 20 }} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Anotações adicionais..." onFocus={focusIn} onBlur={focusOut as unknown as React.FocusEventHandler<HTMLTextAreaElement>} />
+        <textarea rows={2} style={{ ...IS, resize: "vertical", marginBottom: 14 }} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Anotações adicionais..." onFocus={focusIn} onBlur={focusOut as unknown as React.FocusEventHandler<HTMLTextAreaElement>} />
+        {!isEdit && (
+          <>
+            <label style={LBL}>Fotos (opcional)</label>
+            <div style={{ marginBottom: photos.length > 0 ? 8 : 14 }}>
+              <PhotoUpload photos={photos} onChange={setPhotos} />
+            </div>
+            {photos.length > 0 && <input style={{ ...IS, marginBottom: 14 }} value={photoCaption} onChange={(e) => setPhotoCaption(e.target.value)} placeholder="Legenda da foto (opcional)" />}
+          </>
+        )}
         <button type="button" onClick={handleSave} disabled={!canSave || saving} style={{ width: "100%", height: 40, background: T.sprout, color: T.ink, border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: canSave && !saving ? "pointer" : "not-allowed", opacity: canSave && !saving ? 1 : 0.5 }}>
           {saving ? "Salvando..." : isEdit ? "Salvar alterações" : isFuture ? "📅 Agendar atividade" : "Registrar atividade"}
         </button>
