@@ -108,7 +108,7 @@ function PendingCard({ a, navigate }: { a: PendingAction; navigate: (p: string) 
   );
 }
 
-function FunnelBar({ label, value, max }: { label: string; value: number; max: number }) {
+function FunnelBar({ label, value, max, color }: { label: string; value: number; max: number; color: string }) {
   const pct = max > 0 ? Math.round((value / max) * 100) : 0;
   return (
     <div style={{ marginBottom: 8 }}>
@@ -117,7 +117,7 @@ function FunnelBar({ label, value, max }: { label: string; value: number; max: n
         <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>{value}</span>
       </div>
       <div style={{ height: 6, borderRadius: 3, background: "var(--surface-hover)", overflow: "hidden" }}>
-        <div style={{ height: "100%", width: `${pct}%`, background: "var(--interactive-primary)", borderRadius: 3, transition: "width 300ms" }} />
+        <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 3, transition: "width 300ms" }} />
       </div>
     </div>
   );
@@ -224,15 +224,11 @@ export default function MeuDiaPage() {
             <StatCard label="Unid. disponíveis" value={`${data.stats.availableUnits}/${data.stats.totalUnits}`} />
           </div>
 
-          {data.pendingActions.length > 0 && (
-            <>
-              <SectionLabel count={data.pendingActions.length}>Precisa da sua ação</SectionLabel>
-              {data.pendingActions.map((a) => <PendingCard key={a.id} a={a} navigate={navigate} />)}
-            </>
-          )}
-          {data.pendingActions.length === 0 && (
-            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 16, marginBottom: 8, fontStyle: "italic" }}>Nenhuma ação pendente — operação fluindo.</div>
-          )}
+          <SectionLabel count={data.pendingActions.length || undefined}>Precisa da sua ação</SectionLabel>
+          {data.pendingActions.length > 0
+            ? data.pendingActions.map((a) => <PendingCard key={a.id} a={a} navigate={navigate} />)
+            : <div style={{ padding: "14px 16px", background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 10, fontSize: 13, color: "var(--text-muted)" }}>Nenhuma ação pendente — operação fluindo.</div>
+          }
 
           <SectionLabel count={data.team.members.length}>Equipe</SectionLabel>
           {data.team.members.length > 0 ? data.team.members.map((m) => <TeamRow key={m.id} m={m} />) : <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Nenhum membro encontrado.</div>}
@@ -240,10 +236,10 @@ export default function MeuDiaPage() {
           <SectionLabel>Funil</SectionLabel>
           <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 10, padding: 16 }}>
             {(() => { const max = Math.max(data.funnel.negotiation, data.funnel.proposal, data.funnel.reservation, data.funnel.sale, 1); return (<>
-              <FunnelBar label="Negociação" value={data.funnel.negotiation} max={max} />
-              <FunnelBar label="Proposta" value={data.funnel.proposal} max={max} />
-              <FunnelBar label="Reserva" value={data.funnel.reservation} max={max} />
-              <FunnelBar label="Venda" value={data.funnel.sale} max={max} />
+              <FunnelBar label="Negociação" value={data.funnel.negotiation} max={max} color="#4ADE80" />
+              <FunnelBar label="Proposta" value={data.funnel.proposal} max={max} color="#60A5FA" />
+              <FunnelBar label="Reserva" value={data.funnel.reservation} max={max} color="#A78BFA" />
+              <FunnelBar label="Venda" value={data.funnel.sale} max={max} color="#FBBF24" />
             </>); })()}
           </div>
         </>

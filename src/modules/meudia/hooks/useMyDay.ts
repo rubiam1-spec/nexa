@@ -97,10 +97,14 @@ export function useMyDay(userId: string | null, accountId: string | null, develo
         });
 
         const excludeRoles = new Set(["owner", "director", "administrative"]);
+        const seenNames = new Set<string>();
         for (const row of teamRaw as Record<string, unknown>[]) {
           const p = (Array.isArray(row.profiles) ? row.profiles[0] : row.profiles) as Record<string, unknown> | null;
           if (!p || (p.id as string) === userId) continue;
           if (excludeRoles.has(row.role as string)) continue;
+          const memberName = (p.name as string) || "";
+          if (seenNames.has(memberName)) continue;
+          seenNames.add(memberName);
           const pid = p.id as string;
           const lastDate = lastByUser[pid];
           const daysAgo = lastDate ? Math.floor((Date.now() - new Date(lastDate + "T12:00:00").getTime()) / 864e5) : 999;
@@ -134,7 +138,7 @@ export function useMyDay(userId: string | null, accountId: string | null, develo
       const { count: activeRes } = await supabase.from("reservations").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("development_id", developmentId).eq("status", "ativa");
       const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
       const { count: salesMonth } = await supabase.from("sales").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("development_id", developmentId).gte("created_at", monthStart.toISOString());
-      const { count: availableUnits } = await supabase.from("units").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("development_id", developmentId).eq("status", "disponivel");
+      const { count: availableUnits } = await supabase.from("units").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("development_id", developmentId).eq("status", "available");
       const { count: totalUnits } = await supabase.from("units").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("development_id", developmentId);
 
       // ── FUNNEL ──
