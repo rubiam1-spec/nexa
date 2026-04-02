@@ -50,6 +50,8 @@ function maskCPF(v: string) { return v.replace(/\D/g, "").replace(/(\d{3})(\d)/,
 function maskPhone(v: string) { return v.replace(/\D/g, "").replace(/(\d{2})(\d)/, "($1) $2").replace(/(\d{5})(\d)/, "$1-$2").slice(0, 15); }
 function maskCurrency(v: string) { const n = Number(v.replace(/\D/g, "")) / 100; return n > 0 ? n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : ""; }
 function unmaskCurrency(v: string) { return String(Number(v.replace(/\D/g, "")) / 100); }
+function maskRG(v: string) { return v.replace(/[^0-9.\-]/g, "").slice(0, 12); }
+function maskCEP(v: string) { const n = v.replace(/\D/g, "").slice(0, 8); return n.length > 5 ? n.slice(0, 5) + "-" + n.slice(5) : n; }
 
 const IS: React.CSSProperties = { width: "100%", background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "10px 14px", color: T.chalk, fontSize: 14, outline: "none", boxSizing: "border-box" };
 const LBL: React.CSSProperties = { fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 };
@@ -185,7 +187,7 @@ export default function ClientDetailPage() {
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 14 }}>
           <div style={{ gridColumn: isMobile ? "1" : "1 / 3" }}><label style={LBL}>Nome completo</label>{editing ? <input style={IS} value={f("full_name") || f("name")} onChange={(e) => setF("full_name", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.full_name || client.name || "—"}</div>}</div>
           <div><label style={LBL}>CPF</label>{editing ? <input style={IS} value={maskCPF(f("cpf"))} onChange={(e) => setF("cpf", e.target.value.replace(/\D/g, "").slice(0, 11))} maxLength={14} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.cpf ? maskCPF(client.cpf) : "—"}</div>}</div>
-          <div><label style={LBL}>RG</label>{editing ? <input style={IS} value={f("rg")} onChange={(e) => setF("rg", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.rg || "—"}</div>}</div>
+          <div><label style={LBL}>RG</label>{editing ? <input style={IS} value={maskRG(f("rg"))} onChange={(e) => setF("rg", maskRG(e.target.value))} maxLength={12} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.rg || "—"}</div>}</div>
           <div><label style={LBL}>Órgão emissor</label>{editing ? <input style={IS} value={f("rg_orgao")} onChange={(e) => setF("rg_orgao", e.target.value)} placeholder="SSP/PR" /> : <div style={{ fontSize: 14, color: T.bone }}>{client.rg_orgao || "—"}</div>}</div>
           <div><label style={LBL}>Data nascimento</label>{editing ? <input type="date" style={IS} value={f("data_nascimento")} onChange={(e) => setF("data_nascimento", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.data_nascimento ? new Date(client.data_nascimento + "T12:00:00").toLocaleDateString("pt-BR") : "—"}</div>}</div>
           <div><label style={LBL}>Estado civil</label>{editing ? <select style={IS} value={f("marital_status")} onChange={(e) => setF("marital_status", e.target.value)}><option value="">Selecione</option>{ESTADO_CIVIL_OPTS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}</select> : <div style={{ fontSize: 14, color: T.bone }}>{ESTADO_CIVIL_OPTS.find((o) => o.v === client.marital_status)?.l || client.marital_status || "—"}</div>}</div>
@@ -201,11 +203,11 @@ export default function ClientDetailPage() {
       {tab === "endereco" && (
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 14 }}>
           <div style={{ display: "flex", gap: 8 }}>
-            <div style={{ flex: 1 }}><label style={LBL}>CEP</label>{editing ? <input style={IS} value={f("cep")} onChange={(e) => setF("cep", e.target.value)} onBlur={buscarCep} placeholder="00000-000" /> : <div style={{ fontSize: 14, color: T.bone }}>{client.cep || "—"}</div>}</div>
+            <div style={{ flex: 1 }}><label style={LBL}>CEP</label>{editing ? <input style={IS} value={maskCEP(f("cep"))} onChange={(e) => { const masked = maskCEP(e.target.value); setF("cep", masked.replace(/\D/g, "")); if (masked.replace(/\D/g, "").length === 8) buscarCep(); }} maxLength={9} placeholder="00000-000" /> : <div style={{ fontSize: 14, color: T.bone }}>{client.cep ? maskCEP(client.cep) : "—"}</div>}</div>
             {editing && <button type="button" onClick={buscarCep} style={{ alignSelf: "flex-end", padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 12, cursor: "pointer", marginBottom: 0 }}>🔍</button>}
           </div>
           <div style={{ gridColumn: isMobile ? "1" : "1 / 3" }}><label style={LBL}>Endereço</label>{editing ? <input style={IS} value={f("endereco")} onChange={(e) => setF("endereco", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.endereco || "—"}</div>}</div>
-          <div><label style={LBL}>Número</label>{editing ? <input style={IS} value={f("numero")} onChange={(e) => setF("numero", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.numero || "—"}</div>}</div>
+          <div><label style={LBL}>Número</label>{editing ? <input style={IS} value={f("numero")} onChange={(e) => setF("numero", e.target.value.slice(0, 10))} maxLength={10} placeholder="123 ou S/N" /> : <div style={{ fontSize: 14, color: T.bone }}>{client.numero || "—"}</div>}</div>
           <div><label style={LBL}>Complemento</label>{editing ? <input style={IS} value={f("complemento")} onChange={(e) => setF("complemento", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.complemento || "—"}</div>}</div>
           <div><label style={LBL}>Bairro</label>{editing ? <input style={IS} value={f("bairro")} onChange={(e) => setF("bairro", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.bairro || "—"}</div>}</div>
           <div><label style={LBL}>Cidade</label>{editing ? <input style={IS} value={f("city")} onChange={(e) => setF("city", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.city || "—"}</div>}</div>
@@ -254,14 +256,14 @@ export default function ClientDetailPage() {
                       </>
                     )}
                     {!doc && (
-                      <button type="button" onClick={() => { setUploadingDocType(dt.key); fileRef.current?.click(); }} disabled={uploadingDocType === dt.key} style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 11, cursor: "pointer" }}>{uploadingDocType === dt.key ? "..." : "📎"}</button>
+                      <button type="button" onClick={() => { setUploadingDocType(dt.key); setTimeout(() => fileRef.current?.click(), 50); }} style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 11, cursor: "pointer" }}>{uploadingDocType === dt.key ? "..." : "📎"}</button>
                     )}
                   </div>
                 </div>
               );
             })}
           </div>
-          <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => { const file = e.target.files?.[0]; if (file && uploadingDocType) { uploadDocument(file, uploadingDocType); } else { setUploadingDocType(null); } e.target.value = ""; }} />
+          <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => { const file = e.target.files?.[0]; if (file && uploadingDocType) { uploadDocument(file, uploadingDocType); } else { setUploadingDocType(null); } e.target.value = ""; }} onBlur={() => setTimeout(() => setUploadingDocType(null), 300)} />
         </div>
       )}
 
