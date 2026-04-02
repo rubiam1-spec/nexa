@@ -31,9 +31,9 @@ function SectionLabel({ children, count }: { children: React.ReactNode; count?: 
   );
 }
 
-function StatCard({ label, value, alert, sub }: { label: string; value: string | number; alert?: string | null; sub?: string }) {
+function StatCard({ label, value, alert, sub, onClick }: { label: string; value: string | number; alert?: string | null; sub?: string; onClick?: () => void }) {
   return (
-    <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 10, padding: "14px 16px" }}>
+    <div onClick={onClick} style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 10, padding: "14px 16px", cursor: onClick ? "pointer" : "default" }}>
       <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--text-disabled)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>{label}</div>
       <div style={{ fontSize: 22, fontWeight: 700, color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>{value}</div>
       {alert && <div style={{ fontSize: 10, color: "#FBBF24", marginTop: 4 }}>{alert}</div>}
@@ -266,10 +266,10 @@ export default function MeuDiaPage() {
         <>
           <SectionLabel>Saúde da operação</SectionLabel>
           <div style={{ display: "grid", gridTemplateColumns: colGrid, gap: 8, marginBottom: 4 }}>
-            <StatCard label="Negociações" value={data.stats.activeNegotiations} />
-            <StatCard label="Reservas" value={data.stats.activeReservations} alert={data.stats.expiringReservationsCount > 0 ? `${data.stats.expiringReservationsCount} vencem em 48h` : null} />
-            <StatCard label="Vendas mês" value={data.stats.salesThisMonth} />
-            <StatCard label="Unid. disponíveis" value={`${data.stats.availableUnits}/${data.stats.totalUnits}`} />
+            <StatCard label="Negociações" value={data.stats.activeNegotiations} onClick={() => navigate("/negociacoes")} />
+            <StatCard label="Reservas" value={data.stats.activeReservations} alert={data.stats.expiringReservationsCount > 0 ? `${data.stats.expiringReservationsCount} vencem em 48h` : null} onClick={() => navigate("/pipeline")} />
+            <StatCard label="Vendas mês" value={data.stats.salesThisMonth} onClick={() => navigate("/pipeline")} />
+            <StatCard label="Unid. disponíveis" value={`${data.stats.availableUnits}/${data.stats.totalUnits}`} onClick={() => navigate("/unidades")} />
           </div>
 
           <SectionLabel count={data.pendingActions.length || undefined}>Precisa da sua ação</SectionLabel>
@@ -324,10 +324,10 @@ export default function MeuDiaPage() {
 
           <SectionLabel>Operação</SectionLabel>
           <div style={{ display: "grid", gridTemplateColumns: colGrid, gap: 8 }}>
-            <StatCard label="Negociações" value={data.stats.activeNegotiations} />
-            <StatCard label="Reservas" value={data.stats.activeReservations} />
-            <StatCard label="Vendas mês" value={data.stats.salesThisMonth} />
-            <StatCard label="Unid. disponíveis" value={`${data.stats.availableUnits}/${data.stats.totalUnits}`} />
+            <StatCard label="Negociações" value={data.stats.activeNegotiations} onClick={() => navigate("/negociacoes")} />
+            <StatCard label="Reservas" value={data.stats.activeReservations} onClick={() => navigate("/pipeline")} />
+            <StatCard label="Vendas mês" value={data.stats.salesThisMonth} onClick={() => navigate("/pipeline")} />
+            <StatCard label="Unid. disponíveis" value={`${data.stats.availableUnits}/${data.stats.totalUnits}`} onClick={() => navigate("/unidades")} />
           </div>
         </>
       )}

@@ -93,7 +93,7 @@ export function useMyDay(userId: string | null, accountId: string | null, develo
         (lastActs ?? []).forEach((a: Record<string, unknown>) => { const pid = a.profile_id as string; if (!lastByUser[pid]) lastByUser[pid] = a.activity_date as string; });
 
         // Batch: active negotiations per member
-        const { data: negsByMember } = await supabase.from("negotiations").select("broker_id, owner_profile_id").eq("account_id", accountId).eq("development_id", developmentId).in("status", ["open", "in_progress"]);
+        const { data: negsByMember } = await supabase.from("negotiations").select("broker_id, owner_profile_id").eq("account_id", accountId).eq("development_id", developmentId).in("status", ["open", "in_progress", "OPEN", "IN_PROGRESS"]);
         const negCountByUser: Record<string, number> = {};
         (negsByMember ?? []).forEach((n: Record<string, unknown>) => {
           const bid = n.broker_id as string; const oid = n.owner_profile_id as string;
@@ -139,18 +139,18 @@ export function useMyDay(userId: string | null, accountId: string | null, develo
         pendingActions.push({ type: "expiring_reservation", id: r.id as string, label: "Reserva vencendo", detail: `Expira em ${new Date(r.expires_at as string).toLocaleDateString("pt-BR")}`, entityId: r.negotiation_id as string });
       });
 
-      // ── STATS ──
-      const { count: activeNeg } = await supabase.from("negotiations").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("development_id", developmentId).in("status", ["open", "in_progress"]);
-      const { count: activeRes } = await supabase.from("reservations").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("development_id", developmentId).eq("status", "ativa");
+      // ── STATS (include both lowercase and uppercase status values) ──
+      const { count: activeNeg } = await supabase.from("negotiations").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("development_id", developmentId).in("status", ["open", "in_progress", "OPEN", "IN_PROGRESS"]);
+      const { count: activeRes } = await supabase.from("reservations").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("development_id", developmentId).in("status", ["ativa", "active", "ACTIVE"]);
       const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
       const { count: salesMonth } = await supabase.from("sales").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("development_id", developmentId).gte("created_at", monthStart.toISOString());
       const { count: availableUnits } = await supabase.from("units").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("development_id", developmentId).eq("status", "available");
       const { count: totalUnits } = await supabase.from("units").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("development_id", developmentId);
 
       // ── FUNNEL ──
-      const { data: funnelRaw } = await supabase.from("negotiations").select("status").eq("account_id", accountId).eq("development_id", developmentId).in("status", ["open", "in_progress", "won"]);
-      const fNeg = (funnelRaw ?? []).filter((n: Record<string, unknown>) => n.status === "open" || n.status === "in_progress").length;
-      const { count: fProp } = await supabase.from("proposals").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("development_id", developmentId).in("status", ["sent", "under_analysis"]);
+      const { count: fNegCount } = await supabase.from("negotiations").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("development_id", developmentId).in("status", ["open", "in_progress", "OPEN", "IN_PROGRESS"]);
+      const fNeg = fNegCount ?? 0;
+      const { count: fProp } = await supabase.from("proposals").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("development_id", developmentId).in("status", ["sent", "under_analysis", "SENT", "UNDER_ANALYSIS"]);
       const fRes = activeRes ?? 0;
       const fSale = salesMonth ?? 0;
 
@@ -158,7 +158,7 @@ export function useMyDay(userId: string | null, accountId: string | null, develo
       let myActive = 0, myPending = 0, myRes = 0, mySims = 0;
       if (isBroker || isConsultant) {
         const filter = isBroker ? { broker_id: userId } : { owner_profile_id: userId };
-        const { count: ma } = await supabase.from("negotiations").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("development_id", developmentId).in("status", ["open", "in_progress"]).match(filter);
+        const { count: ma } = await supabase.from("negotiations").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("development_id", developmentId).in("status", ["open", "in_progress", "OPEN", "IN_PROGRESS"]).match(filter);
         myActive = ma ?? 0;
         const { count: mp } = await supabase.from("proposals").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("development_id", developmentId).in("status", ["sent", "under_analysis"]).match(isBroker ? { broker_id: userId } : {});
         myPending = mp ?? 0;
