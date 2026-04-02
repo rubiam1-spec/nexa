@@ -14,7 +14,11 @@ function maskPhone(v: string) { return v.replace(/\D/g, "").replace(/(\d{2})(\d)
 export default function BrokeragesPage() {
   const navigate = useNavigate();
   const { account, errorMessage: accountError, isUsingMock, status: accountStatus } = useAccount();
-  const { brokerages, errorMessage, isLoading, status } = useBrokerages(account?.accountId ?? null, isUsingMock);
+  const { brokerages: brokeragesFromHook, errorMessage, isLoading, status } = useBrokerages(account?.accountId ?? null, isUsingMock);
+  const [brokerages_local, setBrokerages_local] = useState<typeof brokeragesFromHook>([]);
+  const [localInit, setLocalInit] = useState(false);
+  useEffect(() => { if (brokeragesFromHook.length > 0 && !localInit) { setBrokerages_local(brokeragesFromHook); setLocalInit(true); } }, [brokeragesFromHook, localInit]);
+  const brokerages = localInit ? brokerages_local : brokeragesFromHook;
   const accountId = account?.accountId ?? null;
 
   const [showForm, setShowForm] = useState(false);
@@ -70,15 +74,29 @@ export default function BrokeragesPage() {
     finally { setCnpjLoading(false); }
   }
 
+  const [toast, setToast] = useState<string | null>(null);
+
   async function handleDelete() {
     if (!deleteTarget || !supabase) return;
     setDeleting(true);
     try {
-      if (deleteTarget.brokerCount > 0) await supabase.from("brokers").update({ brokerage_id: null, brokerage_name: null }).eq("brokerage_id", deleteTarget.id);
-      await supabase.from("brokerages").delete().eq("id", deleteTarget.id);
+      if (deleteTarget.brokerCount > 0) {
+        const { error: upErr } = await supabase.from("brokers").update({ brokerage_id: null, brokerage_name: null }).eq("brokerage_id", deleteTarget.id);
+        if (upErr) throw upErr;
+      }
+      const { error } = await supabase.from("brokerages").delete().eq("id", deleteTarget.id);
+      if (error) throw error;
+      // Optimistic: remove from local list without reload
+      setBrokerages_local((prev) => prev.filter((b) => b.id !== deleteTarget.id));
       setDeleteTarget(null);
-      window.location.reload();
-    } catch { /* silencioso */ }
+      setToast("Imobiliária excluída ✓");
+      setTimeout(() => setToast(null), 3000);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erro ao excluir";
+      setToast("Erro: " + msg);
+      setTimeout(() => setToast(null), 4000);
+      setDeleteTarget(null);
+    }
     finally { setDeleting(false); }
   }
 
@@ -192,6 +210,7 @@ export default function BrokeragesPage() {
         </>,
         document.body,
       )}
+      {toast && <div style={{ position: "fixed", bottom: 32, left: "50%", transform: "translateX(-50%)", background: toast.startsWith("Erro") ? "#F87171" : "var(--color-sprout)", color: toast.startsWith("Erro") ? "#fff" : "var(--color-ink)", padding: "10px 24px", borderRadius: 8, fontSize: 13, fontWeight: 700, zIndex: 10000, boxShadow: "0 4px 16px rgba(0,0,0,0.4)" }}>{toast}</div>}
     </div>
   );
 }
