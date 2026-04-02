@@ -5,6 +5,7 @@ import { useAccount } from "../../../app/contexts/AccountContext";
 import { useDevelopment } from "../../../app/contexts/DevelopmentContext";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
 import { useMyDay, type ScheduledActivity, type TeamMember, type PendingAction } from "../hooks/useMyDay";
+import { timeAgo } from "../../../shared/utils/timeAgo";
 import Avatar from "../../../shared/components/Avatar";
 
 // ── Helpers ──
@@ -268,6 +269,26 @@ export default function MeuDiaPage() {
         <>
           <SectionLabel count={data.agenda.overdue.length + data.agenda.today.length}>Minha agenda</SectionLabel>
           <AgendaSection agenda={data.agenda} navigate={navigate} />
+
+          {data.newLeads.length > 0 && (<>
+            <SectionLabel count={data.newLeads.length}>Novos leads</SectionLabel>
+            <div style={{ display: "grid", gap: 6 }}>
+              {data.newLeads.slice(0, 5).map((l) => {
+                const originEmoji = l.origin === "facebook" ? "📱" : l.origin === "instagram" ? "📸" : l.origin === "google" ? "🔍" : "📋";
+                return (
+                  <div key={l.id} onClick={() => navigate(`/clientes/${l.id}`)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "var(--surface-raised)", border: "1px solid rgba(96,165,250,0.2)", borderLeft: "3px solid #60A5FA", borderRadius: "0 10px 10px 0", cursor: "pointer" }}>
+                    <span style={{ fontSize: 16 }}>{originEmoji}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-secondary)" }}>{l.name}</div>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{l.origin_detail || l.origin} · {timeAgo(l.created_at)}</div>
+                    </div>
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 6, background: "rgba(96,165,250,0.15)", color: "#60A5FA" }}>LEAD</span>
+                  </div>
+                );
+              })}
+              {data.newLeads.length > 5 && <div style={{ textAlign: "center", padding: 6 }}><span onClick={() => navigate("/clientes")} style={{ fontSize: 12, color: "var(--interactive-primary)", cursor: "pointer" }}>Ver todos os leads →</span></div>}
+            </div>
+          </>)}
 
           <SectionLabel count={data.team.members.length}>Equipe</SectionLabel>
           {data.team.members.length > 0 ? data.team.members.map((m) => <TeamRow key={m.id} m={m} />) : <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Nenhum membro encontrado.</div>}

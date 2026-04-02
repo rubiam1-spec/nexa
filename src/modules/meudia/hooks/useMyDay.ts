@@ -22,10 +22,13 @@ export interface PendingAction {
   id: string; label: string; detail: string; entityId: string;
 }
 
+export interface LeadItem { id: string; name: string; phone: string | null; origin: string | null; origin_detail: string | null; created_at: string }
+
 export interface MeuDiaData {
   agenda: { overdue: ScheduledActivity[]; today: ScheduledActivity[]; upcoming: ScheduledActivity[] };
   team: { members: TeamMember[]; inactiveCount: number };
   pendingActions: PendingAction[];
+  newLeads: LeadItem[];
   stats: { activeNegotiations: number; activeReservations: number; salesThisMonth: number; availableUnits: number; totalUnits: number; expiringReservationsCount: number };
   funnel: { negotiation: number; proposal: number; reservation: number; sale: number };
   myNegotiations: { active: number; pendingProposals: number; reservations: number; simulations: number };
@@ -36,6 +39,7 @@ const EMPTY: MeuDiaData = {
   agenda: { overdue: [], today: [], upcoming: [] },
   team: { members: [], inactiveCount: 0 },
   pendingActions: [],
+  newLeads: [],
   stats: { activeNegotiations: 0, activeReservations: 0, salesThisMonth: 0, availableUnits: 0, totalUnits: 0, expiringReservationsCount: 0 },
   funnel: { negotiation: 0, proposal: 0, reservation: 0, sale: 0 },
   myNegotiations: { active: 0, pendingProposals: 0, reservations: 0, simulations: 0 },
@@ -162,10 +166,17 @@ export function useMyDay(userId: string | null, accountId: string | null, develo
         mySims = ms ?? 0;
       }
 
+      // ── NEW LEADS ──
+      let leadsQuery = supabase.from("clients").select("id, name, phone, origin, origin_detail, created_at").eq("account_id", accountId).eq("status", "lead").order("created_at", { ascending: false }).limit(10);
+      if (isConsultant && userId) leadsQuery = leadsQuery.eq("assigned_to", userId);
+      const { data: leadsRaw } = await leadsQuery;
+      const newLeads = (leadsRaw ?? []) as LeadItem[];
+
       setData({
         agenda: { overdue: agendaOverdue, today: agendaToday, upcoming: agendaUpcoming },
         team: { members, inactiveCount: members.filter((m) => m.status === "inactive").length },
         pendingActions,
+        newLeads,
         stats: { activeNegotiations: activeNeg ?? 0, activeReservations: activeRes ?? 0, salesThisMonth: salesMonth ?? 0, availableUnits: availableUnits ?? 0, totalUnits: totalUnits ?? 0, expiringReservationsCount: (expiringRes ?? []).length },
         funnel: { negotiation: fNeg, proposal: fProp ?? 0, reservation: fRes, sale: fSale },
         myNegotiations: { active: myActive, pendingProposals: myPending, reservations: myRes, simulations: mySims },
