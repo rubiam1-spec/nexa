@@ -10,7 +10,7 @@ import UploadImagem from "../../../shared/components/UploadImagem";
 import EditorMapaPins from "../components/EditorMapaPins";
 import { useUnits } from "../../units/hooks/useUnits";
 
-type Aba = "marca" | "empreendimento" | "documentos" | "operacao" | "materiais";
+type Aba = "marca" | "empreendimento" | "documentos" | "operacao" | "materiais" | "leads";
 
 const INPUT: React.CSSProperties = { width: "100%", boxSizing: "border-box", background: "var(--color-ink)", border: "1px solid var(--color-stone)", borderRadius: 8, padding: "10px 14px", color: "var(--color-bone)", fontSize: 14 };
 
@@ -178,6 +178,7 @@ export default function SettingsPage() {
     { key: "documentos", label: "Documentos", icon: "D" },
     { key: "operacao", label: "Operação", icon: "O" },
     { key: "materiais", label: "Materiais", icon: "G" },
+    { key: "leads", label: "Leads", icon: "L" },
   ];
 
   return (
@@ -464,6 +465,50 @@ export default function SettingsPage() {
                 <button type="button" onClick={() => void handleDriveSave()} disabled={!extractFolderId(driveLink) || driveSaving || dis} style={{ padding: "0 16px", height: 36, borderRadius: 8, border: "none", background: "var(--color-sprout)", color: "var(--color-ink)", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
                   {driveSaving ? "Salvando..." : driveSaved ? "Salvo ✓" : "Salvar"}
                 </button>
+              </div>
+            </div>
+          ) : null}
+
+          {aba === "leads" ? (
+            <div className="nexa-card">
+              <div className="nexa-label" style={{ marginBottom: 20 }}>Captação de Leads</div>
+
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--color-dust)", marginBottom: 8 }}>Modo de distribuição</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {([["manual", "Manual", "Leads chegam sem responsável. Gestor atribui."], ["automatic", "Roleta automática", "Round-robin entre consultores ativos."]] as const).map(([k, l, d]) => (
+                    <div key={k} style={{ flex: 1, minWidth: 200, padding: "14px 16px", borderRadius: 10, border: `2px solid ${k === "manual" ? "var(--color-sprout)" : "var(--color-stone)"}`, background: k === "manual" ? "rgba(74,222,128,0.06)" : "transparent", cursor: "default" }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: k === "manual" ? "var(--color-sprout)" : "var(--color-bone)" }}>{l}</div>
+                      <div style={{ fontSize: 12, color: "var(--color-fog)", marginTop: 4 }}>{d}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--color-fog)", marginTop: 8, fontStyle: "italic" }}>Modo atual: Manual. Para ativar a roleta, configure os consultores e entre em contato.</div>
+              </div>
+
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--color-dust)", marginBottom: 8 }}>Webhook URL</div>
+                <div style={{ fontSize: 12, color: "var(--color-fog)", marginBottom: 8 }}>Cole esta URL no Facebook Lead Ads, formulário do site ou CRM externo.</div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <input readOnly value="https://phpbsiyxwsbzeevqgixk.supabase.co/functions/v1/receive-lead" style={{ ...INPUT, flex: 1, fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--color-fog)" }} onFocus={(e) => e.target.select()} />
+                  <button type="button" onClick={() => { navigator.clipboard.writeText("https://phpbsiyxwsbzeevqgixk.supabase.co/functions/v1/receive-lead"); setMsg("URL copiada!"); setTimeout(() => setMsg(null), 2000); }} style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid var(--color-stone)", background: "transparent", color: "var(--color-bone)", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>Copiar</button>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--color-dust)", marginBottom: 8 }}>Como integrar</div>
+                <div style={{ fontSize: 12, color: "var(--color-fog)", lineHeight: 1.8 }}>
+                  <strong style={{ color: "var(--color-bone)" }}>Facebook/Instagram Lead Ads:</strong><br />
+                  1. Acesse Facebook Business Suite → Formulários de leads<br />
+                  2. Em "Integrações" → cole a URL acima como webhook<br />
+                  3. Leads chegam automaticamente no NEXA<br /><br />
+                  <strong style={{ color: "var(--color-bone)" }}>Formulário do site:</strong><br />
+                  Envie um POST para a URL com: {"{"} name, email, phone, origin, campaign {"}"}
+                </div>
+              </div>
+
+              <div style={{ padding: "12px 16px", background: "rgba(96,165,250,0.06)", border: "1px solid rgba(96,165,250,0.2)", borderRadius: 10, fontSize: 12, color: "#60A5FA" }}>
+                💡 Leads recebidos aparecem na seção "Novos Leads" do Meu Dia e na listagem de Clientes com badge "LEAD".
               </div>
             </div>
           ) : null}

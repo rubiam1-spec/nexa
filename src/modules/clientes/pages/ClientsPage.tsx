@@ -18,20 +18,20 @@ export default function ClientsPage() {
   const { account, errorMessage: accountError, isUsingMock, status: accountStatus, isBroker, brokerId } = useAccount();
   const { authenticatedProfile } = useAuth();
   const clientFilter = useClientFilter();
-  const { clients, errorMessage, isLoading, status, refetch } = useClients(account?.accountId ?? null, isUsingMock, clientFilter);
+  const { clients, errorMessage, isLoading, status } = useClients(account?.accountId ?? null, isUsingMock, clientFilter);
   const { brokers } = useBrokers(account?.accountId ?? null, isUsingMock);
   const screen = useScreen();
   const perms = getPermissions(account?.role ?? null);
   const activeCount = clients.filter((c) => c.status === "active").length;
 
   const [showForm, setShowForm] = useState(false);
-  const [list, setList] = useState<Client[]>([]);
+  const [list] = useState<Client[]>([]);
   const [name, setName] = useState(""); const [email, setEmail] = useState(""); const [phone, setPhone] = useState("");
   const [cpf, setCpf] = useState(""); const [city, setCity] = useState(""); const [profession, setProfession] = useState("");
   const [maritalStatus, setMaritalStatus] = useState(""); const [obs, setObs] = useState("");
   const [selectedBrokerId, setSelectedBrokerId] = useState(isBroker ? (brokerId ?? "") : "");
   const [saving, setSaving] = useState(false); const [err, setErr] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [successMsg] = useState<string | null>(null);
   const [filterBroker, setFilterBroker] = useState("all");
   const firstInputRef = useRef<HTMLInputElement>(null);
 
@@ -55,11 +55,9 @@ export default function ClientsPage() {
         observations: obs.trim() || undefined, createdBy: authenticatedProfile?.id,
         brokerId: selectedBrokerId || undefined,
       });
-      setList((p) => [c, ...p]); setShowForm(false);
-      setName(""); setEmail(""); setPhone(""); setCpf(""); setCity(""); setProfession(""); setMaritalStatus(""); setObs("");
-      if (!isBroker) setSelectedBrokerId("");
-      setSuccessMsg("Cliente cadastrado com sucesso!"); setTimeout(() => setSuccessMsg(null), 3000);
-      refetch();
+      // Redirect to detail page for full form with tabs
+      window.location.href = `/clientes/${c.id}`;
+      return;
     } catch (e: unknown) { setErr(e instanceof Error ? e.message : "Falha ao criar cliente."); } finally { setSaving(false); }
   }
 
