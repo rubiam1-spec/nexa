@@ -12,7 +12,7 @@ const UF_OPTS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG
 function maskCNPJ(v: string) { return v.replace(/\D/g, "").replace(/(\d{2})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1/$2").replace(/(\d{4})(\d)/, "$1-$2").slice(0, 18); }
 function maskPhone(v: string) { return v.replace(/\D/g, "").replace(/(\d{2})(\d)/, "($1) $2").replace(/(\d{5})(\d)/, "$1-$2").slice(0, 15); }
 
-interface BrokerageData { id: string; name: string; cnpj: string | null; razao_social: string | null; nome_fantasia: string | null; responsavel: string | null; telefone: string | null; email: string | null; cidade: string | null; uf: string | null; endereco: string | null; created_at: string }
+interface BrokerageData { id: string; name: string; cnpj: string | null; creci: string | null; razao_social: string | null; nome_fantasia: string | null; responsavel: string | null; telefone: string | null; email: string | null; cidade: string | null; uf: string | null; endereco: string | null; created_at: string }
 interface LinkedBroker { id: string; name: string; creci: string | null; phone: string | null; status: string; has_system_access: boolean }
 
 export default function BrokerageDetailPage() {
@@ -98,6 +98,7 @@ export default function BrokerageDetailPage() {
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 14 }}>
           <div style={{ gridColumn: isMobile ? "1" : "1 / 3" }}><label style={LBL}>Nome fantasia</label>{editing ? <input style={IS} value={f("nome_fantasia") || f("name")} onChange={(e) => setF("nome_fantasia", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{brokerage.nome_fantasia || brokerage.name || "—"}</div>}</div>
           <div><label style={LBL}>CNPJ</label>{editing ? <input style={IS} value={maskCNPJ(f("cnpj"))} onChange={(e) => setF("cnpj", e.target.value.replace(/\D/g, "").slice(0, 14))} maxLength={18} /> : <div style={{ fontSize: 14, color: T.bone }}>{brokerage.cnpj ? maskCNPJ(brokerage.cnpj) : "—"}</div>}</div>
+          <div><label style={LBL}>CRECI-J</label>{editing ? <input style={IS} value={f("creci")} onChange={(e) => setF("creci", e.target.value)} placeholder="00000/UF" /> : <div style={{ fontSize: 14, color: T.bone }}>{brokerage.creci || "—"}</div>}</div>
           <div style={{ gridColumn: isMobile ? "1" : "1 / -1" }}><label style={LBL}>Razão social</label>{editing ? <input style={IS} value={f("razao_social")} onChange={(e) => setF("razao_social", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{brokerage.razao_social || "—"}</div>}</div>
           <div><label style={LBL}>Responsável</label>{editing ? <input style={IS} value={f("responsavel")} onChange={(e) => setF("responsavel", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{brokerage.responsavel || "—"}</div>}</div>
           <div><label style={LBL}>Telefone</label>{editing ? <input style={IS} value={maskPhone(f("telefone"))} onChange={(e) => setF("telefone", e.target.value.replace(/\D/g, "").slice(0, 11))} maxLength={15} /> : <div style={{ fontSize: 14, color: T.bone }}>{brokerage.telefone ? maskPhone(brokerage.telefone) : (brokerage as unknown as Record<string, string>).phone ? maskPhone((brokerage as unknown as Record<string, string>).phone) : "—"}</div>}</div>

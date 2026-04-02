@@ -117,7 +117,7 @@ export default function BrokerDetailPage() {
       {tab === "dados" && (
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 14 }}>
           <div style={{ gridColumn: isMobile ? "1" : "1 / 3" }}><label style={LBL}>Nome completo</label>{editing ? <input style={IS} value={f("name")} onChange={(e) => setF("name", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{broker.name || "—"}</div>}</div>
-          <div><label style={LBL}>CRECI</label>{editing ? <input style={IS} value={f("creci")} onChange={(e) => setF("creci", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{broker.creci || "—"}</div>}</div>
+          <div><label style={LBL}>CRECI-F</label>{editing ? <input style={IS} value={f("creci")} onChange={(e) => setF("creci", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{broker.creci || "—"}</div>}</div>
           <div><label style={LBL}>CPF</label>{editing ? <input style={IS} value={maskCPF(f("cpf"))} onChange={(e) => setF("cpf", e.target.value.replace(/\D/g, "").slice(0, 11))} maxLength={14} /> : <div style={{ fontSize: 14, color: T.bone }}>{broker.cpf ? maskCPF(broker.cpf) : "—"}</div>}</div>
           <div><label style={LBL}>Telefone</label>{editing ? <input style={IS} value={maskPhone(f("phone"))} onChange={(e) => setF("phone", e.target.value.replace(/\D/g, "").slice(0, 11))} maxLength={15} /> : <div style={{ fontSize: 14, color: T.bone }}>{broker.phone ? maskPhone(broker.phone) : "—"}</div>}</div>
           <div><label style={LBL}>Email</label>{editing ? <input type="email" style={IS} value={f("email")} onChange={(e) => setF("email", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{broker.email || "—"}</div>}</div>

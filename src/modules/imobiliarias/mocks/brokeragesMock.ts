@@ -7,7 +7,7 @@ export const brokeragesMock: Brokerage[] = [
     email: "contato@horizonteimoveis.com",
     phone: "(11) 3333-4401",
     city: "Sao Paulo",
-    status: "active",
+    cnpj: null, creci: null, responsavel: null, status: "active",
   },
   {
     id: "brokerage_2",
@@ -15,7 +15,7 @@ export const brokeragesMock: Brokerage[] = [
     email: "atendimento@atlanticabrokers.com",
     phone: "(21) 3222-1800",
     city: "Rio de Janeiro",
-    status: "active",
+    cnpj: null, creci: null, responsavel: null, status: "active",
   },
   {
     id: "brokerage_3",
@@ -23,7 +23,7 @@ export const brokeragesMock: Brokerage[] = [
     email: "relacionamento@sulhouse.com",
     phone: "(41) 3344-8810",
     city: "Curitiba",
-    status: "inactive",
+    cnpj: null, creci: null, responsavel: null, status: "inactive",
   },
   {
     id: "brokerage_4",
@@ -31,7 +31,7 @@ export const brokeragesMock: Brokerage[] = [
     email: "comercial@minasprime.com",
     phone: "(31) 3555-9900",
     city: "Belo Horizonte",
-    status: "active",
+    cnpj: null, creci: null, responsavel: null, status: "active",
   },
   {
     id: "brokerage_5",
@@ -39,6 +39,6 @@ export const brokeragesMock: Brokerage[] = [
     email: "contato@bahiaselect.com",
     phone: "(71) 3444-7070",
     city: "Salvador",
-    status: "inactive",
+    cnpj: null, creci: null, responsavel: null, status: "inactive",
   },
 ];

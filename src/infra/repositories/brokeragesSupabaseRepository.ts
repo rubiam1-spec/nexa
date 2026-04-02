@@ -7,6 +7,9 @@ type BrokerageRow = {
   email: string;
   phone: string;
   city: string;
+  cnpj: string | null;
+  creci: string | null;
+  responsavel: string | null;
   status: "active" | "inactive";
 };
 
@@ -17,6 +20,9 @@ function mapBrokerageRowToBrokerage(row: BrokerageRow): Brokerage {
     email: row.email,
     phone: row.phone,
     city: row.city,
+    cnpj: row.cnpj,
+    creci: row.creci,
+    responsavel: row.responsavel,
     status: row.status,
   };
 }
@@ -26,7 +32,7 @@ export async function getBrokerages(accountId: string) {
 
   const { data, error } = await supabase
     .from("brokerages")
-    .select("id, name, email, phone, city, status")
+    .select("id, name, email, phone, city, cnpj, creci, responsavel, status")
     .eq("account_id", accountId)
     .order("created_at", { ascending: false });
 
@@ -51,13 +57,13 @@ export async function createBrokerage(input: {
     .insert({
       account_id: input.accountId,
       name: input.name,
-      email: input.email,
+      email: input.email || "",
       phone: input.phone,
       city: input.city,
       cnpj: input.cnpj || null,
       status: "active",
     })
-    .select("id, name, email, phone, city, status")
+    .select("id, name, email, phone, city, cnpj, creci, responsavel, status")
     .maybeSingle();
   if (error) throw new Error(`Falha ao criar imobiliária: ${error.message}`);
   if (!data) throw new Error("Imobiliária não retornada após criação.");
