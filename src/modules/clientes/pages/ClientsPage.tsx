@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAccount } from "../../../app/contexts/AccountContext";
 import { useAuth } from "../../../app/contexts/AuthContext";
 import { useClients } from "../hooks/useClients";
@@ -15,6 +15,7 @@ const btnP: React.CSSProperties = { background: "var(--color-sprout)", color: "v
 const btnS: React.CSSProperties = { background: "transparent", color: "var(--color-bone)", border: "1px solid var(--color-stone)", borderRadius: 8, padding: "0 16px", height: 36, fontSize: 13, fontWeight: 700, cursor: "pointer" };
 
 export default function ClientsPage() {
+  const navigate = useNavigate();
   const { account, errorMessage: accountError, isUsingMock, status: accountStatus, isBroker, brokerId } = useAccount();
   const { authenticatedProfile } = useAuth();
   const clientFilter = useClientFilter();
@@ -52,9 +53,8 @@ export default function ClientsPage() {
         cpf: cpf.trim() || undefined, createdBy: authenticatedProfile?.id,
         brokerId: selectedBrokerId || undefined,
       });
-      // Redirect to detail page for full form with tabs
-      window.location.href = `/clientes/${c.id}`;
-      return;
+      // Navigate to detail page for full form with tabs (SPA transition)
+      navigate(`/clientes/${c.id}`);
     } catch (e: unknown) { setErr(e instanceof Error ? e.message : "Falha ao criar cliente."); } finally { setSaving(false); }
   }
 
