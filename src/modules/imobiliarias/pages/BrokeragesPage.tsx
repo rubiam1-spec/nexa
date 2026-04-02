@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useAccount } from "../../../app/contexts/AccountContext";
 import { useBrokerages } from "../hooks/useBrokerages";
@@ -21,6 +22,9 @@ export default function BrokeragesPage() {
   const [responsavel, setResponsavel] = useState(""); const [phone, setPhone] = useState(""); const [city, setCity] = useState("");
   const [saving, setSaving] = useState(false); const [err, setErr] = useState<string | null>(null);
   const [cnpjLoading, setCnpjLoading] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; brokerCount: number } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
   const [brokerCounts, setBrokerCounts] = useState<Record<string, number>>({});
 
@@ -64,6 +68,18 @@ export default function BrokeragesPage() {
       }
     } catch { /* silencioso */ }
     finally { setCnpjLoading(false); }
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget || !supabase) return;
+    setDeleting(true);
+    try {
+      if (deleteTarget.brokerCount > 0) await supabase.from("brokers").update({ brokerage_id: null, brokerage_name: null }).eq("brokerage_id", deleteTarget.id);
+      await supabase.from("brokerages").delete().eq("id", deleteTarget.id);
+      setDeleteTarget(null);
+      window.location.reload();
+    } catch { /* silencioso */ }
+    finally { setDeleting(false); }
   }
 
   async function handleSave() {
@@ -132,7 +148,7 @@ export default function BrokeragesPage() {
       ) : (
         <div style={{ overflowX: "auto" }}>
           <table className="nexa-table">
-            <thead><tr><th>Nome</th><th>CNPJ</th><th>CRECI-J</th><th>Responsável</th><th>Telefone</th><th>Cidade</th><th>Corretores</th><th>Status</th></tr></thead>
+            <thead><tr><th>Nome</th><th>CNPJ</th><th>CRECI-J</th><th>Responsável</th><th>Telefone</th><th>Cidade</th><th>Corretores</th><th>Status</th><th></th></tr></thead>
             <tbody>{filtered.map((b) => (
               <tr key={b.id} style={{ cursor: "pointer" }} onClick={() => navigate(`/imobiliarias/${b.id}`)}>
                 <td style={{ color: "var(--color-bone)", fontWeight: 600 }}>{b.name}</td>
@@ -143,10 +159,38 @@ export default function BrokeragesPage() {
                 <td>{b.city || "—"}</td>
                 <td style={{ textAlign: "center" }}>{brokerCounts[b.id] || 0}</td>
                 <td><span className="nexa-badge" style={{ color: b.status === "active" ? "var(--color-sprout)" : "var(--color-fog)", background: b.status === "active" ? "var(--color-sprout-muted)" : "rgba(156,150,134,0.12)" }}>{b.status === "active" ? "Ativa" : "Inativa"}</span></td>
+                <td onClick={(e) => e.stopPropagation()} style={{ position: "relative" }}>
+                  <button type="button" onClick={() => setMenuOpen(menuOpen === b.id ? null : b.id)} style={{ background: "none", border: "none", color: "var(--color-fog)", fontSize: 16, cursor: "pointer", padding: "2px 6px" }}>⋮</button>
+                  {menuOpen === b.id && (<>
+                    <div style={{ position: "fixed", inset: 0, zIndex: 49 }} onClick={() => setMenuOpen(null)} />
+                    <div style={{ position: "absolute", right: 0, top: 28, background: "var(--color-carbon)", border: "1px solid var(--color-stone)", borderRadius: 8, zIndex: 50, minWidth: 140, boxShadow: "0 4px 12px rgba(0,0,0,0.3)" }}>
+                      <button type="button" onClick={() => { setMenuOpen(null); navigate(`/imobiliarias/${b.id}`); }} onMouseEnter={(e) => { e.currentTarget.style.background = "var(--color-stone)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }} style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", color: "var(--color-bone)", fontSize: 13, padding: "8px 16px", cursor: "pointer", borderRadius: "8px 8px 0 0" }}>✎ Editar</button>
+                      <button type="button" onClick={() => { setMenuOpen(null); setDeleteTarget({ id: b.id, name: b.name, brokerCount: brokerCounts[b.id] || 0 }); }} onMouseEnter={(e) => { e.currentTarget.style.background = "var(--color-stone)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }} style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", color: "#F87171", fontSize: 13, padding: "8px 16px", cursor: "pointer", borderRadius: "0 0 8px 8px" }}>🗑 Excluir</button>
+                    </div>
+                  </>)}
+                </td>
               </tr>
             ))}</tbody>
           </table>
         </div>
+      )}
+      {/* Delete modal */}
+      {deleteTarget && createPortal(
+        <>
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 9000 }} onClick={() => setDeleteTarget(null)} />
+          <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", background: "var(--surface-base)", border: "1px solid var(--color-stone)", borderRadius: 14, padding: 24, width: 400, maxWidth: "90vw", zIndex: 9001 }}>
+            <div style={{ fontSize: 16, fontWeight: 600, color: "var(--color-bone)", marginBottom: 8 }}>Excluir imobiliária</div>
+            <div style={{ fontSize: 13, color: "var(--color-fog)", marginBottom: 20, lineHeight: 1.6 }}>
+              Excluir <strong style={{ color: "var(--color-bone)" }}>{deleteTarget.name}</strong>?
+              {deleteTarget.brokerCount > 0 && <><br /><span style={{ color: "#FBBF24" }}>⚠ {deleteTarget.brokerCount} corretor{deleteTarget.brokerCount > 1 ? "es" : ""} vinculado{deleteTarget.brokerCount > 1 ? "s" : ""} ficará{deleteTarget.brokerCount > 1 ? "ão" : ""} sem imobiliária.</span></>}
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button type="button" onClick={() => setDeleteTarget(null)} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid var(--color-stone)", background: "transparent", color: "var(--color-bone)", fontSize: 13, cursor: "pointer" }}>Cancelar</button>
+              <button type="button" onClick={handleDelete} disabled={deleting} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#F87171", color: "var(--interactive-on-primary)", fontSize: 13, fontWeight: 600, cursor: deleting ? "not-allowed" : "pointer", opacity: deleting ? 0.6 : 1 }}>{deleting ? "Excluindo..." : "Excluir"}</button>
+            </div>
+          </div>
+        </>,
+        document.body,
       )}
     </div>
   );
