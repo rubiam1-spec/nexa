@@ -3,7 +3,8 @@ export type UserRole =
   | "manager"
   | "commercial_consultant"
   | "broker"
-  | "administrative";
+  | "administrative"
+  | "concierge";
 
 export type AuthUser = {
   id: string;
@@ -18,4 +19,6 @@ export type AuthenticatedProfile = {
   email: string;
   status: "active" | "inactive";
   role: UserRole | null;
+  avatarUrl: string | null;
+  phone: string | null;
 };

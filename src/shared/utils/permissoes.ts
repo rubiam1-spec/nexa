@@ -4,8 +4,8 @@ const ADMIN_ROLES = ["owner", "director"];
 // Roles que têm permissão de gestão
 const MANAGER_ROLES = ["owner", "director", "manager"];
 
-// Roles que têm permissão de gestão + administrativo
-const MANAGER_ADMIN_ROLES = ["owner", "director", "manager", "administrative"];
+// Roles que têm permissão de gestão + administrativo + concierge
+const MANAGER_ADMIN_ROLES = ["owner", "director", "manager", "administrative", "concierge"];
 
 function is(role: string | null, roles: string[]): boolean {
   return roles.includes(role ?? "");
@@ -95,6 +95,10 @@ export function podeVerItem(key: string, role: string | null): boolean {
   if (role === "commercial_consultant") {
     const consultantAllowed = ["meudia", "dashboard", "simulador", "negociacoes", "pipeline", "clientes", "unidades", "corretores", "atividades", "materiais", "feed"];
     return consultantAllowed.includes(key);
+  }
+  if (role === "concierge") {
+    const conciergeAllowed = ["meudia", "dashboard", "clientes", "corretores", "imobiliarias", "configuracoes"];
+    return conciergeAllowed.includes(key);
   }
   switch (key) {
     case "configuracoes": return podeAcessarConfiguracoes(role);

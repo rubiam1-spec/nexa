@@ -19,6 +19,8 @@ export function normalizeUserRole(role: string | null | undefined): UserRole | n
     case "administrative":
     case "administrativo":
       return "administrative";
+    case "concierge":
+      return "concierge";
     default:
       return null;
   }
@@ -36,6 +38,8 @@ export function getUserRoleLabel(role: UserRole | null | undefined) {
       return "Corretor";
     case "administrative":
       return "Administrativo";
+    case "concierge":
+      return "Concierge";
     default:
       return "Nao definido";
   }

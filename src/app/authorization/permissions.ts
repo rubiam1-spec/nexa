@@ -78,6 +78,7 @@ const permissionsByRole: Record<UserRole, PermissionAction[]> = {
     PermissionAction.CANCEL_RESERVATION,
     PermissionAction.EXPIRE_RESERVATION,
   ],
+  concierge: [],
 };
 
 export function canPerformAction(
