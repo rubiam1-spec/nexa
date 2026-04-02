@@ -97,7 +97,7 @@ export function podeVerItem(key: string, role: string | null): boolean {
     return consultantAllowed.includes(key);
   }
   if (role === "concierge") {
-    const conciergeAllowed = ["meudia", "dashboard", "clientes", "corretores", "imobiliarias", "configuracoes"];
+    const conciergeAllowed = ["meudia", "dashboard", "clientes", "corretores", "imobiliarias", "atividades", "configuracoes"];
     return conciergeAllowed.includes(key);
   }
   if (role === "administrative") {

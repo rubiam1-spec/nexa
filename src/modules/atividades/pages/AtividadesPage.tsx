@@ -339,7 +339,13 @@ function RegistrationModal({ accountId, developmentId, profileId, initialType, i
         if (isFutureDate || (nextAction.trim() && nextActionDate)) { onClose(); return; }
         setStep(2);
       }
-    } catch (err) { console.error("Erro ao salvar atividade:", err); }
+    } catch (err: unknown) {
+      console.error("Erro ao salvar atividade:", err);
+      const msg = err instanceof Error ? err.message : "Erro desconhecido";
+      if (msg.includes("row-level security")) alert("Sem permissão para registrar atividades.");
+      else if (msg.includes("foreign key")) alert("Participante inválido. Tente novamente.");
+      else alert("Erro ao salvar: " + msg);
+    }
     finally { setSaving(false); }
   }
 
