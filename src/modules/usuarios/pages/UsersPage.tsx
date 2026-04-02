@@ -19,7 +19,6 @@ const roleOptions: Array<{ value: UserRole; label: string; desc: string }> = [
   { value: "director", label: "Diretor", desc: "Acesso total, configurações estruturais" },
   { value: "manager", label: "Gestor Comercial", desc: "Acesso completo exceto configurações" },
   { value: "commercial_consultant", label: "Consultor Comercial", desc: "Negocia, propõe, solicita reserva" },
-  { value: "broker", label: "Corretor", desc: "Negociações próprias, propostas, simulações" },
   { value: "administrative", label: "Administrativo", desc: "Acesso operacional completo, sem gerenciar usuários" },
   { value: "concierge", label: "Concierge", desc: "Cadastros, documentos e verificação de vendas" },
 ];
