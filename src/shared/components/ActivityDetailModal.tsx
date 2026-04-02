@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { createPortal } from "react-dom";
 
 interface Activity {
@@ -6,6 +7,7 @@ interface Activity {
   outcome: string | null; description: string | null; skip_reason: string | null;
   contact_name: string | null; created_at: string; updated_at?: string | null;
   profiles?: { name: string; role: string } | null;
+  activity_photos?: { id: string; photo_url: string }[] | null;
 }
 
 interface ActivityParticipant {
@@ -35,6 +37,8 @@ export default function ActivityDetailModal({ activity, participants, onClose, o
   onEdit?: () => void; onComplete?: () => void; onSkip?: () => void; onDelete?: () => void;
   canEdit?: boolean;
 }) {
+  const [lightbox, setLightbox] = useState<{ urls: string[]; idx: number } | null>(null);
+  const photos = activity.activity_photos ?? [];
   const mobile = typeof window !== "undefined" && window.innerWidth < 768;
   const st = activity.status || "completed";
   const isScheduled = st === "scheduled";
@@ -96,6 +100,22 @@ export default function ActivityDetailModal({ activity, participants, onClose, o
           </div>
         )}
 
+        {/* Photos */}
+        {photos.length > 0 && (
+          <div style={{ padding: "0 24px 16px" }}>
+            <div style={{ fontSize: 10, color: T.fog, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "var(--font-mono)", marginBottom: 8 }}>FOTOS</div>
+            {photos.length === 1 ? (
+              <img src={photos[0].photo_url} alt="" onClick={() => setLightbox({ urls: photos.map((p) => p.photo_url), idx: 0 })} style={{ width: "100%", maxHeight: 300, objectFit: "cover", borderRadius: 8, cursor: "pointer" }} />
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+                {photos.map((p, i) => (
+                  <img key={p.id} src={p.photo_url} alt="" onClick={() => setLightbox({ urls: photos.map((ph) => ph.photo_url), idx: i })} style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: 6, cursor: "pointer" }} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Status badge */}
         {statusLabel && (
           <div style={{ padding: "0 24px 16px" }}>
@@ -146,6 +166,15 @@ export default function ActivityDetailModal({ activity, participants, onClose, o
           </div>
         )}
       </div>
+      {/* Lightbox */}
+      {lightbox && (
+        <div onClick={() => setLightbox(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.95)", zIndex: 10001, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <img src={lightbox.urls[lightbox.idx]} alt="" style={{ maxWidth: "95vw", maxHeight: "95vh", objectFit: "contain" }} onClick={(e) => e.stopPropagation()} />
+          <button type="button" onClick={() => setLightbox(null)} style={{ position: "absolute", top: 20, right: 20, background: "none", border: "none", color: "#fff", fontSize: 28, cursor: "pointer" }}>×</button>
+          {lightbox.urls.length > 1 && lightbox.idx > 0 && <button type="button" onClick={(e) => { e.stopPropagation(); setLightbox({ ...lightbox, idx: lightbox.idx - 1 }); }} style={{ position: "absolute", left: 16, background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", fontSize: 24, padding: "12px 16px", borderRadius: 8, cursor: "pointer" }}>‹</button>}
+          {lightbox.urls.length > 1 && lightbox.idx < lightbox.urls.length - 1 && <button type="button" onClick={(e) => { e.stopPropagation(); setLightbox({ ...lightbox, idx: lightbox.idx + 1 }); }} style={{ position: "absolute", right: 16, background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", fontSize: 24, padding: "12px 16px", borderRadius: 8, cursor: "pointer" }}>›</button>}
+        </div>
+      )}
     </>,
     document.body,
   );

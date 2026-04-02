@@ -20,15 +20,14 @@ export default function ClientsPage() {
   const clientFilter = useClientFilter();
   const { clients, errorMessage, isLoading, status } = useClients(account?.accountId ?? null, isUsingMock, clientFilter);
   const { brokers } = useBrokers(account?.accountId ?? null, isUsingMock);
-  const screen = useScreen();
+  useScreen(); // for responsive hooks
   const perms = getPermissions(account?.role ?? null);
   const activeCount = clients.filter((c) => c.status === "active").length;
 
   const [showForm, setShowForm] = useState(false);
   const [list] = useState<Client[]>([]);
   const [name, setName] = useState(""); const [email, setEmail] = useState(""); const [phone, setPhone] = useState("");
-  const [cpf, setCpf] = useState(""); const [city, setCity] = useState(""); const [profession, setProfession] = useState("");
-  const [maritalStatus, setMaritalStatus] = useState(""); const [obs, setObs] = useState("");
+  const [cpf, setCpf] = useState("");
   const [selectedBrokerId, setSelectedBrokerId] = useState(isBroker ? (brokerId ?? "") : "");
   const [saving, setSaving] = useState(false); const [err, setErr] = useState<string | null>(null);
   const [successMsg] = useState<string | null>(null);
@@ -50,9 +49,7 @@ export default function ClientsPage() {
       const c = await createClient({
         accountId: account.accountId, name: name.trim(),
         email: email.trim() || undefined, phone: phone.trim() || undefined,
-        city: city.trim() || undefined, cpf: cpf.trim() || undefined,
-        profession: profession.trim() || undefined, maritalStatus: maritalStatus.trim() || undefined,
-        observations: obs.trim() || undefined, createdBy: authenticatedProfile?.id,
+        cpf: cpf.trim() || undefined, createdBy: authenticatedProfile?.id,
         brokerId: selectedBrokerId || undefined,
       });
       // Redirect to detail page for full form with tabs
@@ -84,30 +81,16 @@ export default function ClientsPage() {
       ) : null}
       {showForm ? (
         <div className="nexa-card" style={{ marginBottom: 24 }}>
-          <div className="nexa-label" style={{ marginBottom: 16 }}>Cadastrar cliente</div>
-          <div style={{ display: "grid", gridTemplateColumns: screen.isMobile ? "1fr" : screen.isTablet ? "1fr 1fr" : "1fr 1fr 1fr", gap: 12, maxWidth: 700 }}>
-            <label><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Nome *</span><input ref={firstInputRef} type="text" value={name} onChange={(e) => setName(e.target.value)} /></label>
-            <label><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>E-mail (opcional)</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
-            <label><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Telefone (opcional)</span><input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
-            <label><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>CPF</span><input type="text" value={cpf} onChange={(e) => setCpf(e.target.value)} /></label>
-            <label><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Cidade</span><input type="text" value={city} onChange={(e) => setCity(e.target.value)} /></label>
-            <label><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Profissão</span><input type="text" value={profession} onChange={(e) => setProfession(e.target.value)} /></label>
-            <label><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Estado civil</span><input type="text" value={maritalStatus} onChange={(e) => setMaritalStatus(e.target.value)} /></label>
-            <label>
-              <span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Corretor responsável</span>
-              {isBroker ? (
-                <input type="text" value={activeBrokers.find((b) => b.id === selectedBrokerId)?.name ?? "Você"} readOnly style={{ color: "var(--color-fog)", cursor: "not-allowed" }} />
-              ) : (
-                <select value={selectedBrokerId} onChange={(e) => setSelectedBrokerId(e.target.value)}>
-                  <option value="">Nenhum</option>
-                  {activeBrokers.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                </select>
-              )}
-            </label>
-            <label style={{ gridColumn: screen.isMobile ? "1 / -1" : "3 / -1" }}><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Observações</span><input type="text" value={obs} onChange={(e) => setObs(e.target.value)} /></label>
+          <div className="nexa-label" style={{ marginBottom: 12 }}>Cadastro rápido</div>
+          <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+            <label style={{ flex: 2, minWidth: 140 }}><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Nome *</span><input ref={firstInputRef} type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome completo" /></label>
+            <label style={{ flex: 1, minWidth: 120 }}><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Telefone</span><input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(44) 99999-0000" /></label>
+            <label style={{ flex: 1.5, minWidth: 140 }}><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Email</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@exemplo.com" /></label>
+            <label style={{ flex: 1, minWidth: 110 }}><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>CPF</span><input type="text" value={cpf} onChange={(e) => setCpf(e.target.value)} placeholder="000.000.000-00" /></label>
+            <button type="button" disabled={!name.trim() || saving} onClick={() => void handleSave()} style={{ ...btnP, whiteSpace: "nowrap", flexShrink: 0 }}>{saving ? "..." : "Salvar ✓"}</button>
           </div>
           {err ? <p style={{ color: "var(--color-red)", fontSize: 12, marginTop: 8 }}>{err}</p> : null}
-          <button type="button" disabled={!name.trim() || saving} onClick={() => void handleSave()} style={{ ...btnP, marginTop: 16 }}>{saving ? "Salvando..." : "Salvar cliente"}</button>
+          <div style={{ fontSize: 11, color: "var(--color-fog)", marginTop: 8 }}>Dados completos (endereço, cônjuge, documentos) ficam na ficha do cliente.</div>
         </div>
       ) : null}
 
