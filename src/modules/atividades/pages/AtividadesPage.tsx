@@ -36,6 +36,7 @@ interface Activity {
   clients?: { name: string } | null; brokers?: { name: string } | null;
   profiles?: { name: string; role: string } | null;
   activity_photos?: { id: string; photo_url: string }[] | null;
+  activity_participants?: { participant_name: string; participant_type: string }[] | null;
 }
 
 interface RankedMember {
@@ -156,7 +157,7 @@ function ActivityCard({ activity, showAuthor, isOwner, canManage, onDelete, onEd
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14, fontWeight: 500, color: T.chalk, textDecoration: isSkipped ? "line-through" : "none" }}>{activity.title}</div>
         <div style={{ fontSize: 12, color: T.fog, display: "flex", gap: 10, marginTop: 3, flexWrap: "wrap" }}>
-          {activity.contact_name && <span>Com: {activity.contact_name}</span>}
+          {(() => { const names = activity.activity_participants?.length ? activity.activity_participants.map(p => p.participant_name).join(", ") : activity.contact_name; return names ? <span>Com: {names}</span> : null; })()}
           {activity.clients?.name && <span>Cliente: {activity.clients.name}</span>}
           {activity.brokers?.name && <span>Corretor: {activity.brokers.name}</span>}
           {activity.contact_company && <span>{activity.contact_company}</span>}
@@ -515,7 +516,7 @@ export default function AtividadesPage() {
     if (!supabase || !accountId || !developmentId) { setLoading(false); return; }
     setLoading(true);
     try {
-      let query = supabase.from("activities").select("*, clients(name), brokers(name), profiles!activities_profile_id_fkey(name, role), activity_photos(id, photo_url)").eq("account_id", accountId).order("activity_date", { ascending: false }).order("start_time", { ascending: false });
+      let query = supabase.from("activities").select("*, clients(name), brokers(name), profiles!activities_profile_id_fkey(name, role), activity_photos(id, photo_url), activity_participants(participant_name, participant_type)").eq("account_id", accountId).order("activity_date", { ascending: false }).order("start_time", { ascending: false });
       if (isConsultant && profileId) query = query.eq("profile_id", profileId);
       if (isManager && viewMode === "mine" && profileId) query = query.eq("profile_id", profileId);
       if (isManager && viewMode === "team" && consultantFilter !== "all") query = query.eq("profile_id", consultantFilter);
