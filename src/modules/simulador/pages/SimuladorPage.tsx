@@ -259,6 +259,12 @@ export default function SimuladorPage() {
           <SC style={{ opacity: selectedUnit ? 1 : 0.4, pointerEvents: selectedUnit ? "auto" : "none" }}>
             <SL>2 · Valor de entrada</SL>
             <Slider label="Percentual" value={sim.entradaPct} min={limites.entMin} max={limites.entMax} onChange={sim.setEntradaPct} suffix="%" hint={selectedUnit ? fmt(c.entradaValor) : undefined} error={entForaRange} />
+            {selectedUnit && c.valorNegociado > 0 && (
+              <div style={{ marginTop: 10 }}>
+                <label style={LBL_S}>Ou digite o valor da entrada (R$)</label>
+                <input type="number" value={Math.round(c.entradaValor) || ""} onChange={(e) => { const v = Number(e.target.value); if (c.valorNegociado > 0) sim.setEntradaPct(Math.round((v / c.valorNegociado) * 100)); }} style={INP_S} placeholder="R$ 0" />
+              </div>
+            )}
             {entForaRange ? <div style={{ fontSize: 12, color: "#F87171", marginTop: 6 }}>Fora do range permitido ({limites.entMin}%-{limites.entMax}%)</div> : null}
             {s?.entradaParceladaPermitida && <div style={{ marginTop: 16 }}><Tog checked={sim.entradaParcelada} onChange={sim.setEntradaParcelada} label="Entrada parcelada" /></div>}
             {sim.entradaParcelada && s?.entradaParceladaPermitida ? (
@@ -272,6 +278,12 @@ export default function SimuladorPage() {
           <SC style={{ opacity: selectedUnit ? 1 : 0.4, pointerEvents: selectedUnit ? "auto" : "none" }}>
             <SL>3 · Parcelamento</SL>
             <Slider label="Número de parcelas" value={sim.numeroParcelas} min={limites.parMin} max={limites.parMax} onChange={sim.setNumeroParcelas} suffix="x" />
+            {c.saldoFinanciar > 0 && (
+              <div style={{ marginTop: 10 }}>
+                <label style={LBL_S}>Ou digite o valor desejado da parcela (R$)</label>
+                <input type="number" value={Math.round(c.parcelaValor) || ""} onChange={(e) => { const v = Number(e.target.value); if (v > 0 && c.saldoFinanciar > 0) sim.setNumeroParcelas(Math.min(limites.parMax, Math.max(limites.parMin, Math.ceil(c.saldoFinanciar / v)))); }} style={INP_S} placeholder="R$ 0" />
+              </div>
+            )}
             {c.validacoes.parcelasForaRange ? <div style={{ fontSize: 12, color: "#F87171", marginTop: 6 }}>Fora do range ({limites.parMin}-{limites.parMax})</div> : null}
             {c.parcelaValor > 0 ? (
               <div style={{ marginTop: 16, padding: "16px 20px", background: "var(--surface-base)", borderRadius: 10, textAlign: "center", border: `1px solid ${isConsistente ? "rgba(74,222,128,0.2)" : "rgba(248,113,113,0.3)"}` }}>
