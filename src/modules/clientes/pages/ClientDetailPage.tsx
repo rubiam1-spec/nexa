@@ -43,15 +43,10 @@ const DOC_TYPES = [
   { key: "certidao_casamento", label: "Certidão de casamento" }, { key: "irpf", label: "IRPF" },
 ];
 const ESTADO_CIVIL_OPTS = [{ v: "solteiro", l: "Solteiro(a)" }, { v: "casado", l: "Casado(a)" }, { v: "divorciado", l: "Divorciado(a)" }, { v: "viuvo", l: "Viúvo(a)" }, { v: "uniao_estavel", l: "União estável" }];
-const UF_OPTS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
+const UF_OPTS = UF_OPTIONS;
 
-function fmtBRL(v: number | null) { return v ? v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }) : "—"; }
-function maskCPF(v: string) { return v.replace(/\D/g, "").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d{1,2})$/, "$1-$2").slice(0, 14); }
-function maskPhone(v: string) { return v.replace(/\D/g, "").replace(/(\d{2})(\d)/, "($1) $2").replace(/(\d{5})(\d)/, "$1-$2").slice(0, 15); }
-function maskCurrency(v: string) { const n = Number(v.replace(/\D/g, "")) / 100; return n > 0 ? n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : ""; }
-function unmaskCurrency(v: string) { return String(Number(v.replace(/\D/g, "")) / 100); }
-function maskRG(v: string) { return v.replace(/[^0-9.\-]/g, "").slice(0, 12); }
-function maskCEP(v: string) { const n = v.replace(/\D/g, "").slice(0, 8); return n.length > 5 ? n.slice(0, 5) + "-" + n.slice(5) : n; }
+import { maskCPF, maskPhone, maskCurrency, currencyToNumber, maskRG, maskCEP, formatCurrency, UF_OPTIONS } from "../../../shared/utils/masks";
+function fmtBRL(v: number | null) { return formatCurrency(v); }
 
 const IS: React.CSSProperties = { width: "100%", background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "10px 14px", color: T.chalk, fontSize: 14, outline: "none", boxSizing: "border-box" };
 const LBL: React.CSSProperties = { fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 };
@@ -192,7 +187,7 @@ export default function ClientDetailPage() {
           <div><label style={LBL}>Data nascimento</label>{editing ? <input type="date" style={IS} value={f("data_nascimento")} onChange={(e) => setF("data_nascimento", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.data_nascimento ? new Date(client.data_nascimento + "T12:00:00").toLocaleDateString("pt-BR") : "—"}</div>}</div>
           <div><label style={LBL}>Estado civil</label>{editing ? <select style={IS} value={f("marital_status")} onChange={(e) => setF("marital_status", e.target.value)}><option value="">Selecione</option>{ESTADO_CIVIL_OPTS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}</select> : <div style={{ fontSize: 14, color: T.bone }}>{ESTADO_CIVIL_OPTS.find((o) => o.v === client.marital_status)?.l || client.marital_status || "—"}</div>}</div>
           <div><label style={LBL}>Profissão</label>{editing ? <input style={IS} value={f("profession")} onChange={(e) => setF("profession", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.profession || "—"}</div>}</div>
-          <div><label style={LBL}>Renda mensal</label>{editing ? <input style={IS} value={f("renda_mensal") ? maskCurrency(String(Math.round(Number(f("renda_mensal")) * 100))) : ""} onChange={(e) => setF("renda_mensal", unmaskCurrency(e.target.value))} placeholder="R$ 0,00" /> : <div style={{ fontSize: 14, color: T.bone }}>{client.renda_mensal ? fmtBRL(client.renda_mensal) : "—"}</div>}</div>
+          <div><label style={LBL}>Renda mensal</label>{editing ? <input style={IS} value={f("renda_mensal") ? maskCurrency(String(Math.round(Number(f("renda_mensal")) * 100))) : ""} onChange={(e) => setF("renda_mensal", String(currencyToNumber(e.target.value)))} placeholder="R$ 0,00" /> : <div style={{ fontSize: 14, color: T.bone }}>{client.renda_mensal ? fmtBRL(client.renda_mensal) : "—"}</div>}</div>
           <div><label style={LBL}>Telefone</label>{editing ? <input style={IS} value={maskPhone(f("phone"))} onChange={(e) => setF("phone", e.target.value.replace(/\D/g, "").slice(0, 11))} maxLength={15} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.phone ? maskPhone(client.phone) : "—"}</div>}</div>
           <div><label style={LBL}>Email</label>{editing ? <input type="email" style={IS} value={f("email")} onChange={(e) => setF("email", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.email || "—"}</div>}</div>
           <div style={{ gridColumn: "1 / -1" }}><label style={LBL}>Observações</label>{editing ? <textarea rows={2} style={{ ...IS, resize: "vertical" }} value={f("observations")} onChange={(e) => setF("observations", e.target.value)} /> : <div style={{ fontSize: 13, color: T.fog }}>{client.observations || "—"}</div>}</div>

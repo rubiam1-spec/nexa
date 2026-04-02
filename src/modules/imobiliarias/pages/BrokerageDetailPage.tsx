@@ -7,10 +7,9 @@ import { useScreen } from "../../../shared/hooks/useIsMobile";
 const T = { ink: "var(--surface-base)", carbon: "var(--surface-raised)", stone: "var(--border-default)", chalk: "var(--text-primary)", bone: "var(--text-secondary)", fog: "var(--text-muted)", slate: "var(--text-disabled)", sprout: "var(--interactive-primary)", red: "#F87171" };
 const IS: React.CSSProperties = { width: "100%", background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "10px 14px", color: T.chalk, fontSize: 14, outline: "none", boxSizing: "border-box" };
 const LBL: React.CSSProperties = { fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 };
-const UF_OPTS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
+const UF_OPTS = UF_OPTIONS;
 
-function maskCNPJ(v: string) { return v.replace(/\D/g, "").replace(/(\d{2})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1/$2").replace(/(\d{4})(\d)/, "$1-$2").slice(0, 18); }
-function maskPhone(v: string) { return v.replace(/\D/g, "").replace(/(\d{2})(\d)/, "($1) $2").replace(/(\d{5})(\d)/, "$1-$2").slice(0, 15); }
+import { maskCNPJ, maskPhone, UF_OPTIONS } from "../../../shared/utils/masks";
 
 interface BrokerageData { id: string; name: string; cnpj: string | null; creci: string | null; razao_social: string | null; nome_fantasia: string | null; responsavel: string | null; telefone: string | null; email: string | null; cidade: string | null; uf: string | null; endereco: string | null; created_at: string }
 interface LinkedBroker { id: string; name: string; creci: string | null; phone: string | null; status: string; has_system_access: boolean }

@@ -10,11 +10,10 @@ import { getNegotiationStatusLabel } from "../../../domain/negociacao/Negotiatio
 const T = { ink: "var(--surface-base)", carbon: "var(--surface-raised)", stone: "var(--border-default)", chalk: "var(--text-primary)", bone: "var(--text-secondary)", fog: "var(--text-muted)", slate: "var(--text-disabled)", sprout: "var(--interactive-primary)", blue: "#60A5FA", red: "#F87171" };
 const IS: React.CSSProperties = { width: "100%", background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "10px 14px", color: T.chalk, fontSize: 14, outline: "none", boxSizing: "border-box" };
 const LBL: React.CSSProperties = { fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 };
-const UF_OPTS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
+const UF_OPTS = UF_OPTIONS;
 
-function maskCPF(v: string) { return v.replace(/\D/g, "").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d{1,2})$/, "$1-$2").slice(0, 14); }
-function maskPhone(v: string) { return v.replace(/\D/g, "").replace(/(\d{2})(\d)/, "($1) $2").replace(/(\d{5})(\d)/, "$1-$2").slice(0, 15); }
-function fmtBRL(v: number | null) { return v ? v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }) : "—"; }
+import { maskCPF, maskPhone, formatCurrency, UF_OPTIONS } from "../../../shared/utils/masks";
+function fmtBRL(v: number | null) { return formatCurrency(v); }
 
 interface BrokerData { id: string; name: string; email: string | null; phone: string | null; cpf: string | null; creci: string | null; city: string | null; uf: string | null; brokerage_id: string | null; brokerage_name: string | null; status: string; has_system_access: boolean; consultant_id: string | null; created_at: string }
 interface BrokerNeg { id: string; status: string; score: number | null; updated_at: string; unit_quadra: string | null; unit_lote: string | null; unit_valor: number | null; client_name: string | null }
