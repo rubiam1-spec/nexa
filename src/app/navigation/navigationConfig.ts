@@ -1,7 +1,6 @@
 export type NavigationItem = {
   key:
     | "meudia"
-    | "dashboard"
     | "simulador"
     | "negociacoes"
     | "pipeline"
@@ -23,13 +22,8 @@ export type NavigationItem = {
 export const navigationConfig: NavigationItem[] = [
   {
     key: "meudia",
-    label: "Meu Dia",
+    label: "Central",
     path: "/",
-  },
-  {
-    key: "dashboard",
-    label: "Dashboard",
-    path: "/dashboard",
   },
   {
     key: "simulador",

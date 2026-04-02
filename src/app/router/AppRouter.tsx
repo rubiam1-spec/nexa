@@ -5,7 +5,7 @@ import ProtectedRoute from "./ProtectedRoute";
 import RequireDevelopment from "./RequireDevelopment";
 import LoginPage from "../../modules/auth/pages/LoginPage";
 import SelectDevelopmentPage from "../../modules/developments/pages/SelectDevelopmentPage";
-import DashboardPage from "../../modules/dashboard/pages/DashboardPage";
+// Dashboard merged into Central (MeuDiaPage)
 import NegotiationsPage from "../../modules/negociacoes/pages/NegotiationsPage";
 import NegotiationDetailPage from "../../modules/negociacoes/pages/NegotiationDetailPage";
 import ClientsPage from "../../modules/clientes/pages/ClientsPage";
@@ -72,14 +72,9 @@ export default function AppRouter() {
             </ProtectedAppPage>
           }
         />
-        <Route
-          path="/dashboard"
-          element={
-            <ProtectedAppPage>
-              <DashboardPage />
-            </ProtectedAppPage>
-          }
-        />
+        <Route path="/dashboard" element={<Navigate to="/" replace />} />
+        <Route path="/meu-dia" element={<Navigate to="/" replace />} />
+        <Route path="/central" element={<Navigate to="/" replace />} />
         <Route
           path="/simulador"
           element={

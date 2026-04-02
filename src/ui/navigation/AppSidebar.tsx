@@ -33,8 +33,7 @@ const I = {
 
 const GROUPS: { label: string; items: { key: string; label: string; path: string }[] }[] = [
   { label: "Operação", items: [
-    { key: "meudia", label: "Meu Dia", path: "/" },
-    { key: "dashboard", label: "Dashboard", path: "/dashboard" },
+    { key: "meudia", label: "Central", path: "/" },
     { key: "simulador", label: "Simulador", path: "/simulador" },
     { key: "pipeline", label: "Pipeline", path: "/pipeline" },
     { key: "unidades", label: "Unidades", path: "/unidades" },
