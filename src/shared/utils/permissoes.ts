@@ -101,8 +101,9 @@ export function podeVerItem(key: string, role: string | null): boolean {
     return conciergeAllowed.includes(key);
   }
   if (role === "administrative") {
-    const adminAllowed = ["meudia", "dashboard", "clientes", "corretores", "imobiliarias", "unidades", "negociacoes"];
-    return adminAllowed.includes(key);
+    // Administrative tem acesso a tudo EXCETO gerenciamento de usuários
+    if (key === "usuarios") return false;
+    return true;
   }
   switch (key) {
     case "configuracoes": return podeAcessarConfiguracoes(role);
