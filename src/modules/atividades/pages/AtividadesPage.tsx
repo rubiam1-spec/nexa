@@ -35,6 +35,7 @@ interface Activity {
   description: string | null; skip_reason: string | null; created_at: string; updated_at?: string | null;
   clients?: { name: string } | null; brokers?: { name: string } | null;
   profiles?: { name: string; role: string } | null;
+  activity_photos?: { id: string; photo_url: string }[] | null;
 }
 
 interface RankedMember {
@@ -191,6 +192,12 @@ function ActivityCard({ activity, showAuthor, isOwner, canManage, onDelete, onEd
                 </div>
               </>
             )}
+          </div>
+        )}
+        {activity.activity_photos && activity.activity_photos.length > 0 && (
+          <div style={{ position: "relative", flexShrink: 0 }}>
+            <img src={activity.activity_photos[0].photo_url} alt="" style={{ width: 40, height: 40, borderRadius: 6, objectFit: "cover" }} />
+            {activity.activity_photos.length > 1 && <span style={{ position: "absolute", bottom: -2, right: -2, fontSize: 9, fontWeight: 700, padding: "1px 4px", borderRadius: 4, background: "rgba(0,0,0,0.7)", color: "#fff" }}>📷{activity.activity_photos.length}</span>}
           </div>
         )}
         <div style={{ fontSize: 13, color: T.bone, fontFamily: "var(--font-mono)" }}>{activity.start_time?.substring(0, 5) || ""}</div>
@@ -508,7 +515,7 @@ export default function AtividadesPage() {
     if (!supabase || !accountId || !developmentId) { setLoading(false); return; }
     setLoading(true);
     try {
-      let query = supabase.from("activities").select("*, clients(name), brokers(name), profiles!activities_profile_id_fkey(name, role)").eq("account_id", accountId).order("activity_date", { ascending: false }).order("start_time", { ascending: false });
+      let query = supabase.from("activities").select("*, clients(name), brokers(name), profiles!activities_profile_id_fkey(name, role), activity_photos(id, photo_url)").eq("account_id", accountId).order("activity_date", { ascending: false }).order("start_time", { ascending: false });
       if (isConsultant && profileId) query = query.eq("profile_id", profileId);
       if (isManager && viewMode === "mine" && profileId) query = query.eq("profile_id", profileId);
       if (isManager && viewMode === "team" && consultantFilter !== "all") query = query.eq("profile_id", consultantFilter);
