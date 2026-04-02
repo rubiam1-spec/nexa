@@ -100,8 +100,8 @@ export default function QueueEntryModal({ isOpen, onClose, unit, queuePosition, 
     if (!selectedClientId || !userId) return;
     setSaving(true); setError(null);
     try {
-      const brokerId = isManagerOrDirector && selectedBrokerId ? selectedBrokerId : userId;
-      const result = await unitQueue.enterQueue({ userId, clientId: selectedClientId, brokerId });
+      const brokerId = isManagerOrDirector ? (selectedBrokerId || null) : userId;
+      const result = await unitQueue.enterQueue({ userId, clientId: selectedClientId, brokerId: brokerId ?? undefined });
       onSuccess();
       onClose();
       // Toast is handled by parent
