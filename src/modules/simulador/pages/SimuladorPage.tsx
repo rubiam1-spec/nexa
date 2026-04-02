@@ -262,7 +262,7 @@ export default function SimuladorPage() {
             {selectedUnit && c.valorNegociado > 0 && (
               <div style={{ marginTop: 10 }}>
                 <label style={LBL_S}>Ou digite o valor da entrada (R$)</label>
-                <input type="number" value={Math.round(c.entradaValor) || ""} onChange={(e) => { const v = Number(e.target.value); if (c.valorNegociado > 0) sim.setEntradaPct(Math.round((v / c.valorNegociado) * 100)); }} style={INP_S} placeholder="R$ 0" />
+                <input type="text" inputMode="numeric" defaultValue="" placeholder={`R$ ${Math.round(c.entradaValor).toLocaleString("pt-BR")}`} onBlur={(e) => { const v = Number(e.target.value.replace(/\D/g, "")); if (v > 0 && c.valorNegociado > 0) { sim.setEntradaPct(Math.min(100, Math.max(0, Math.round((v / c.valorNegociado) * 100)))); e.target.value = ""; } }} style={INP_S} />
               </div>
             )}
             {entForaRange ? <div style={{ fontSize: 12, color: "#F87171", marginTop: 6 }}>Fora do range permitido ({limites.entMin}%-{limites.entMax}%)</div> : null}
@@ -281,7 +281,7 @@ export default function SimuladorPage() {
             {c.saldoFinanciar > 0 && (
               <div style={{ marginTop: 10 }}>
                 <label style={LBL_S}>Ou digite o valor desejado da parcela (R$)</label>
-                <input type="number" value={Math.round(c.parcelaValor) || ""} onChange={(e) => { const v = Number(e.target.value); if (v > 0 && c.saldoFinanciar > 0) sim.setNumeroParcelas(Math.min(limites.parMax, Math.max(limites.parMin, Math.ceil(c.saldoFinanciar / v)))); }} style={INP_S} placeholder="R$ 0" />
+                <input type="text" inputMode="numeric" defaultValue="" placeholder={`R$ ${Math.round(c.parcelaValor).toLocaleString("pt-BR")}`} onBlur={(e) => { const v = Number(e.target.value.replace(/\D/g, "")); if (v > 0 && c.saldoFinanciar > 0) { sim.setNumeroParcelas(Math.min(limites.parMax, Math.max(limites.parMin, Math.ceil(c.saldoFinanciar / v)))); e.target.value = ""; } }} style={INP_S} />
               </div>
             )}
             {c.validacoes.parcelasForaRange ? <div style={{ fontSize: 12, color: "#F87171", marginTop: 6 }}>Fora do range ({limites.parMin}-{limites.parMax})</div> : null}
