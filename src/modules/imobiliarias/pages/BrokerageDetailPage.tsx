@@ -48,6 +48,27 @@ export default function BrokerageDetailPage() {
 
   useEffect(() => { void load(); }, [load]);
 
+  const [cnpjLoading, setCnpjLoading] = useState(false);
+
+  async function buscarCNPJ(cnpj: string) {
+    const cleaned = cnpj.replace(/\D/g, "");
+    if (cleaned.length !== 14) return;
+    setCnpjLoading(true);
+    try {
+      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cleaned}`);
+      if (!res.ok) { setToast("CNPJ não encontrado"); return; }
+      const d = await res.json();
+      if (d.razao_social) setF("razao_social", d.razao_social);
+      if (d.nome_fantasia) setF("nome_fantasia", d.nome_fantasia);
+      if (d.ddd_telefone_1) setF("telefone", d.ddd_telefone_1.replace(/\D/g, ""));
+      if (d.municipio) setF("cidade", d.municipio);
+      if (d.uf) setF("uf", d.uf);
+      if (d.logradouro) setF("endereco", [d.logradouro, d.numero, d.bairro].filter(Boolean).join(", "));
+      setToast("Dados do CNPJ carregados");
+    } catch { /* silencioso */ }
+    finally { setCnpjLoading(false); }
+  }
+
   async function handleSave() {
     if (!supabase || !id || !brokerage) return;
     setSaving(true);
@@ -96,7 +117,7 @@ export default function BrokerageDetailPage() {
       {tab === "dados" && (
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 14 }}>
           <div style={{ gridColumn: isMobile ? "1" : "1 / 3" }}><label style={LBL}>Nome fantasia</label>{editing ? <input style={IS} value={f("nome_fantasia") || f("name")} onChange={(e) => setF("nome_fantasia", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{brokerage.nome_fantasia || brokerage.name || "—"}</div>}</div>
-          <div><label style={LBL}>CNPJ</label>{editing ? <input style={IS} value={maskCNPJ(f("cnpj"))} onChange={(e) => setF("cnpj", e.target.value.replace(/\D/g, "").slice(0, 14))} maxLength={18} /> : <div style={{ fontSize: 14, color: T.bone }}>{brokerage.cnpj ? maskCNPJ(brokerage.cnpj) : "—"}</div>}</div>
+          <div><label style={LBL}>CNPJ {cnpjLoading && <span style={{ fontSize: 10, color: T.fog }}>buscando...</span>}</label>{editing ? <input style={IS} value={maskCNPJ(f("cnpj"))} onChange={(e) => { const raw = e.target.value.replace(/\D/g, "").slice(0, 14); setF("cnpj", raw); if (raw.length === 14) buscarCNPJ(raw); }} maxLength={18} /> : <div style={{ fontSize: 14, color: T.bone }}>{brokerage.cnpj ? maskCNPJ(brokerage.cnpj) : "—"}</div>}</div>
           <div><label style={LBL}>CRECI-J</label>{editing ? <input style={IS} value={f("creci")} onChange={(e) => setF("creci", e.target.value)} placeholder="00000/UF" /> : <div style={{ fontSize: 14, color: T.bone }}>{brokerage.creci || "—"}</div>}</div>
           <div style={{ gridColumn: isMobile ? "1" : "1 / -1" }}><label style={LBL}>Razão social</label>{editing ? <input style={IS} value={f("razao_social")} onChange={(e) => setF("razao_social", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{brokerage.razao_social || "—"}</div>}</div>
           <div><label style={LBL}>Responsável</label>{editing ? <input style={IS} value={f("responsavel")} onChange={(e) => setF("responsavel", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{brokerage.responsavel || "—"}</div>}</div>

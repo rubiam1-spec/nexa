@@ -20,6 +20,7 @@ export default function BrokeragesPage() {
   const [name, setName] = useState(""); const [cnpj, setCnpj] = useState(""); const [creci, setCreci] = useState("");
   const [responsavel, setResponsavel] = useState(""); const [phone, setPhone] = useState(""); const [city, setCity] = useState("");
   const [saving, setSaving] = useState(false); const [err, setErr] = useState<string | null>(null);
+  const [cnpjLoading, setCnpjLoading] = useState(false);
   const [busca, setBusca] = useState("");
   const [brokerCounts, setBrokerCounts] = useState<Record<string, number>>({});
 
@@ -33,6 +34,22 @@ export default function BrokeragesPage() {
       setBrokerCounts(counts);
     });
   }, [accountId, brokerages]);
+
+  async function buscarCNPJ(raw: string) {
+    if (raw.length !== 14) return;
+    setCnpjLoading(true);
+    try {
+      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${raw}`);
+      if (!res.ok) return;
+      const d = await res.json();
+      if (d.nome_fantasia) setName(d.nome_fantasia);
+      if (d.razao_social && !d.nome_fantasia) setName(d.razao_social);
+      if (d.ddd_telefone_1) setPhone(d.ddd_telefone_1.replace(/\D/g, ""));
+      if (d.municipio) setCity(d.municipio);
+      if (d.razao_social) setResponsavel(d.razao_social);
+    } catch { /* silencioso */ }
+    finally { setCnpjLoading(false); }
+  }
 
   async function handleSave() {
     if (!accountId || !name.trim()) return;
@@ -75,7 +92,7 @@ export default function BrokeragesPage() {
           <div className="nexa-label" style={{ marginBottom: 12 }}>Cadastro rápido</div>
           <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
             <label style={{ flex: 2, minWidth: 140 }}><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Nome *</span><input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome da imobiliária" /></label>
-            <label style={{ flex: 1.5, minWidth: 130 }}><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>CNPJ</span><input type="text" value={maskCNPJ(cnpj)} onChange={(e) => setCnpj(e.target.value.replace(/\D/g, "").slice(0, 14))} maxLength={18} placeholder="00.000.000/0000-00" /></label>
+            <label style={{ flex: 1.5, minWidth: 130 }}><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>CNPJ {cnpjLoading && <span style={{ fontSize: 9, color: "var(--color-fog)" }}>buscando...</span>}</span><input type="text" value={maskCNPJ(cnpj)} onChange={(e) => { const raw = e.target.value.replace(/\D/g, "").slice(0, 14); setCnpj(raw); if (raw.length === 14) buscarCNPJ(raw); }} maxLength={18} placeholder="00.000.000/0000-00" /></label>
             <label style={{ flex: 1, minWidth: 100 }}><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>CRECI-J</span><input type="text" value={creci} onChange={(e) => setCreci(e.target.value)} placeholder="00000/UF" /></label>
             <label style={{ flex: 1.5, minWidth: 120 }}><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Responsável</span><input type="text" value={responsavel} onChange={(e) => setResponsavel(e.target.value)} placeholder="Nome" /></label>
             <label style={{ flex: 1, minWidth: 110 }}><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Telefone</span><input type="tel" value={maskPhone(phone)} onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 11))} maxLength={15} placeholder="(00) 00000-0000" /></label>
