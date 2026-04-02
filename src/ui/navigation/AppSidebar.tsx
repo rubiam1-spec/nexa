@@ -6,6 +6,7 @@ import { podeVerItem } from "../../shared/utils/permissoes";
 import NexaIcon from "../../shared/components/NexaIcon";
 import Avatar from "../../shared/components/Avatar";
 import { useTheme } from "../../shared/theme";
+import { useNotifications } from "../../shared/hooks/useNotifications";
 
 // ── SVG Icons (18x18, stroke-based, Lucide style) ──
 
@@ -64,6 +65,7 @@ export default function AppSidebar({ onNavigate }: { onNavigate?: () => void } =
   const role = account?.role ?? null;
   const name = authenticatedProfile?.fullName || user?.name || user?.email || "Usuário";
   const avatarUrl = authenticatedProfile?.avatarUrl ?? null;
+  const { unreadCount } = useNotifications(authenticatedProfile?.id ?? null, account?.accountId ?? null);
 
   return (
     <aside style={{ width: 240, height: "100%", background: "var(--sidebar-bg)", borderRight: "1px solid var(--sidebar-border)", display: "flex", flexDirection: "column", flexShrink: 0, overflow: "hidden" }}>
@@ -109,7 +111,8 @@ export default function AppSidebar({ onNavigate }: { onNavigate?: () => void } =
                   <span style={{ display: "flex", alignItems: "center", opacity: 0.85, flexShrink: 0 }}>
                     {I[item.key] || null}
                   </span>
-                  {item.label}
+                  <span style={{ flex: 1 }}>{item.label}</span>
+                  {item.key === "meudia" && unreadCount > 0 && <span style={{ background: "#E24B4A", color: "#fff", borderRadius: "50%", width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 600, flexShrink: 0 }}>{unreadCount > 9 ? "9+" : unreadCount}</span>}
                 </NavLink>
               ))}
             </div>

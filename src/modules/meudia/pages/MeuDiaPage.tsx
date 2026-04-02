@@ -7,6 +7,8 @@ import { useScreen } from "../../../shared/hooks/useIsMobile";
 import { useMyDay, type ScheduledActivity, type TeamMember, type PendingAction } from "../hooks/useMyDay";
 import { timeAgo } from "../../../shared/utils/timeAgo";
 import Avatar from "../../../shared/components/Avatar";
+import TeamMemberPanel from "../../../shared/components/TeamMemberPanel";
+import { useNotifications } from "../../../shared/hooks/useNotifications";
 
 // ── Helpers ──
 
@@ -210,6 +212,14 @@ export default function MeuDiaPage() {
   const effectiveView = isOwnerRole ? ownerView : baseView;
 
   const { data, loading } = useMyDay(userId, accountId, developmentId, role as string);
+  const { notifications, markAsRead, sendUpdateRequest } = useNotifications(userId, accountId);
+  const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
+  const [sentUpdates, setSentUpdates] = useState<Set<string>>(new Set());
+
+  async function handleRequestUpdate(memberId: string, memberName: string) {
+    const ok = await sendUpdateRequest(memberId, memberName, firstName);
+    if (ok) setSentUpdates((prev) => new Set(prev).add(memberId));
+  }
 
   if (loading) return <div style={{ padding: isMobile ? 16 : 32 }}><div style={{ fontSize: 13, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>Carregando seu dia...</div></div>;
 
@@ -222,6 +232,25 @@ export default function MeuDiaPage() {
         <h1 style={{ fontSize: isMobile ? 22 : 26, fontWeight: 700, color: "var(--text-primary)", margin: 0, fontFamily: "var(--font-display)", fontStyle: "italic" }}>{greeting()}, {firstName}</h1>
         <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4, textTransform: "capitalize" }}>{weekday()}{development?.developmentName ? ` · ${development.developmentName}` : ""}</div>
       </div>
+
+      {/* Notifications / AVISOS */}
+      {notifications.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          {notifications.map((n) => (
+            <div key={n.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.25)", borderRadius: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: 16, flexShrink: 0 }}>⚠</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-secondary)" }}>{n.title}</div>
+                {n.message && <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{n.message}</div>}
+              </div>
+              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                {n.action_url && <button type="button" onClick={() => navigate(n.action_url!)} style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: "var(--interactive-primary)", color: "var(--interactive-on-primary)", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Registrar</button>}
+                <button type="button" onClick={() => markAsRead(n.id)} style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 11, cursor: "pointer" }}>Lida</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Owner toggle */}
       {isOwnerRole && (
@@ -250,7 +279,7 @@ export default function MeuDiaPage() {
           }
 
           <SectionLabel count={data.team.members.length}>Equipe</SectionLabel>
-          {data.team.members.length > 0 ? data.team.members.map((m) => <TeamRow key={m.id} m={m} />) : <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Nenhum membro encontrado.</div>}
+          {data.team.members.length > 0 ? data.team.members.map((m) => <div key={m.id} onClick={() => setSelectedMember(m)} style={{ cursor: "pointer" }}><TeamRow m={m} /></div>) : <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Nenhum membro encontrado.</div>}
 
           <SectionLabel>Funil</SectionLabel>
           <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 10, padding: 16 }}>
@@ -291,7 +320,7 @@ export default function MeuDiaPage() {
           </>)}
 
           <SectionLabel count={data.team.members.length}>Equipe</SectionLabel>
-          {data.team.members.length > 0 ? data.team.members.map((m) => <TeamRow key={m.id} m={m} />) : <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Nenhum membro encontrado.</div>}
+          {data.team.members.length > 0 ? data.team.members.map((m) => <div key={m.id} onClick={() => setSelectedMember(m)} style={{ cursor: "pointer" }}><TeamRow m={m} /></div>) : <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Nenhum membro encontrado.</div>}
 
           <SectionLabel>Operação</SectionLabel>
           <div style={{ display: "grid", gridTemplateColumns: colGrid, gap: 8 }}>
@@ -348,6 +377,15 @@ export default function MeuDiaPage() {
           </div>
         </>
       )}
+
+      {/* Team member panel */}
+      <TeamMemberPanel
+        member={selectedMember ? { id: selectedMember.id, name: selectedMember.name, role: selectedMember.role, avatarUrl: selectedMember.avatarUrl, activitiesToday: selectedMember.activitiesToday, lastActivityDaysAgo: selectedMember.lastActivityDaysAgo, activeNegotiations: selectedMember.activeNegotiations } : null}
+        open={!!selectedMember}
+        onClose={() => setSelectedMember(null)}
+        onRequestUpdate={handleRequestUpdate}
+        updateSent={selectedMember ? sentUpdates.has(selectedMember.id) : false}
+      />
     </div>
   );
 }
