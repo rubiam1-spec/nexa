@@ -11,6 +11,7 @@ export interface ScheduledActivity {
 
 export interface TeamMember {
   id: string; name: string; role: string; initials: string;
+  avatarUrl: string | null;
   activitiesToday: number; activeNegotiations: number;
   lastActivityDaysAgo: number; status: "active" | "warning" | "inactive";
   brokerageName?: string;
@@ -71,7 +72,7 @@ export function useMyDay(userId: string | null, accountId: string | null, develo
       const agendaUpcoming = allActs.filter((a) => a.activity_date > today && a.status === "scheduled");
 
       // ── TEAM: Members with stats ──
-      const { data: teamRaw } = await supabase.from("user_account_access").select("user_id, role, profiles!inner(id, name)").eq("account_id", accountId);
+      const { data: teamRaw } = await supabase.from("user_account_access").select("user_id, role, profiles!inner(id, name, avatar_url)").eq("account_id", accountId);
       const members: TeamMember[] = [];
 
       if (teamRaw && teamRaw.length > 0) {
@@ -111,6 +112,7 @@ export function useMyDay(userId: string | null, accountId: string | null, develo
           members.push({
             id: pid, name: (p.name as string) || "—", role: row.role as string,
             initials: initials((p.name as string) || "?"),
+            avatarUrl: (p.avatar_url as string) || null,
             activitiesToday: todayByUser[pid] || 0,
             activeNegotiations: negCountByUser[pid] || 0,
             lastActivityDaysAgo: daysAgo,

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../../app/contexts/AuthContext";
 import { useAccount } from "../../../app/contexts/AccountContext";
@@ -85,7 +86,7 @@ function TeamRow({ m }: { m: TeamMember }) {
   const statText = m.activitiesToday > 0 ? `${m.activitiesToday} atividade${m.activitiesToday > 1 ? "s" : ""} hoje` : m.lastActivityDaysAgo === 0 ? "ativo hoje" : m.lastActivityDaysAgo < 999 ? `sem atividade há ${m.lastActivityDaysAgo}d` : "sem atividades";
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 10, marginBottom: 6 }}>
-      <Avatar name={m.name} size={36} color={color} />
+      <Avatar name={m.name} avatarUrl={m.avatarUrl} size={36} color={color} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-secondary)" }}>{m.name}</div>
         <div style={{ fontSize: 11, color: "var(--text-disabled)" }}>{ROLE_LABELS[m.role] || m.role}{m.activeNegotiations > 0 ? ` · ${m.activeNegotiations} neg.` : ""}</div>
@@ -192,13 +193,20 @@ export default function MeuDiaPage() {
   const role = account?.role ?? authenticatedProfile?.role ?? null;
   const firstName = (authenticatedProfile?.fullName || "").split(" ")[0] || "você";
 
-  const effectiveView = (() => {
-    if ((role as string) === "owner" || role === "director") return "director";
+  const isOwnerRole = (role as string) === "owner" || ((): boolean => { try { return role === "director" && typeof localStorage !== "undefined" && localStorage.getItem("nexa-owner-hint") === "1"; } catch { return false; } })();
+  const baseView = (() => {
+    if (role === "director") return "director";
     if (role === "manager") return "manager";
     if (role === "commercial_consultant") return "consultant";
     if (role === "broker") return "broker";
     return "manager";
   })();
+  // Owner toggle: stored preference, default to "manager" (minha operação)
+  const [ownerView, setOwnerView] = useState<"manager" | "director">(() => {
+    if (!isOwnerRole) return "director";
+    try { return (localStorage.getItem("nexa-meudia-view") as "manager" | "director") || "manager"; } catch { return "manager"; }
+  });
+  const effectiveView = isOwnerRole ? ownerView : baseView;
 
   const { data, loading } = useMyDay(userId, accountId, developmentId, role as string);
 
@@ -209,10 +217,19 @@ export default function MeuDiaPage() {
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: isMobile ? "16px 12px" : "24px 0" }}>
       {/* Greeting */}
-      <div style={{ marginBottom: 24 }}>
+      <div style={{ marginBottom: isOwnerRole ? 12 : 24 }}>
         <h1 style={{ fontSize: isMobile ? 22 : 26, fontWeight: 700, color: "var(--text-primary)", margin: 0, fontFamily: "var(--font-display)", fontStyle: "italic" }}>{greeting()}, {firstName}</h1>
         <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4, textTransform: "capitalize" }}>{weekday()}{development?.developmentName ? ` · ${development.developmentName}` : ""}</div>
       </div>
+
+      {/* Owner toggle */}
+      {isOwnerRole && (
+        <div style={{ display: "inline-flex", border: "1px solid var(--border-default)", borderRadius: 8, overflow: "hidden", marginBottom: 20 }}>
+          {([["manager", "Minha operação"], ["director", "Visão gerencial"]] as const).map(([k, l]) => (
+            <button key={k} type="button" onClick={() => { setOwnerView(k); try { localStorage.setItem("nexa-meudia-view", k); } catch {} }} style={{ background: ownerView === k ? "var(--surface-overlay)" : "transparent", color: ownerView === k ? "var(--text-secondary)" : "var(--text-muted)", border: "none", padding: "7px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{l}</button>
+          ))}
+        </div>
+      )}
 
       {/* ═══ DIRECTOR VIEW ═══ */}
       {effectiveView === "director" && (

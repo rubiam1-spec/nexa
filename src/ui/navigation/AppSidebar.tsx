@@ -4,6 +4,7 @@ import { useAccount } from "../../app/contexts/AccountContext";
 import { getUserRoleLabel } from "../../shared/types/role";
 import { podeVerItem } from "../../shared/utils/permissoes";
 import NexaIcon from "../../shared/components/NexaIcon";
+import Avatar from "../../shared/components/Avatar";
 import { useTheme } from "../../shared/theme";
 
 // ── SVG Icons (18x18, stroke-based, Lucide style) ──
@@ -45,7 +46,7 @@ const GROUPS: { label: string; items: { key: string; label: string; path: string
   ]},
   { label: "Gestão", items: [
     { key: "atividades", label: "Atividades", path: "/atividades" },
-    { key: "feed", label: "Mural", path: "/feed" },
+    { key: "feed", label: "Feed", path: "/feed" },
     { key: "relatorios", label: "Relatórios", path: "/relatorios" },
     { key: "materiais", label: "Materiais", path: "/materiais" },
   ]},
@@ -57,12 +58,12 @@ const GROUPS: { label: string; items: { key: string; label: string; path: string
 ];
 
 export default function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
-  const { user } = useAuth();
+  const { user, authenticatedProfile } = useAuth();
   const { account } = useAccount();
   const { resolvedTheme, setTheme } = useTheme();
   const role = account?.role ?? null;
-  const name = user?.name ?? user?.email ?? "Usuário";
-  const initial = name.charAt(0).toUpperCase();
+  const name = authenticatedProfile?.fullName || user?.name || user?.email || "Usuário";
+  const avatarUrl = authenticatedProfile?.avatarUrl ?? null;
 
   return (
     <aside style={{ width: 240, height: "100%", background: "var(--sidebar-bg)", borderRight: "1px solid var(--sidebar-border)", display: "flex", flexDirection: "column", flexShrink: 0, overflow: "hidden" }}>
@@ -118,9 +119,7 @@ export default function AppSidebar({ onNavigate }: { onNavigate?: () => void } =
 
       {/* Footer — user + theme toggle */}
       <div style={{ borderTop: "1px solid var(--border-subtle)", padding: "14px 14px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-        <div style={{ width: 34, height: 34, borderRadius: "50%", background: "var(--sidebar-avatar-bg)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "var(--sidebar-text-active)", flexShrink: 0 }}>
-          {initial}
-        </div>
+        <Avatar name={name} avatarUrl={avatarUrl} size={34} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {name}
