@@ -113,7 +113,7 @@ export default function ClientsPage() {
           <table className="nexa-table">
             <thead><tr><th>Nome</th><th>E-mail</th><th>Telefone</th><th>Corretor</th><th>Cidade</th><th>Status</th></tr></thead>
             <tbody>{visibleClients.map((c) => (
-              <tr key={c.id} style={{ cursor: "pointer" }} onClick={() => window.location.href = `/clientes/${c.id}`}>
+              <tr key={c.id} style={{ cursor: "pointer" }} onClick={() => navigate(`/clientes/${c.id}`)}>
                 <td><Link to={`/clientes/${c.id}`} style={{ color: "var(--color-bone)", fontWeight: 600, textDecoration: "none" }} onClick={(e) => e.stopPropagation()}>{c.name}</Link></td>
                 <td>{c.email || "—"}</td>
                 <td>{c.phone || "—"}</td>

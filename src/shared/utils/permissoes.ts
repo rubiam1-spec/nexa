@@ -100,6 +100,10 @@ export function podeVerItem(key: string, role: string | null): boolean {
     const conciergeAllowed = ["meudia", "dashboard", "clientes", "corretores", "imobiliarias", "configuracoes"];
     return conciergeAllowed.includes(key);
   }
+  if (role === "administrative") {
+    const adminAllowed = ["meudia", "dashboard", "clientes", "corretores", "imobiliarias"];
+    return adminAllowed.includes(key);
+  }
   switch (key) {
     case "configuracoes": return podeAcessarConfiguracoes(role);
     case "empreendimentos": return podeGerenciarEmpreendimentos(role);

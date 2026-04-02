@@ -46,6 +46,10 @@ const ESTADO_CIVIL_OPTS = [{ v: "solteiro", l: "Solteiro(a)" }, { v: "casado", l
 const UF_OPTS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
 
 function fmtBRL(v: number | null) { return v ? v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }) : "—"; }
+function maskCPF(v: string) { return v.replace(/\D/g, "").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d{1,2})$/, "$1-$2").slice(0, 14); }
+function maskPhone(v: string) { return v.replace(/\D/g, "").replace(/(\d{2})(\d)/, "($1) $2").replace(/(\d{5})(\d)/, "$1-$2").slice(0, 15); }
+function maskCurrency(v: string) { const n = Number(v.replace(/\D/g, "")) / 100; return n > 0 ? n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : ""; }
+function unmaskCurrency(v: string) { return String(Number(v.replace(/\D/g, "")) / 100); }
 
 const IS: React.CSSProperties = { width: "100%", background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "10px 14px", color: T.chalk, fontSize: 14, outline: "none", boxSizing: "border-box" };
 const LBL: React.CSSProperties = { fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 };
@@ -180,14 +184,14 @@ export default function ClientDetailPage() {
       {tab === "dados" && (
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 14 }}>
           <div style={{ gridColumn: isMobile ? "1" : "1 / 3" }}><label style={LBL}>Nome completo</label>{editing ? <input style={IS} value={f("full_name") || f("name")} onChange={(e) => setF("full_name", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.full_name || client.name || "—"}</div>}</div>
-          <div><label style={LBL}>CPF</label>{editing ? <input style={IS} value={f("cpf")} onChange={(e) => setF("cpf", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.cpf || "—"}</div>}</div>
+          <div><label style={LBL}>CPF</label>{editing ? <input style={IS} value={maskCPF(f("cpf"))} onChange={(e) => setF("cpf", e.target.value.replace(/\D/g, "").slice(0, 11))} maxLength={14} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.cpf ? maskCPF(client.cpf) : "—"}</div>}</div>
           <div><label style={LBL}>RG</label>{editing ? <input style={IS} value={f("rg")} onChange={(e) => setF("rg", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.rg || "—"}</div>}</div>
           <div><label style={LBL}>Órgão emissor</label>{editing ? <input style={IS} value={f("rg_orgao")} onChange={(e) => setF("rg_orgao", e.target.value)} placeholder="SSP/PR" /> : <div style={{ fontSize: 14, color: T.bone }}>{client.rg_orgao || "—"}</div>}</div>
           <div><label style={LBL}>Data nascimento</label>{editing ? <input type="date" style={IS} value={f("data_nascimento")} onChange={(e) => setF("data_nascimento", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.data_nascimento ? new Date(client.data_nascimento + "T12:00:00").toLocaleDateString("pt-BR") : "—"}</div>}</div>
           <div><label style={LBL}>Estado civil</label>{editing ? <select style={IS} value={f("marital_status")} onChange={(e) => setF("marital_status", e.target.value)}><option value="">Selecione</option>{ESTADO_CIVIL_OPTS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}</select> : <div style={{ fontSize: 14, color: T.bone }}>{ESTADO_CIVIL_OPTS.find((o) => o.v === client.marital_status)?.l || client.marital_status || "—"}</div>}</div>
           <div><label style={LBL}>Profissão</label>{editing ? <input style={IS} value={f("profession")} onChange={(e) => setF("profession", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.profession || "—"}</div>}</div>
-          <div><label style={LBL}>Renda mensal</label>{editing ? <input type="number" style={IS} value={f("renda_mensal")} onChange={(e) => setF("renda_mensal", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.renda_mensal ? fmtBRL(client.renda_mensal) : "—"}</div>}</div>
-          <div><label style={LBL}>Telefone</label>{editing ? <input style={IS} value={f("phone")} onChange={(e) => setF("phone", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.phone || "—"}</div>}</div>
+          <div><label style={LBL}>Renda mensal</label>{editing ? <input style={IS} value={f("renda_mensal") ? maskCurrency(String(Math.round(Number(f("renda_mensal")) * 100))) : ""} onChange={(e) => setF("renda_mensal", unmaskCurrency(e.target.value))} placeholder="R$ 0,00" /> : <div style={{ fontSize: 14, color: T.bone }}>{client.renda_mensal ? fmtBRL(client.renda_mensal) : "—"}</div>}</div>
+          <div><label style={LBL}>Telefone</label>{editing ? <input style={IS} value={maskPhone(f("phone"))} onChange={(e) => setF("phone", e.target.value.replace(/\D/g, "").slice(0, 11))} maxLength={15} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.phone ? maskPhone(client.phone) : "—"}</div>}</div>
           <div><label style={LBL}>Email</label>{editing ? <input type="email" style={IS} value={f("email")} onChange={(e) => setF("email", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.email || "—"}</div>}</div>
           <div style={{ gridColumn: "1 / -1" }}><label style={LBL}>Observações</label>{editing ? <textarea rows={2} style={{ ...IS, resize: "vertical" }} value={f("observations")} onChange={(e) => setF("observations", e.target.value)} /> : <div style={{ fontSize: 13, color: T.fog }}>{client.observations || "—"}</div>}</div>
         </div>
@@ -257,7 +261,7 @@ export default function ClientDetailPage() {
               );
             })}
           </div>
-          <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => { const file = e.target.files?.[0]; if (file && uploadingDocType) uploadDocument(file, uploadingDocType); e.target.value = ""; }} />
+          <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => { const file = e.target.files?.[0]; if (file && uploadingDocType) { uploadDocument(file, uploadingDocType); } else { setUploadingDocType(null); } e.target.value = ""; }} />
         </div>
       )}
 
