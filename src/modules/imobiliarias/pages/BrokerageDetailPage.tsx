@@ -55,14 +55,24 @@ export default function BrokerageDetailPage() {
     if (cleaned.length !== 14) return;
     setCnpjLoading(true);
     try {
-      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cleaned}`);
-      if (!res.ok) { setToast("CNPJ não encontrado"); return; }
-      const d = await res.json();
-      if (d.razao_social) setF("razao_social", d.razao_social);
-      if (d.nome_fantasia) setF("nome_fantasia", d.nome_fantasia);
-      if (d.ddd_telefone_1) setF("telefone", d.ddd_telefone_1.replace(/\D/g, ""));
-      if (d.municipio) setF("cidade", d.municipio);
-      if (d.uf) setF("uf", d.uf);
+      let d: Record<string, unknown> | null = null;
+      try {
+        const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cleaned}`);
+        if (res.ok) d = await res.json();
+      } catch { /* fallback */ }
+      if (!d) {
+        try {
+          const res2 = await fetch(`https://receitaws.com.br/v1/cnpj/${cleaned}`);
+          if (res2.ok) { const r = await res2.json(); if (r.status !== "ERROR") d = r; }
+        } catch { /* silencioso */ }
+      }
+      if (!d) { setToast("CNPJ não encontrado"); return; }
+      if (d.razao_social || d.nome) setF("razao_social", (d.razao_social as string) || (d.nome as string) || "");
+      if (d.nome_fantasia || d.fantasia) setF("nome_fantasia", (d.nome_fantasia as string) || (d.fantasia as string) || "");
+      const tel = (d.ddd_telefone_1 as string) || (d.telefone as string) || "";
+      if (tel) setF("telefone", tel.replace(/\D/g, ""));
+      if (d.municipio) setF("cidade", d.municipio as string);
+      if (d.uf) setF("uf", d.uf as string);
       if (d.logradouro) setF("endereco", [d.logradouro, d.numero, d.bairro].filter(Boolean).join(", "));
       setToast("Dados do CNPJ carregados");
     } catch { /* silencioso */ }

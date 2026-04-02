@@ -39,14 +39,29 @@ export default function BrokeragesPage() {
     if (raw.length !== 14) return;
     setCnpjLoading(true);
     try {
-      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${raw}`);
-      if (!res.ok) return;
-      const d = await res.json();
-      if (d.nome_fantasia) setName(d.nome_fantasia);
-      if (d.razao_social && !d.nome_fantasia) setName(d.razao_social);
-      if (d.ddd_telefone_1) setPhone(d.ddd_telefone_1.replace(/\D/g, ""));
-      if (d.municipio) setCity(d.municipio);
-      if (d.razao_social) setResponsavel(d.razao_social);
+      // Tentar BrasilAPI primeiro, ReceitaWS como fallback
+      let d: Record<string, unknown> | null = null;
+      try {
+        const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${raw}`);
+        if (res.ok) d = await res.json();
+      } catch { /* fallback */ }
+      if (!d) {
+        try {
+          const res2 = await fetch(`https://receitaws.com.br/v1/cnpj/${raw}`);
+          if (res2.ok) { const r = await res2.json(); if (r.status !== "ERROR") d = r; }
+        } catch { /* silencioso */ }
+      }
+      if (d) {
+        const fantasia = (d.nome_fantasia as string) || (d.fantasia as string) || "";
+        const razao = (d.razao_social as string) || (d.nome as string) || "";
+        const tel = (d.ddd_telefone_1 as string) || (d.telefone as string) || "";
+        const mun = (d.municipio as string) || "";
+        if (fantasia) setName(fantasia);
+        else if (razao) setName(razao);
+        if (tel) setPhone(tel.replace(/\D/g, ""));
+        if (mun) setCity(mun);
+        if (razao) setResponsavel(razao);
+      }
     } catch { /* silencioso */ }
     finally { setCnpjLoading(false); }
   }
