@@ -505,6 +505,7 @@ export default function AtividadesPage() {
   const [selectedParticipants, setSelectedParticipants] = useState<{ participant_type: string; participant_name: string; participant_detail: string | null }[]>([]);
   const [periodFilter, setPeriodFilter] = useState("month");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [memberFilter, setMemberFilter] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"mine" | "team">("team");
   const [consultantFilter, setConsultantFilter] = useState("all");
   const [teamProfiles, setTeamProfiles] = useState<{ id: string; name: string; role: string }[]>([]);
@@ -595,8 +596,9 @@ export default function AtividadesPage() {
       else if (periodFilter === "month") f = f.filter((a) => a.activity_date >= monthStart);
     }
     if (typeFilter !== "all") f = f.filter((a) => a.type === typeFilter);
+    if (memberFilter) f = f.filter((a) => a.profile_id === memberFilter);
     return f;
-  }, [activities, statusFilter, periodFilter, typeFilter, today, weekStart, monthStart]);
+  }, [activities, statusFilter, periodFilter, typeFilter, memberFilter, today, weekStart, monthStart]);
 
   const groupedByDate = useMemo(() => {
     const groups: Record<string, Activity[]> = {};
@@ -815,19 +817,25 @@ export default function AtividadesPage() {
         <select value={periodFilter} onChange={(e) => setPeriodFilter(e.target.value)} style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "6px 12px", color: T.chalk, fontSize: 12, outline: "none" }}>
           <option value="today">Hoje</option><option value="week">Esta semana</option><option value="month">Este mês</option><option value="all">Tudo</option>
         </select>
-        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "6px 12px", color: T.chalk, fontSize: 12, outline: "none" }}>
-          <option value="all">Todos os tipos</option>
-          {Object.entries(badgeLabels).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-        </select>
+        {/* Type filter pills */}
+        <div style={{ display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 2 }}>
+          {[["all", "Todos"], ...Object.entries(badgeLabels)].map(([k, l]) => {
+            const count = k === "all" ? filteredActivities.length : filteredActivities.filter((a) => a.type === k).length;
+            return <button key={k} type="button" onClick={() => setTypeFilter(k)} style={{ background: typeFilter === k ? (badgeColors[k] || T.sprout) + "20" : T.carbon, border: `1px solid ${typeFilter === k ? (badgeColors[k] || T.sprout) + "40" : T.stone}`, borderRadius: 20, padding: "5px 12px", fontSize: 11, fontWeight: 600, color: typeFilter === k ? (badgeColors[k] || T.sprout) : T.fog, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>{l}{count > 0 ? ` ·${count}` : ""}</button>;
+          })}
+        </div>
       </div>
 
       {/* Ranking (manager/director) */}
       {(isManager || isDirector) && ranking.length > 0 && (
         <div style={{ marginBottom: 24 }}>
           <div style={{ fontSize: 11, color: T.fog, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "var(--font-mono)", marginBottom: 10 }}>Produtividade por membro</div>
-          {ranking.map((r, idx) => <RankingRow key={r.id} member={r} position={idx + 1} />)}
+          {ranking.map((r, idx) => <div key={r.id} onClick={() => setMemberFilter(memberFilter === r.id ? null : r.id)} style={{ cursor: "pointer" }}><RankingRow member={r} position={idx + 1} /></div>)}
         </div>
       )}
+
+      {/* Member filter badge */}
+      {memberFilter && (() => { const m = ranking.find((r) => r.id === memberFilter); return m ? <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 14px", borderRadius: 8, background: T.sprout + "15", border: `1px solid ${T.sprout}30`, marginBottom: 12, fontSize: 13, color: T.sprout }}>Filtrado por: <strong>{m.name}</strong><button type="button" onClick={() => setMemberFilter(null)} style={{ background: "none", border: "none", color: T.sprout, fontSize: 16, cursor: "pointer", padding: 0, lineHeight: 1 }}>×</button></div> : null; })()}
 
       {/* Activity list */}
       {loading ? (
