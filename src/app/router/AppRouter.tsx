@@ -11,6 +11,7 @@ import NegotiationDetailPage from "../../modules/negociacoes/pages/NegotiationDe
 import ClientsPage from "../../modules/clientes/pages/ClientsPage";
 import ClientDetailPage from "../../modules/clientes/pages/ClientDetailPage";
 import BrokersPage from "../../modules/corretores/pages/BrokersPage";
+import BrokerDetailPage from "../../modules/corretores/pages/BrokerDetailPage";
 import BrokeragesPage from "../../modules/imobiliarias/pages/BrokeragesPage";
 import UsersPage from "../../modules/usuarios/pages/UsersPage";
 import UnitsPage from "../../modules/units/pages/UnitsPage";
@@ -155,6 +156,14 @@ export default function AppRouter() {
           element={
             <ProtectedAppPage>
               <BrokersPage />
+            </ProtectedAppPage>
+          }
+        />
+        <Route
+          path="/corretores/:id"
+          element={
+            <ProtectedAppPage>
+              <BrokerDetailPage />
             </ProtectedAppPage>
           }
         />
