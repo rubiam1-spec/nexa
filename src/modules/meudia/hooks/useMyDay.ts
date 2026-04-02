@@ -101,7 +101,7 @@ export function useMyDay(userId: string | null, accountId: string | null, develo
           if (oid) negCountByUser[oid] = (negCountByUser[oid] || 0) + 1;
         });
 
-        const excludeRoles = new Set(["owner", "director", "administrative"]);
+        const excludeRoles = new Set(["owner", "director", "broker"]);
         const seenNames = new Set<string>();
         for (const row of teamRaw as Record<string, unknown>[]) {
           const p = (Array.isArray(row.profiles) ? row.profiles[0] : row.profiles) as Record<string, unknown> | null;
