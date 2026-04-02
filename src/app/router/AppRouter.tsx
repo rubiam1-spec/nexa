@@ -13,6 +13,7 @@ import ClientDetailPage from "../../modules/clientes/pages/ClientDetailPage";
 import BrokersPage from "../../modules/corretores/pages/BrokersPage";
 import BrokerDetailPage from "../../modules/corretores/pages/BrokerDetailPage";
 import BrokeragesPage from "../../modules/imobiliarias/pages/BrokeragesPage";
+import BrokerageDetailPage from "../../modules/imobiliarias/pages/BrokerageDetailPage";
 import UsersPage from "../../modules/usuarios/pages/UsersPage";
 import UnitsPage from "../../modules/units/pages/UnitsPage";
 import SettingsPage from "../../modules/configuracoes/pages/SettingsPage";
@@ -172,6 +173,14 @@ export default function AppRouter() {
           element={
             <ProtectedAppPage>
               <BrokeragesPage />
+            </ProtectedAppPage>
+          }
+        />
+        <Route
+          path="/imobiliarias/:id"
+          element={
+            <ProtectedAppPage>
+              <BrokerageDetailPage />
             </ProtectedAppPage>
           }
         />
