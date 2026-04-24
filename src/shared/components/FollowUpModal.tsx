@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
+import { formatWeekdayShortBRT } from "../utils/dateUtils";
+import { useIsMobile } from "../hooks/useIsMobile";
 
 interface FollowUpModalProps {
   open: boolean;
@@ -17,7 +19,7 @@ function addDays(days: number): Date {
 }
 
 function formatDate(d: Date): string {
-  return d.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short" });
+  return formatWeekdayShortBRT(d);
 }
 
 function toInputDate(d: Date): string {
@@ -28,10 +30,9 @@ export default function FollowUpModal({ open, title, subtitle, onConfirm, onCanc
   const [selected, setSelected] = useState<"1" | "3" | "7" | "custom" | "none">("1");
   const [customDate, setCustomDate] = useState(toInputDate(addDays(2)));
   const [noFollowUp, setNoFollowUp] = useState(false);
+  const mobile = useIsMobile();
 
   if (!open) return null;
-
-  const mobile = typeof window !== "undefined" && window.innerWidth < 768;
 
   const picks = [
     { key: "1" as const, label: "Amanhã", sub: formatDate(addDays(1)) },
