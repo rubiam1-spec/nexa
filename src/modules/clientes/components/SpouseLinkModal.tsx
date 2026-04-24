@@ -78,8 +78,11 @@ export default function SpouseLinkModal({
   const [newPhone, setNewPhone] = useState("");
   const [creating, setCreating] = useState(false);
   const [createErr, setCreateErr] = useState<string | null>(null);
+  // Memoriza o ID do cliente recém-criado para que o retry do "Cadastrar e
+  // vincular" não chame createClient novamente (evita duplicação de cônjuge).
+  const [createdSpouseId, setCreatedSpouseId] = useState<string | null>(null);
 
-  const showError = searchErr || createErr || linkError;
+  const showError = createErr || linkError || searchErr;
 
   // Busca com debounce simples (300ms). Resetada quando modal fecha.
   useEffect(() => {
@@ -117,6 +120,7 @@ export default function SpouseLinkModal({
       setNewEmail("");
       setNewPhone("");
       setCreateErr(null);
+      setCreatedSpouseId(null);
     }
   }, [open]);
 
@@ -135,31 +139,55 @@ export default function SpouseLinkModal({
   const canCreate = newName.trim().length >= 3 && cpfDigits.length === 11 && !creating && !linking;
 
   const handleCreateAndLink = useCallback(async () => {
-    if (!accountId || !canCreate) return;
+    if (!accountId || creating || linking) return;
+    if (!canCreate && !createdSpouseId) return;
     setCreating(true);
     setCreateErr(null);
     try {
-      const created = await createClient({
-        accountId,
-        name: newName.trim(),
-        cpf: cpfDigits || undefined,
-        email: newEmail.trim() || undefined,
-        phone: newPhone.trim() || undefined,
-        maritalStatus: "casado",
-        regimeCasamento: clientRegimeCasamento ?? undefined,
-        origin: "conjuge_cadastrado",
-        createdBy,
-      });
-      const linked = await linkSpouses(clientId, created.id);
-      if (linked) {
-        onLinked?.(created.id);
-        onClose();
-      } else {
-        // Linkagem falhou — o cliente foi criado, orienta usuário.
-        setCreateErr(
-          "Cônjuge cadastrado mas o vínculo falhou. Tente novamente no perfil do cliente.",
-        );
+      // Etapa 1 — criar cliente, idempotente. Se já criamos numa tentativa
+      // anterior dentro deste mesmo ciclo, reutiliza o ID em vez de criar
+      // um novo (evita duplicação quando linkSpouses falha e usuário clica
+      // novamente no botão).
+      let spouseId = createdSpouseId;
+      if (!spouseId) {
+        const created = await createClient({
+          accountId,
+          name: newName.trim(),
+          cpf: cpfDigits || undefined,
+          email: newEmail.trim() || undefined,
+          phone: newPhone.trim() || undefined,
+          maritalStatus: "casado",
+          regimeCasamento: clientRegimeCasamento ?? undefined,
+          origin: "conjuge_cadastrado",
+          createdBy,
+        });
+        if (!created?.id) {
+          setCreateErr("Não foi possível cadastrar o cônjuge.");
+          return;
+        }
+        spouseId = created.id;
+        setCreatedSpouseId(spouseId);
       }
+
+      // Etapa 2 — vincular. useSpouseLink captura erro do repositório em
+      // errorMessage (exposto como linkError), retorna false.
+      const linked = await linkSpouses(clientId, spouseId);
+      if (linked) {
+        onLinked?.(spouseId);
+        setCreatedSpouseId(null);
+        onClose();
+        return;
+      }
+
+      // Falha no vínculo — expor o motivo real (do repo via useSpouseLink)
+      // concatenado com orientação: cônjuge já está salvo, não clicar
+      // repetidamente (protegido pelo guard acima) e pode ser vinculado
+      // depois pelo perfil do cliente principal.
+      const realReason = linkError
+        ?? "Verifique se o cliente principal está marcado como casado/união estável.";
+      setCreateErr(
+        `${realReason} O cônjuge JÁ foi cadastrado e está disponível em Contatos.`,
+      );
     } catch (e) {
       setCreateErr(e instanceof Error ? e.message : "Falha ao cadastrar cônjuge.");
     } finally {
@@ -167,7 +195,10 @@ export default function SpouseLinkModal({
     }
   }, [
     accountId,
+    creating,
+    linking,
     canCreate,
+    createdSpouseId,
     cpfDigits,
     newName,
     newEmail,
@@ -176,6 +207,7 @@ export default function SpouseLinkModal({
     createdBy,
     clientId,
     linkSpouses,
+    linkError,
     onLinked,
     onClose,
   ]);

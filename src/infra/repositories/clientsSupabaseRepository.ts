@@ -372,12 +372,14 @@ export async function linkSpouses(
   if (a.account_id !== b.account_id) {
     throw new Error("Clientes pertencem a contas diferentes — vínculo bloqueado.");
   }
-  const invalid = rows.find(
+  const invalidRows = rows.filter(
     (r) => !r.marital_status || !SPOUSE_LINKABLE_STATUSES.includes(r.marital_status),
   );
-  if (invalid) {
+  if (invalidRows.length > 0) {
+    const ids = invalidRows.map((r) => r.id).join(", ");
     throw new Error(
-      "Ambos clientes precisam ter estado civil 'casado' ou 'uniao_estavel' antes do vínculo.",
+      `Não é possível vincular cônjuges: cliente(s) ${ids} sem estado civil válido (casado/união estável). ` +
+        "Acesse o perfil do cliente, marque o estado civil correto e salve antes de vincular.",
     );
   }
 

@@ -262,12 +262,32 @@ export default function ClientDetailPage() {
       const payload: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(form)) { if (v !== undefined && v !== (client as unknown as Record<string, unknown>)[k]) payload[k] = v || null; }
       if (Object.keys(payload).length > 0) {
-        await supabase.from("clients").update(payload).eq("id", id);
-        setClient({ ...client, ...payload } as ClientData);
+        // Bug primário corrigido: Supabase retorna { error } em vez de throw.
+        // Validar explicitamente para não aplicar update otimista em caso de
+        // falha (RLS, constraint, rede) e não mentir pro usuário via toast.
+        const { data: updated, error } = await supabase
+          .from("clients")
+          .update(payload)
+          .eq("id", id)
+          .select()
+          .maybeSingle();
+        if (error) {
+          console.error("[ClientDetailPage] Erro ao salvar:", error);
+          setToast(`Erro ao salvar: ${error.message}`);
+          return;
+        }
+        if (!updated) {
+          setToast("Erro ao salvar: cliente não foi atualizado (verifique permissões).");
+          return;
+        }
+        // Fonte da verdade vem do banco, não do payload local.
+        setClient(updated as unknown as ClientData);
       }
       setEditing(false); setForm({}); setToast("Cliente atualizado");
-    } catch { setToast("Erro ao salvar"); }
-    finally { setSaving(false); }
+    } catch (err) {
+      console.error("[ClientDetailPage] Exceção ao salvar:", err);
+      setToast("Erro ao salvar");
+    } finally { setSaving(false); }
   }
 
   async function buscarCep() {
