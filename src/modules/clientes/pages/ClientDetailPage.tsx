@@ -191,6 +191,7 @@ export default function ClientDetailPage() {
   // Interaction edit/delete
   const [activeIntMenu, setActiveIntMenu] = useState<string | null>(null);
   const [editingInt, setEditingInt] = useState<{ id: string; title: string; description: string } | null>(null);
+  const [showSpouseModal, setShowSpouseModal] = useState(false);
 
   useEffect(() => {
     if (!activeIntMenu) return;
@@ -500,9 +501,7 @@ export default function ClientDetailPage() {
   if (!client) return <div style={{ padding: 32 }}><div style={{ fontSize: 14, color: T.red }}>Cliente não encontrado.</div><button type="button" onClick={() => navigate("/contatos")} style={{ marginTop: 16, background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "8px 16px", color: T.bone, fontSize: 13, cursor: "pointer" }}>← Voltar</button></div>;
 
   const needsSpouse = f("marital_status") === "casado" || f("marital_status") === "uniao_estavel";
-  // Engrenagem de Partes v1 — cliente casado sem vínculo relacional precisa cadastrar cônjuge.
   const needsSpouseLink = needsSpouse && !client?.current_spouse_client_id;
-  const [showSpouseModal, setShowSpouseModal] = useState(false);
   // Dynamic doc types: prefer configs from DB, fallback to hardcoded DOC_TYPES
   const effectiveDocTypes: { key: string; label: string; required: boolean; description?: string | null }[] = docTypeConfigs.length > 0
     ? docTypeConfigs.map((c) => ({ key: c.name, label: c.label || c.name, required: c.required, description: c.description }))
