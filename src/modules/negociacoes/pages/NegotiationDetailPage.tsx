@@ -1683,14 +1683,6 @@ function ProposalForm(props: {
     }
   }, [showForm]);
 
-  // Auto-fill title when form opens
-  useEffect(() => {
-    if (showForm && !title) {
-      const prefix = props.tipo === "contraproposta" ? "Contraproposta" : "Proposta";
-      setTitle(props.unitLabel ? `${prefix} - ${props.unitLabel}` : "");
-    }
-  }, [showForm]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // Auto-suggest balão values when toggled on
   const handleToggleBalao = useCallback(() => {
     if (!hasBalao) {
@@ -1719,7 +1711,13 @@ function ProposalForm(props: {
 
   if (!showForm) {
     return (
-      <button type="button" disabled={!props.canCreate} onClick={() => setShowForm(true)}
+      <button type="button" disabled={!props.canCreate} onClick={() => {
+        if (!title) {
+          const prefix = props.tipo === "contraproposta" ? "Contraproposta" : "Proposta";
+          setTitle(props.unitLabel ? `${prefix} - ${props.unitLabel}` : "");
+        }
+        setShowForm(true);
+      }}
         style={{ background: "var(--color-sprout)", color: "var(--color-ink)", border: "none", borderRadius: 8, padding: "0 14px", height: 32, fontSize: 12, fontWeight: 700, marginTop: 12 }}>
         {props.tipo === "contraproposta" ? "Fazer contraproposta" : "Nova proposta"}
       </button>
