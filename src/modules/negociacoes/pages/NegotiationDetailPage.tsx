@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useReducer } from "react";
 import { Link, useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useIsMobile } from "../../../shared/hooks/useIsMobile";
 import { supabase } from "../../../infra/supabase/supabaseClient";
@@ -1601,6 +1601,102 @@ export type ProposalPrefillData = {
   };
 };
 
+// Etapa 1.4 — estado do ProposalForm consolidado em useReducer.
+// Evita cascata de setStates no hydrate de prefillData (set-state-in-effect).
+type ProposalFormState = {
+  title: string;
+  amount: string;
+  entradaPct: boolean;
+  entradaVal: string;
+  numParcelas: string;
+  hasBalao: boolean;
+  balaoQtd: string;
+  balaoVal: string;
+  balaoEditadoManualmente: boolean;
+  hasPermuta: boolean;
+  permutaVal: string;
+  permutaDesc: string;
+  obs: string;
+  prefillSimulationId: string | null;
+  showForm: boolean;
+};
+
+type ProposalFormAction =
+  | { type: "HYDRATE_FROM_PREFILL"; payload: ProposalPrefillData }
+  | { type: "SET_FIELD"; field: keyof ProposalFormState; value: ProposalFormState[keyof ProposalFormState] }
+  | { type: "OPEN_FORM" }
+  | { type: "CLOSE_FORM" }
+  | { type: "RESET"; defaultAmount: string };
+
+function proposalFormReducer(state: ProposalFormState, action: ProposalFormAction): ProposalFormState {
+  switch (action.type) {
+    case "HYDRATE_FROM_PREFILL": {
+      const v = action.payload.values;
+      return {
+        ...state,
+        title: v.title ?? state.title,
+        amount: v.amount !== undefined ? String(Math.round(v.amount)) : state.amount,
+        entradaPct: v.entradaTipo !== undefined ? v.entradaTipo === "percentual" : state.entradaPct,
+        entradaVal:
+          v.entradaTipo === "valor" && v.entradaValor !== undefined
+            ? String(Math.round(v.entradaValor))
+            : v.entradaPercentual !== undefined
+            ? String(Math.round(v.entradaPercentual * 100) / 100)
+            : state.entradaVal,
+        numParcelas: v.parcelasQuantidade !== undefined ? String(v.parcelasQuantidade) : state.numParcelas,
+        hasBalao: Boolean(v.balaoQuantidade && v.balaoValor) || state.hasBalao,
+        balaoQtd: v.balaoQuantidade ? String(v.balaoQuantidade) : state.balaoQtd,
+        balaoVal: v.balaoValor ? String(Math.round(v.balaoValor)) : state.balaoVal,
+        hasPermuta: Boolean(v.permutaValor && v.permutaValor > 0) || state.hasPermuta,
+        permutaVal: v.permutaValor && v.permutaValor > 0 ? String(Math.round(v.permutaValor)) : state.permutaVal,
+        permutaDesc: v.permutaDescricao ?? state.permutaDesc,
+        obs: v.observacoes ?? state.obs,
+        prefillSimulationId: action.payload.simulationId,
+        showForm: true,
+      };
+    }
+    case "SET_FIELD":
+      return { ...state, [action.field]: action.value } as ProposalFormState;
+    case "OPEN_FORM":
+      return { ...state, showForm: true };
+    case "CLOSE_FORM":
+      return { ...state, showForm: false, prefillSimulationId: null };
+    case "RESET":
+      return {
+        ...INITIAL_PROPOSAL_FORM_STATE,
+        amount: action.defaultAmount,
+      };
+    default:
+      return state;
+  }
+}
+
+const INITIAL_PROPOSAL_FORM_STATE: ProposalFormState = {
+  title: "",
+  amount: "",
+  entradaPct: true,
+  entradaVal: "15",
+  numParcelas: "36",
+  hasBalao: false,
+  balaoQtd: "6",
+  balaoVal: "",
+  balaoEditadoManualmente: false,
+  hasPermuta: false,
+  permutaVal: "",
+  permutaDesc: "",
+  obs: "",
+  prefillSimulationId: null,
+  showForm: false,
+};
+
+function calcularValorBalaoSugerido(amountStr: string, qtyStr: string): string {
+  const amt = Number(amountStr) || 0;
+  const qty = Number(qtyStr) || 6;
+  if (amt <= 0) return "";
+  const suggestedVal = Math.round((amt * 0.05) / qty);
+  return suggestedVal > 0 ? suggestedVal.toString() : "";
+}
+
 function ProposalForm(props: {
   canCreate: boolean;
   isCreating: boolean;
@@ -1620,52 +1716,28 @@ function ProposalForm(props: {
     simulationId?: string | null;
   }) => void;
 }) {
-  const [showForm, setShowForm] = useState(false);
-  const [title, setTitle] = useState("");
-  const [amount, setAmount] = useState(props.defaultAmount.toString());
-  const [entradaPct, setEntradaPct] = useState(true);
-  const [entradaVal, setEntradaVal] = useState("15");
-  const [numParcelas, setNumParcelas] = useState("36");
-  const [hasBalao, setHasBalao] = useState(false);
-  const [balaoQtd, setBalaoQtd] = useState("6");
-  const [balaoVal, setBalaoVal] = useState("");
-  const [hasPermuta, setHasPermuta] = useState(false);
-  const [permutaVal, setPermutaVal] = useState("");
-  const [permutaDesc, setPermutaDesc] = useState("");
-  const [obs, setObs] = useState("");
+  const [state, dispatch] = useReducer(proposalFormReducer, INITIAL_PROPOSAL_FORM_STATE, (s) => ({
+    ...s,
+    amount: props.defaultAmount.toString(),
+  }));
+  const {
+    title, amount, entradaPct, entradaVal, numParcelas,
+    hasBalao, balaoQtd, balaoVal,
+    hasPermuta, permutaVal, permutaDesc, obs, prefillSimulationId, showForm,
+  } = state;
   const [showSuccess, setShowSuccess] = useState(false);
-  // Engrenagem v1 — simulationId mantido internamente durante a edição.
-  const [prefillSimulationId, setPrefillSimulationId] = useState<string | null>(null);
 
   const amountRef = useRef<HTMLInputElement>(null);
 
+  const setField = useCallback(<K extends keyof ProposalFormState>(field: K, value: ProposalFormState[K]) => {
+    dispatch({ type: "SET_FIELD", field, value });
+  }, []);
+
   // Engrenagem v1 — quando chega prefillData (via card "Criar proposta a partir
-  // desta" ou via ?createProposalFrom= na URL), hidratamos o form e abrimos.
+  // desta" ou via ?createProposalFrom= na URL), hidratamos via reducer single dispatch.
   useEffect(() => {
     if (!props.prefillData) return;
-    const v = props.prefillData.values;
-    if (v.title !== undefined) setTitle(v.title);
-    if (v.amount !== undefined) setAmount(String(Math.round(v.amount)));
-    if (v.entradaTipo !== undefined) setEntradaPct(v.entradaTipo === "percentual");
-    if (v.entradaTipo === "valor" && v.entradaValor !== undefined) {
-      setEntradaVal(String(Math.round(v.entradaValor)));
-    } else if (v.entradaPercentual !== undefined) {
-      setEntradaVal(String(Math.round(v.entradaPercentual * 100) / 100));
-    }
-    if (v.parcelasQuantidade !== undefined) setNumParcelas(String(v.parcelasQuantidade));
-    if (v.balaoQuantidade && v.balaoValor) {
-      setHasBalao(true);
-      setBalaoQtd(String(v.balaoQuantidade));
-      setBalaoVal(String(Math.round(v.balaoValor)));
-    }
-    if (v.permutaValor && v.permutaValor > 0) {
-      setHasPermuta(true);
-      setPermutaVal(String(Math.round(v.permutaValor)));
-      setPermutaDesc(v.permutaDescricao ?? "");
-    }
-    if (v.observacoes !== undefined) setObs(v.observacoes);
-    setPrefillSimulationId(props.prefillData.simulationId);
-    setShowForm(true);
+    dispatch({ type: "HYDRATE_FROM_PREFILL", payload: props.prefillData });
   }, [props.prefillData]);
 
   const amt = Number(amount) || 0;
@@ -1683,24 +1755,34 @@ function ProposalForm(props: {
     }
   }, [showForm]);
 
-  // Auto-suggest balão values when toggled on
-  const handleToggleBalao = useCallback(() => {
-    if (!hasBalao) {
-      setBalaoQtd("6");
-      const suggestedVal = amt > 0 ? Math.round((amt * 0.05) / 6) : 0;
-      setBalaoVal(suggestedVal > 0 ? suggestedVal.toString() : "");
+  // Recalcular balão só quando amount muda E usuário NÃO editou manualmente.
+  const handleAmountChange = useCallback((newAmount: string) => {
+    dispatch({ type: "SET_FIELD", field: "amount", value: newAmount });
+    if (state.hasBalao && !state.balaoEditadoManualmente) {
+      const suggested = calcularValorBalaoSugerido(newAmount, state.balaoQtd);
+      dispatch({ type: "SET_FIELD", field: "balaoVal", value: suggested });
     }
-    setHasBalao(!hasBalao);
-  }, [hasBalao, amt]);
+  }, [state.hasBalao, state.balaoEditadoManualmente, state.balaoQtd]);
 
-  // Recalculate balão when amount changes (if balão is active)
-  useEffect(() => {
-    if (hasBalao && amt > 0) {
-      const qty = Number(balaoQtd) || 6;
-      const suggestedVal = Math.round((amt * 0.05) / qty);
-      setBalaoVal(suggestedVal > 0 ? suggestedVal.toString() : "");
+  const handleToggleBalao = useCallback(() => {
+    const novoEstado = !state.hasBalao;
+    dispatch({ type: "SET_FIELD", field: "hasBalao", value: novoEstado });
+    if (novoEstado && !state.balaoVal) {
+      dispatch({ type: "SET_FIELD", field: "balaoQtd", value: "6" });
+      const suggested = calcularValorBalaoSugerido(state.amount, "6");
+      dispatch({ type: "SET_FIELD", field: "balaoVal", value: suggested });
+      dispatch({ type: "SET_FIELD", field: "balaoEditadoManualmente", value: false });
     }
-  }, [amt, hasBalao]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!novoEstado) {
+      // Ao desligar, reseta flag de edição manual para próxima ativação.
+      dispatch({ type: "SET_FIELD", field: "balaoEditadoManualmente", value: false });
+    }
+  }, [state.hasBalao, state.balaoVal, state.amount]);
+
+  const handleBalaoValChange = useCallback((v: string) => {
+    dispatch({ type: "SET_FIELD", field: "balaoVal", value: v });
+    dispatch({ type: "SET_FIELD", field: "balaoEditadoManualmente", value: true });
+  }, []);
 
   function fmt(v: number) { return v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
@@ -1714,9 +1796,9 @@ function ProposalForm(props: {
       <button type="button" disabled={!props.canCreate} onClick={() => {
         if (!title) {
           const prefix = props.tipo === "contraproposta" ? "Contraproposta" : "Proposta";
-          setTitle(props.unitLabel ? `${prefix} - ${props.unitLabel}` : "");
+          dispatch({ type: "SET_FIELD", field: "title", value: props.unitLabel ? `${prefix} - ${props.unitLabel}` : "" });
         }
-        setShowForm(true);
+        dispatch({ type: "OPEN_FORM" });
       }}
         style={{ background: "var(--color-sprout)", color: "var(--color-ink)", border: "none", borderRadius: 8, padding: "0 14px", height: 32, fontSize: 12, fontWeight: 700, marginTop: 12 }}>
         {props.tipo === "contraproposta" ? "Fazer contraproposta" : "Nova proposta"}
@@ -1742,11 +1824,7 @@ function ProposalForm(props: {
     setShowSuccess(true);
     setTimeout(() => {
       setShowSuccess(false);
-      setShowForm(false);
-      setTitle(""); setAmount(props.defaultAmount.toString());
-      setEntradaVal("15"); setNumParcelas("36");
-      setHasBalao(false); setHasPermuta(false); setObs("");
-      setPrefillSimulationId(null);
+      dispatch({ type: "RESET", defaultAmount: props.defaultAmount.toString() });
       props.onPrefillConsumed?.();
     }, 1200);
   }
@@ -1775,9 +1853,9 @@ function ProposalForm(props: {
         </div>
       ) : null}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, maxWidth: 600 }}>
-        <FormLabel label="Título *"><input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Proposta comercial" /></FormLabel>
+        <FormLabel label="Título *"><input type="text" value={title} onChange={(e) => setField("title", e.target.value)} placeholder="Proposta comercial" /></FormLabel>
         <div>
-          <FormLabel label="Valor total (R$) *"><input ref={amountRef} type="number" value={amount} onChange={(e) => setAmount(e.target.value)} min="0" step="1000" /></FormLabel>
+          <FormLabel label="Valor total (R$) *"><input ref={amountRef} type="number" value={amount} onChange={(e) => handleAmountChange(e.target.value)} min="0" step="1000" /></FormLabel>
           {amt > 0 ? <div style={{ fontSize: 11, color: "var(--color-sprout)", marginTop: 4, fontWeight: 600 }}>R$ {fmt(amt)}</div> : null}
         </div>
         <div>
@@ -1786,21 +1864,21 @@ function ProposalForm(props: {
             <div style={{ display: "flex", gap: 4 }}>
               {(["R$", "%"] as const).map((m) => {
                 const active = m === "%" ? entradaPct : !entradaPct;
-                return (<button key={m} type="button" onClick={() => setEntradaPct(m === "%")} style={{ background: active ? "var(--color-sprout-muted)" : "transparent", color: active ? "var(--color-sprout)" : "var(--color-fog)", border: "1px solid var(--color-stone)", borderRadius: 4, padding: "2px 8px", fontSize: 10, fontWeight: 600, fontFamily: "var(--font-mono)" }}>{m}</button>);
+                return (<button key={m} type="button" onClick={() => setField("entradaPct", m === "%")} style={{ background: active ? "var(--color-sprout-muted)" : "transparent", color: active ? "var(--color-sprout)" : "var(--color-fog)", border: "1px solid var(--color-stone)", borderRadius: 4, padding: "2px 8px", fontSize: 10, fontWeight: 600, fontFamily: "var(--font-mono)" }}>{m}</button>);
               })}
             </div>
           </div>
-          <input type="number" value={entradaVal} onChange={(e) => setEntradaVal(e.target.value)} min="0" placeholder={entradaPct ? "15" : "36000"} />
+          <input type="number" value={entradaVal} onChange={(e) => setField("entradaVal", e.target.value)} min="0" placeholder={entradaPct ? "15" : "36000"} />
           {amt > 0 ? <div style={{ fontSize: 11, color: "var(--color-fog)", marginTop: 4 }}>= R$ {fmt(entradaReais)}</div> : null}
         </div>
         <div>
           <FormLabel label="Parcelas">
-            <select value={numParcelas} onChange={(e) => setNumParcelas(e.target.value)}>
+            <select value={numParcelas} onChange={(e) => setField("numParcelas", e.target.value)}>
               {[12, 24, 36, 48, 60].map((n) => <option key={n} value={n}>{n}x</option>)}
               <option value="0">Personalizado</option>
             </select>
           </FormLabel>
-          {numParcelas === "0" ? <input type="number" value="" onChange={(e) => setNumParcelas(e.target.value)} min="1" placeholder="Nº parcelas" style={{ marginTop: 6 }} /> : null}
+          {numParcelas === "0" ? <input type="number" value="" onChange={(e) => setField("numParcelas", e.target.value)} min="1" placeholder="Nº parcelas" style={{ marginTop: 6 }} /> : null}
           {financiado > 0 && nParcelas > 0 ? (
             <div style={{ fontSize: 12, color: "var(--color-sprout)", marginTop: 6, fontWeight: 700, background: "var(--color-sprout-muted)", borderRadius: 4, padding: "4px 8px", display: "inline-block" }}>
               Parcela: R$ {fmt(parcelaVal)}
@@ -1820,10 +1898,10 @@ function ProposalForm(props: {
       {hasBalao ? (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8, maxWidth: 600 }}>
           <div>
-            <FormLabel label="Qtd. balões"><input type="number" value={balaoQtd} onChange={(e) => setBalaoQtd(e.target.value)} min="1" /></FormLabel>
+            <FormLabel label="Qtd. balões"><input type="number" value={balaoQtd} onChange={(e) => setField("balaoQtd", e.target.value)} min="1" /></FormLabel>
           </div>
           <div>
-            <FormLabel label="Valor de cada balão (R$)"><input type="number" value={balaoVal} onChange={(e) => setBalaoVal(e.target.value)} min="0" step="1000" /></FormLabel>
+            <FormLabel label="Valor de cada balão (R$)"><input type="number" value={balaoVal} onChange={(e) => handleBalaoValChange(e.target.value)} min="0" step="1000" /></FormLabel>
             {Number(balaoQtd) > 0 && Number(balaoVal) > 0 ? (
               <div style={{ fontSize: 11, color: "var(--color-fog)", marginTop: 4 }}>Total balões: R$ {fmt(Number(balaoQtd) * Number(balaoVal))}</div>
             ) : null}
@@ -1833,15 +1911,15 @@ function ProposalForm(props: {
 
       {/* Permuta */}
       <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 10 }}>
-        <button type="button" onClick={() => setHasPermuta(!hasPermuta)} style={{ width: 36, height: 20, borderRadius: 10, background: hasPermuta ? "var(--color-sprout)" : "var(--color-stone)", border: "none", position: "relative", flexShrink: 0 }}>
+        <button type="button" onClick={() => setField("hasPermuta", !hasPermuta)} style={{ width: 36, height: 20, borderRadius: 10, background: hasPermuta ? "var(--color-sprout)" : "var(--color-stone)", border: "none", position: "relative", flexShrink: 0 }}>
           <div style={{ width: 14, height: 14, borderRadius: "50%", background: "#fff", position: "absolute", top: 3, left: hasPermuta ? 19 : 3, transition: "left 150ms" }} />
         </button>
         <span style={{ fontSize: 13, color: "var(--color-dust)" }}>Permuta</span>
       </div>
       {hasPermuta ? (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8, maxWidth: 600 }}>
-          <FormLabel label="Valor da permuta (R$)"><input type="number" value={permutaVal} onChange={(e) => setPermutaVal(e.target.value)} min="0" /></FormLabel>
-          <FormLabel label="Descrição da permuta"><input type="text" value={permutaDesc} onChange={(e) => setPermutaDesc(e.target.value)} placeholder="Ex: Veículo, terreno..." /></FormLabel>
+          <FormLabel label="Valor da permuta (R$)"><input type="number" value={permutaVal} onChange={(e) => setField("permutaVal", e.target.value)} min="0" /></FormLabel>
+          <FormLabel label="Descrição da permuta"><input type="text" value={permutaDesc} onChange={(e) => setField("permutaDesc", e.target.value)} placeholder="Ex: Veículo, terreno..." /></FormLabel>
         </div>
       ) : null}
 
@@ -1849,7 +1927,7 @@ function ProposalForm(props: {
       <div style={{ marginTop: 12, maxWidth: 600 }}>
         <label>
           <span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Observações</span>
-          <textarea value={obs} onChange={(e) => setObs(e.target.value)} rows={2} placeholder="Condições especiais, prazos..." />
+          <textarea value={obs} onChange={(e) => setField("obs", e.target.value)} rows={2} placeholder="Condições especiais, prazos..." />
         </label>
       </div>
 
@@ -1863,7 +1941,7 @@ function ProposalForm(props: {
             <div style={{ fontSize: 10, color: "var(--color-fog)", marginTop: 4 }}>Preencha: {missingFields.join(", ")}</div>
           ) : null}
         </div>
-        <button type="button" onClick={() => { setShowForm(false); setPrefillSimulationId(null); props.onPrefillConsumed?.(); }}
+        <button type="button" onClick={() => { dispatch({ type: "CLOSE_FORM" }); props.onPrefillConsumed?.(); }}
           style={{ background: "transparent", color: "var(--color-fog)", border: "1px solid var(--color-stone)", borderRadius: 8, padding: "0 14px", height: 32, fontSize: 12 }}>
           Cancelar
         </button>
