@@ -22,6 +22,8 @@ export type Proposal = {
   permutaValor: number | null;
   permutaDescricao: string | null;
   observacoes: string | null;
+  /** Simulação de origem, quando a proposta foi gerada via Engrenagem Comercial v1. */
+  simulationId: string | null;
   createdBy: string | null;
   createdAt: Date;
   updatedAt: Date;

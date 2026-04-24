@@ -17,6 +17,8 @@ import type { Unidade } from "../../../domain/unidade/Unidade";
 import {
   createNegotiationHistoryEvent as createSupabaseNegotiationHistoryEvent,
 } from "../../../infra/repositories/negotiationHistorySupabaseRepository";
+import { supabase } from "../../../infra/supabase/supabaseClient";
+import { createNotificationWithEmail, createNotificationsWithEmail } from "../../../shared/utils/notificationHelper";
 import { createUnitHistoryEvent as createSupabaseUnitHistoryEvent } from "../../../infra/repositories/unitHistorySupabaseRepository";
 import {
   createProposal as createSupabaseProposal,
@@ -144,6 +146,8 @@ export function useProposals(
     permutaValor?: number;
     permutaDescricao?: string;
     observacoes?: string;
+    /** Engrenagem Comercial v1 — vincula a proposta à simulação de origem. */
+    simulationId?: string | null;
   }): Promise<{
     proposal: Proposal;
     historyEvents: NegotiationHistoryEvent[];
@@ -224,6 +228,17 @@ export function useProposals(
 
       const effectiveTitle = params.title?.trim() || proposalPlan.proposalTitle;
 
+      // If creating a counterproposal, mark the original proposal(s) as COUNTER_PROPOSAL
+      let parentProposalId: string | undefined;
+      if (params.tipo === "contraproposta") {
+        const originalToCounter = proposals.find((p) => ["SENT", "UNDER_ANALYSIS"].includes(p.status));
+        if (originalToCounter && !useMockFallback) {
+          await updateSupabaseProposalStatus(originalToCounter.id, "COUNTER_PROPOSAL" as Proposal["status"]);
+          setProposals((current) => current.map((p) => p.id === originalToCounter.id ? { ...p, status: "COUNTER_PROPOSAL" as Proposal["status"] } : p));
+          parentProposalId = originalToCounter.id;
+        }
+      }
+
       const persistedProposal = useMockFallback
         ? createMockProposal({
             negotiationId: negotiation.id,
@@ -257,6 +272,8 @@ export function useProposals(
             permutaValor: params.permutaValor,
             permutaDescricao: params.permutaDescricao,
             observacoes: params.observacoes,
+            parentProposalId,
+            simulationId: params.simulationId ?? null,
           });
 
       const proposalCreatedInput = {
@@ -359,6 +376,50 @@ export function useProposals(
         ),
       );
       setStatus("ready");
+
+      // ── Send notifications + email on accept/reject (fire-and-forget) ──
+      if (supabase && negotiation && (transition === "accept" || transition === "reject")) {
+        const aId = negotiation.accountId;
+        const clientId = negotiation.clientId;
+        const negId = negotiation.id;
+        const bId = negotiation.brokerId;
+
+        // Fetch context data for rich email templates
+        Promise.all([
+          supabase.from("negotiations").select("clients(name), units(quadra, lote)").eq("id", negId).maybeSingle(),
+          supabase.from("accounts").select("name").eq("id", aId).maybeSingle(),
+          supabase.from("developments").select("name").eq("account_id", aId).limit(1).maybeSingle(),
+        ]).then(([negRes, acctRes, devRes]) => {
+          const nr = negRes.data as Record<string, unknown> | null;
+          const cl = nr?.clients as Record<string, unknown> | null;
+          const un = nr?.units as Record<string, unknown> | null;
+          const clientName = (cl?.name as string) || "Cliente";
+          const unitLabel = un ? `Q${un.quadra}/L${un.lote}` : "";
+          const acctName = (acctRes.data as Record<string, unknown> | null)?.name as string | undefined;
+          const devName = (devRes.data as Record<string, unknown> | null)?.name as string | undefined;
+          const meta = { account_name: acctName, development_name: devName };
+
+          if (transition === "accept") {
+            supabase!.from("user_account_access").select("user_id").eq("account_id", aId).eq("role", "administrative").then(({ data: admins }) => {
+              if (admins && admins.length > 0) {
+                void createNotificationsWithEmail(admins.map((a: Record<string, unknown>) => ({
+                  account_id: aId, recipient_id: a.user_id as string, sender_id: performedBy,
+                  type: "docs_ready_for_review", title: "Documentos prontos para análise",
+                  message: `Proposta de ${clientName} (${unitLabel}) aprovada. Documentos disponíveis para análise.`,
+                  action_url: `/clientes/${clientId}?tab=documentos`, metadata: meta,
+                })));
+              }
+            });
+            if (bId && bId !== performedBy) {
+              void createNotificationWithEmail({ account_id: aId, recipient_id: bId, sender_id: performedBy, type: "proposal_approved", title: "Proposta aprovada", message: `Proposta de ${clientName} (${unitLabel}) foi aprovada. Documentos encaminhados para análise.`, action_url: `/clientes/${clientId}`, metadata: meta });
+            }
+          } else {
+            if (bId && bId !== performedBy) {
+              void createNotificationWithEmail({ account_id: aId, recipient_id: bId, sender_id: performedBy, type: "proposal_rejected", title: "Proposta recusada", message: `Proposta de ${clientName} (${unitLabel}) foi recusada.`, action_url: `/negociacoes/${negId}`, metadata: meta });
+            }
+          }
+        });
+      }
 
       return {
         proposal: persistedProposal,

@@ -51,6 +51,7 @@ export function createProposal(input: {
     permutaValor: null,
     permutaDescricao: null,
     observacoes: null,
+    simulationId: null,
     createdBy: input.createdBy,
     createdAt: new Date(),
     updatedAt: new Date(),

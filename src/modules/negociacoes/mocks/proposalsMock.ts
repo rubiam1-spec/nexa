@@ -24,6 +24,7 @@ export const proposalsMock: Proposal[] = [
     permutaValor: null,
     permutaDescricao: null,
     observacoes: null,
+    simulationId: null,
     createdBy: "user_1",
     createdAt: new Date("2026-01-07T00:00:00.000Z"),
     updatedAt: new Date("2026-01-07T00:00:00.000Z"),

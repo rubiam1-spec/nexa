@@ -1,6 +1,7 @@
 import { ProposalStatus, type ProposalStatus as ProposalStatusType } from "../../domain/proposta/ProposalStatus";
 import type { Proposal } from "../../shared/types/proposal";
 import { getSupabaseClientOrThrow, unwrapSupabaseListResult } from "./baseRepository";
+import { getSimulationById } from "./pipelineSimulationsSupabaseRepository";
 
 const dbStatusToEnum: Record<string, ProposalStatusType> = {
   draft: ProposalStatus.DRAFT,
@@ -9,6 +10,7 @@ const dbStatusToEnum: Record<string, ProposalStatusType> = {
   accepted: ProposalStatus.ACCEPTED,
   rejected: ProposalStatus.REJECTED,
   expired: ProposalStatus.EXPIRED,
+  counter_proposal: ProposalStatus.COUNTER_PROPOSAL,
 };
 
 const enumToDbStatus: Record<ProposalStatusType, string> = {
@@ -18,6 +20,7 @@ const enumToDbStatus: Record<ProposalStatusType, string> = {
   [ProposalStatus.ACCEPTED]: "accepted",
   [ProposalStatus.REJECTED]: "rejected",
   [ProposalStatus.EXPIRED]: "expired",
+  [ProposalStatus.COUNTER_PROPOSAL]: "counter_proposal",
 };
 
 const validStatuses = new Set<string>(Object.values(ProposalStatus));
@@ -44,6 +47,7 @@ type ProposalRow = {
   permuta_valor: number | null;
   permuta_descricao: string | null;
   observacoes: string | null;
+  simulation_id: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -59,7 +63,7 @@ function normalizeProposalStatus(raw: string): ProposalStatusType {
   return ProposalStatus.DRAFT;
 }
 
-const selectCols = "id, negotiation_id, account_id, development_id, unit_id, client_id, broker_id, title, amount, status, tipo, entrada_tipo, entrada_valor, entrada_percentual, parcelas_quantidade, parcelas_valor, balao_quantidade, balao_valor, permuta_valor, permuta_descricao, observacoes, created_by, created_at, updated_at";
+const selectCols = "id, negotiation_id, account_id, development_id, unit_id, client_id, broker_id, title, amount, status, tipo, entrada_tipo, entrada_valor, entrada_percentual, parcelas_quantidade, parcelas_valor, balao_quantidade, balao_valor, permuta_valor, permuta_descricao, observacoes, simulation_id, created_by, created_at, updated_at";
 
 function mapProposalRowToProposal(row: ProposalRow): Proposal {
   return {
@@ -84,6 +88,7 @@ function mapProposalRowToProposal(row: ProposalRow): Proposal {
     permutaValor: row.permuta_valor ? Number(row.permuta_valor) : null,
     permutaDescricao: row.permuta_descricao,
     observacoes: row.observacoes,
+    simulationId: row.simulation_id ?? null,
     createdBy: row.created_by,
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
@@ -148,8 +153,11 @@ export async function createProposal(input: {
   permutaValor?: number;
   permutaDescricao?: string;
   observacoes?: string;
+  parentProposalId?: string;
+  simulationId?: string | null;
 }) {
   const supabase = getSupabaseClientOrThrow("proposals repository");
+  const isCounter = input.tipo === "contraproposta" || !!input.parentProposalId;
 
   const { data, error } = await supabase
     .from("proposals")
@@ -162,8 +170,9 @@ export async function createProposal(input: {
       broker_id: input.brokerId,
       title: input.title,
       amount: input.amount,
-      status: enumToDbStatus[ProposalStatus.DRAFT],
+      status: isCounter ? enumToDbStatus[ProposalStatus.SENT] : enumToDbStatus[ProposalStatus.DRAFT],
       tipo: input.tipo ?? "proposta",
+      parent_proposal_id: input.parentProposalId ?? null,
       entrada_tipo: input.entradaTipo ?? null,
       entrada_valor: input.entradaValor ?? null,
       entrada_percentual: input.entradaPercentual ?? null,
@@ -174,6 +183,7 @@ export async function createProposal(input: {
       permuta_valor: input.permutaValor ?? null,
       permuta_descricao: input.permutaDescricao ?? null,
       observacoes: input.observacoes ?? null,
+      simulation_id: input.simulationId ?? null,
       created_by: input.createdBy,
       updated_at: new Date().toISOString(),
     })
@@ -222,4 +232,153 @@ export async function updateProposalStatus(
   }
 
   return mapProposalRowToProposal(data as ProposalRow);
+}
+
+// ── Engrenagem Comercial v1 — vínculo Simulation → Proposta ──
+
+export async function listProposalsBySimulation(
+  simulationId: string,
+): Promise<Proposal[]> {
+  const supabase = getSupabaseClientOrThrow("proposals repository");
+
+  const { data, error } = await supabase
+    .from("proposals")
+    .select(selectCols)
+    .eq("simulation_id", simulationId)
+    .order("created_at", { ascending: false });
+
+  const proposals = (data ?? []).map((row) =>
+    mapProposalRowToProposal(row as ProposalRow),
+  );
+  return unwrapSupabaseListResult<Proposal>(proposals, error, "proposals");
+}
+
+export type CreateProposalFromSimulationOverrides = {
+  title?: string;
+  amount?: number;
+  entradaTipo?: string;
+  entradaValor?: number;
+  entradaPercentual?: number;
+  parcelasQuantidade?: number;
+  parcelasValor?: number;
+  balaoQuantidade?: number;
+  balaoValor?: number;
+  permutaValor?: number;
+  permutaDescricao?: string;
+  observacoes?: string;
+  tipo?: string;
+};
+
+/**
+ * Cria uma proposta pré-preenchida a partir de uma simulação de pipeline.
+ *
+ * ATENÇÃO — Intencionalmente ociosa no fluxo UI v1 (não é chamada pelo
+ * NegotiationDetailPage). Disponível como endpoint programático para
+ * fluxos não-UI (automações, integrações externas, scripts de backfill,
+ * bots que gerem propostas automaticamente sem passar pelo form). O fluxo
+ * UI da Engrenagem Comercial v1 passa pelo `createProposal` padrão com
+ * `simulationId` opcional, para reaproveitar a orquestração de history
+ * events + update de negociação do `useProposals.createProposal`. Se
+ * alguém precisar disparar "criar proposta a partir de simulação" fora
+ * da UI, use esta função — ela valida contas, herda campos e atribui o
+ * vínculo `simulation_id` na linha criada. Não remover sem substituir.
+ *
+ * Regras:
+ *   - A simulação deve existir.
+ *   - Simulação e negociação devem pertencer à mesma account_id.
+ *   - Campos principais são herdados da simulação; `overrides` sobrescreve
+ *     pontualmente antes de persistir.
+ *   - unit_id é obrigatório no schema de proposals — se a simulação for de
+ *     imóvel de terceiro (unit_id null), a função rejeita explicitamente.
+ *   - entradaTipo é inferido quando não vem em overrides: "valor" se
+ *     entradaValor existir, senão "percentual".
+ *   - Status inicial: `ProposalStatus.DRAFT` (mesmo padrão de createProposal
+ *     para propostas não-contraproposta).
+ *   - title default: "Proposta — {propertyName ou R$ {amount}}".
+ */
+export async function createProposalFromSimulation(params: {
+  simulationId: string;
+  negotiationId: string;
+  createdBy: string | null;
+  title?: string;
+  overrides?: CreateProposalFromSimulationOverrides;
+}): Promise<Proposal> {
+  const supabase = getSupabaseClientOrThrow("proposals repository");
+
+  const sim = await getSimulationById(params.simulationId);
+  if (!sim) {
+    throw new Error(`Simulation ${params.simulationId} não encontrada.`);
+  }
+
+  // Valida que a negociação existe e pertence à mesma conta da simulação.
+  const { data: negRow, error: negError } = await supabase
+    .from("negotiations")
+    .select("id, account_id")
+    .eq("id", params.negotiationId)
+    .maybeSingle();
+
+  if (negError) {
+    throw new Error(
+      `Failed to validate negotiation on createProposalFromSimulation: ${negError.message}`,
+    );
+  }
+  if (!negRow) {
+    throw new Error(`Negotiation ${params.negotiationId} não encontrada.`);
+  }
+  if ((negRow as { account_id: string }).account_id !== sim.accountId) {
+    throw new Error(
+      "Simulação e negociação pertencem a contas diferentes — operação bloqueada.",
+    );
+  }
+
+  if (!sim.unitId) {
+    throw new Error(
+      "Simulação é de imóvel de terceiro (sem unit_id). createProposalFromSimulation exige unidade do empreendimento.",
+    );
+  }
+
+  const overrides = params.overrides ?? {};
+  const amount = overrides.amount ?? sim.valorTotal;
+  const entradaValor = overrides.entradaValor ?? sim.entradaValor ?? undefined;
+  const entradaPercentual =
+    overrides.entradaPercentual ?? sim.entradaPercentual ?? undefined;
+  const entradaTipo =
+    overrides.entradaTipo ??
+    (sim.entradaValor != null
+      ? "valor"
+      : sim.entradaPercentual != null
+      ? "percentual"
+      : undefined);
+
+  const defaultTitle = sim.propertyName
+    ? `Proposta — ${sim.propertyName}`
+    : `Proposta — R$ ${amount.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  const title = params.title ?? overrides.title ?? defaultTitle;
+
+  return createProposal({
+    negotiationId: params.negotiationId,
+    accountId: sim.accountId,
+    developmentId: sim.developmentId,
+    unitId: sim.unitId,
+    clientId: sim.clientId,
+    brokerId: sim.brokerId,
+    title,
+    amount,
+    createdBy: params.createdBy,
+    tipo: overrides.tipo ?? "proposta",
+    entradaTipo,
+    entradaValor,
+    entradaPercentual,
+    parcelasQuantidade:
+      overrides.parcelasQuantidade ?? sim.parcelasQuantidade ?? undefined,
+    parcelasValor: overrides.parcelasValor ?? sim.parcelasValor ?? undefined,
+    balaoQuantidade:
+      overrides.balaoQuantidade ?? sim.balaoQuantidade ?? undefined,
+    balaoValor: overrides.balaoValor ?? sim.balaoValor ?? undefined,
+    permutaValor: overrides.permutaValor ?? sim.permutaValor ?? undefined,
+    permutaDescricao:
+      overrides.permutaDescricao ?? sim.permutaDescricao ?? undefined,
+    observacoes: overrides.observacoes ?? sim.observacoes ?? undefined,
+    simulationId: sim.id,
+  });
 }
