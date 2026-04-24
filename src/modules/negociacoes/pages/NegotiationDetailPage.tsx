@@ -24,6 +24,13 @@ import LostReasonModal from "../../../shared/components/LostReasonModal";
 import { useAccount } from "../../../app/contexts/AccountContext";
 import { useNegotiationSimulations } from "../hooks/useNegotiationSimulations";
 import type { PipelineSimulation } from "../../../shared/types/simulation";
+import { useNegotiationParties } from "../hooks/useNegotiationParties";
+import { usePartyMutations } from "../hooks/usePartyMutations";
+import {
+  LEGAL_REGIME_LABELS,
+  PARTY_ROLE_LABELS,
+  SIGNING_CAPACITY_LABELS,
+} from "../../../shared/types/negotiationParty";
 
 type ThirdPartyPropertySummary = { id: string; titulo: string; tipo: string; status: string; valorVenda: number | null; endereco: string | null };
 
@@ -50,6 +57,14 @@ function simulationToPrefill(sim: PipelineSimulation): ProposalPrefillData {
 
 function formatBRL(value: number): string {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+// Engrenagem de Partes v1 — formata CPF nu (11 dígitos) ou já mascarado.
+function formatCPF(cpf: string | null): string {
+  if (!cpf) return "—";
+  const digits = cpf.replace(/\D/g, "");
+  if (digits.length !== 11) return cpf;
+  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9, 11)}`;
 }
 
 function formatRelativeDate(iso: string): string {
@@ -241,6 +256,20 @@ export default function NegotiationDetailPage() {
     isLoading: isLoadingSimulations,
     errorMessage: simulationsErrorMessage,
   } = useNegotiationSimulations(id ?? null);
+
+  // Engrenagem de Partes v1 — lista de partes + mutations
+  const {
+    parties,
+    isLoading: isLoadingParties,
+    errorMessage: partiesErrorMessage,
+    refresh: refreshParties,
+  } = useNegotiationParties(id ?? null);
+  const {
+    removeParty,
+    isMutating: isMutatingParty,
+    errorMessage: partyMutationError,
+  } = usePartyMutations();
+  const [partyToRemove, setPartyToRemove] = useState<{ id: string; name: string } | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const [pendingPrefillSimId, setPendingPrefillSimId] = useState<string | null>(null);
   const [expandAllSimulations, setExpandAllSimulations] = useState(false);
@@ -955,6 +984,93 @@ export default function NegotiationDetailPage() {
               </div>
             ) : null}
 
+      {/* Engrenagem de Partes v1 — partes envolvidas (primary_buyer via trigger, spouse via auto-link, outros roles em sprints futuras) */}
+      <CollapsibleSection label="Partes" isEmpty={parties.length === 0 && !isLoadingParties} defaultOpen={parties.length > 0}>
+        {isLoadingParties ? (
+          <p style={{ color: "var(--color-fog)", fontSize: 13, fontStyle: "italic", margin: 0 }}>Carregando partes...</p>
+        ) : parties.length === 0 ? (
+          <p style={{ color: "var(--color-fog)", fontSize: 13, fontStyle: "italic", margin: 0 }}>
+            Comprador não identificado. Vincule um cliente à negociação.
+          </p>
+        ) : (
+          <div style={{ display: "grid", gap: 12 }}>
+            {parties.map(({ party, client }) => {
+              const displayName = client.fullName || client.name || "—";
+              const isPrimary = party.role === "primary_buyer";
+              return (
+                <div
+                  key={party.id}
+                  style={{
+                    background: "var(--color-ink)",
+                    border: "1px solid var(--color-stone)",
+                    borderRadius: 8,
+                    padding: 16,
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 8 }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--color-sprout)", letterSpacing: "0.16em", textTransform: "uppercase", fontWeight: 600, marginBottom: 4 }}>
+                        {PARTY_ROLE_LABELS[party.role]}
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--color-bone)" }}>
+                        {displayName}
+                      </div>
+                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-slate)", marginTop: 2 }}>
+                        {formatCPF(client.cpf)}
+                      </div>
+                    </div>
+                    {!isPrimary ? (
+                      <button
+                        type="button"
+                        onClick={() => setPartyToRemove({ id: party.id, name: displayName })}
+                        disabled={isMutatingParty}
+                        style={{
+                          background: "transparent",
+                          color: "var(--color-fog)",
+                          border: "1px solid var(--color-stone)",
+                          borderRadius: 6,
+                          padding: "4px 10px",
+                          fontSize: 11,
+                          fontWeight: 600,
+                          cursor: isMutatingParty ? "not-allowed" : "pointer",
+                          opacity: isMutatingParty ? 0.55 : 1,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        Remover
+                      </button>
+                    ) : null}
+                  </div>
+
+                  {party.role === "spouse" && (party.legalRegime || party.signingCapacity) ? (
+                    <div style={{ fontSize: 12, color: "var(--color-dust)", marginTop: 6, display: "flex", gap: 12, flexWrap: "wrap" }}>
+                      {party.legalRegime ? (
+                        <span>Regime: {LEGAL_REGIME_LABELS[party.legalRegime]}</span>
+                      ) : null}
+                      {party.signingCapacity ? (
+                        <span>{SIGNING_CAPACITY_LABELS[party.signingCapacity]}</span>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {party.notes ? (
+                    <div style={{ fontSize: 12, color: "var(--color-fog)", marginTop: 8, fontStyle: "italic" }}>
+                      {party.notes}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {partiesErrorMessage ? (
+          <p style={{ color: "var(--color-red)", fontSize: 12, marginTop: 8 }}>{partiesErrorMessage}</p>
+        ) : null}
+        {partyMutationError ? (
+          <p style={{ color: "var(--color-red)", fontSize: 12, marginTop: 8 }}>{partyMutationError}</p>
+        ) : null}
+      </CollapsibleSection>
+
       <CollapsibleSection label="Histórico" isEmpty={!hasHistory} defaultOpen={hasHistory}>
         {events.length === 0 ? (
           <p style={{ color: "var(--color-fog)", fontSize: 13, fontStyle: "italic", margin: 0 }}>Nenhum registro</p>
@@ -1378,6 +1494,51 @@ export default function NegotiationDetailPage() {
       })()}
       {negotiationErrorMessage ? <p style={{ color: "var(--color-red)", fontSize: 12 }}>{negotiationErrorMessage}</p> : null}
 
+
+      {/* Engrenagem de Partes v1 — confirmação de remoção de parte (simples overlay) */}
+      {partyToRemove ? (
+        <div
+          onClick={() => setPartyToRemove(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 9998, display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 14, padding: 24, width: 420, maxWidth: "95vw", zIndex: 9999, boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }}
+          >
+            <div style={{ fontSize: 16, fontWeight: 700, color: "var(--text-secondary)", marginBottom: 8 }}>
+              Remover {partyToRemove.name} desta negociação?
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-disabled)", marginBottom: 20, lineHeight: 1.5 }}>
+              A pessoa será desvinculada como parte desta negociação. O cadastro do cliente não é afetado — ele continua existindo.
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={() => setPartyToRemove(null)}
+                style={{ background: "transparent", color: "var(--color-fog)", border: "1px solid var(--color-stone)", borderRadius: 8, padding: "0 16px", height: 36, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={isMutatingParty}
+                onClick={async () => {
+                  const target = partyToRemove;
+                  if (!target) return;
+                  const ok = await removeParty(target.id);
+                  if (ok) {
+                    await refreshParties();
+                    setPartyToRemove(null);
+                  }
+                }}
+                style={{ background: "#F87171", color: "var(--color-ink)", border: "none", borderRadius: 8, padding: "0 16px", height: 36, fontSize: 13, fontWeight: 700, cursor: isMutatingParty ? "not-allowed" : "pointer", opacity: isMutatingParty ? 0.55 : 1, WebkitAppearance: "none", appearance: "none" }}
+              >
+                {isMutatingParty ? "Removendo..." : "Remover"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Lost modal */}
       <LostReasonModal

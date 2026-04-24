@@ -1,12 +1,21 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { createPortal } from "react-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { useAccount } from "../../../app/contexts/AccountContext";
+import { useDevelopment } from "../../../app/contexts/DevelopmentContext";
 import { useAuth } from "../../../app/contexts/AuthContext";
 import { supabase } from "../../../infra/supabase/supabaseClient";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
-import NexaBadge from "../../../shared/components/NexaBadge";
+import { createNotificationWithEmail, createNotificationsWithEmail } from "../../../shared/utils/notificationHelper";
 import { getNegotiationStatusLabel } from "../../../domain/negociacao/NegotiationStatusLabel";
 import { timeAgo } from "../../../shared/utils/timeAgo";
+import { formatDateBRT, formatTimeBRT, formatDateLongBRT, getTodayDateStringBRT } from "../../../shared/utils/dateUtils";
+import LostReasonModal from "../../../shared/components/LostReasonModal";
+import SpouseLinkModal from "../components/SpouseLinkModal";
+import type { LegalRegime } from "../../../shared/types/client";
+import { isNegotiationActive } from "../../../shared/utils/normalizeStatus";
+import JSZip from "jszip";
+import { saveAs } from "file-saver";
 
 // ── Types ──
 
@@ -22,19 +31,39 @@ interface ClientData {
   conjuge_email: string | null; conjuge_telefone: string | null; regime_casamento: string | null;
   observations: string | null; temperature: string | null; last_interaction_at: string | null;
   doc_status: string | null; created_at: string;
+  // Engrenagem de Partes v1 — novo vínculo relacional de cônjuge
+  current_spouse_client_id: string | null;
+  // Extended fields from unification
+  status: string | null; score: number | null; origin: string | null; origin_detail: string | null;
+  buyer_profile: string | null; budget_min: number | null; budget_max: number | null;
+  purchase_timeline: string | null; payment_preference: string | null; interested_unit_type: string | null;
+  lost_at: string | null; lost_reason: string | null; lost_reason_detail: string | null;
+  reactivated_at: string | null; reactivation_count: number | null;
+  assigned_to: string | null; assigned_at: string | null; assigned_by: string | null;
 }
+
+const STATUS_LABELS: Record<string, string> = { new: "Novo", contacted: "Contatado", qualifying: "Qualificando", qualified: "Qualificado", nurturing: "Nutrição", negotiating: "Em negociação", active: "Ativo", converted: "Convertido", lost: "Perdido", inactive: "Inativo" };
+const STATUS_COLORS: Record<string, string> = { new: "#60A5FA", contacted: "#A78BFA", qualifying: "#FBBF24", qualified: "#4ADE80", nurturing: "#38BDF8", negotiating: "#F97316", active: "#22C55E", converted: "#22C55E", lost: "#F87171", inactive: "#6B7280" };
+const TEMP_CFG: Record<string, { label: string; color: string; bg: string }> = { hot: { label: "Quente", color: "#F87171", bg: "rgba(248,113,113,0.12)" }, warm: { label: "Morno", color: "#F59E0B", bg: "rgba(245,158,11,0.12)" }, cold: { label: "Frio", color: "#60A5FA", bg: "rgba(96,165,250,0.12)" } };
+const SOURCE_LABELS: Record<string, string> = { website: "Website", instagram: "Instagram", facebook: "Facebook", google_ads: "Google Ads", whatsapp: "WhatsApp", phone: "Telefone", referral: "Indicação", broker_indication: "Indicação corretor", event: "Evento", walk_in: "Presencial", landing_page: "Landing Page", rd_station: "RD Station", import: "Importação", other: "Outro" };
 
 interface ClientDoc {
   id: string; document_type: string; file_url: string; file_name: string;
+  file_size: number | null; file_size_bytes: number | null; mime_type: string | null;
+  storage_path: string | null; uploaded_by: string | null;
   status: string; rejection_reason: string | null; created_at: string;
+  is_required: boolean; label: string | null;
+}
+
+interface DocTypeConfig {
+  id: string; name: string; label: string | null; description: string | null;
+  required: boolean; active: boolean; sort_order: number; person_type: string;
 }
 
 interface ClientNeg { id: string; status: string; score: number | null; updated_at: string; unit_quadra: string | null; unit_lote: string | null; unit_valor: number | null; broker_name: string | null }
 interface ClientAct { id: string; type: string; title: string; status: string; activity_date: string; outcome: string | null; duration_minutes: number }
 
 const T = { ink: "var(--surface-base)", carbon: "var(--surface-raised)", stone: "var(--border-default)", chalk: "var(--text-primary)", bone: "var(--text-secondary)", fog: "var(--text-muted)", slate: "var(--text-disabled)", sprout: "var(--interactive-primary)", blue: "#60A5FA", red: "#F87171", amber: "#FBBF24", purple: "#A78BFA" };
-const TEMP_COLORS: Record<string, string> = { hot: "#F87171", warm: "#FBBF24", cold: "#60A5FA" };
-const TEMP_LABELS: Record<string, string> = { hot: "Quente", warm: "Morna", cold: "Fria" };
 const TYPE_LABELS: Record<string, string> = { visit_broker: "Visita corretor", visit_client: "Visita cliente", visit_development: "Visita empreend.", training: "Treinamento", phone_call: "Ligação", follow_up: "Follow-up", meeting_internal: "Reunião interna", meeting_external: "Reunião externa", other: "Outro" };
 const DOC_TYPES = [
   { key: "rg_frente", label: "RG (frente)" }, { key: "rg_verso", label: "RG (verso)" },
@@ -46,50 +75,179 @@ const ESTADO_CIVIL_OPTS = [{ v: "solteiro", l: "Solteiro(a)" }, { v: "casado", l
 const UF_OPTS = UF_OPTIONS;
 
 import { maskCPF, maskPhone, maskCurrency, currencyToNumber, maskRG, maskCEP, formatCurrency, UF_OPTIONS } from "../../../shared/utils/masks";
+import { secureMaskCPF, secureMaskRG, secureMaskRenda } from "../../../lib/security";
+import SensitiveField from "../../../shared/components/SensitiveField";
 function fmtBRL(v: number | null) { return formatCurrency(v); }
 
-const IS: React.CSSProperties = { width: "100%", background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "10px 14px", color: T.chalk, fontSize: 14, outline: "none", boxSizing: "border-box" };
-const LBL: React.CSSProperties = { fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 };
+const IS: React.CSSProperties = { width: "100%", background: "linear-gradient(168deg, rgba(34,33,28,0.5), rgba(18,17,14,0.15))", border: "1px solid rgba(61,58,48,0.15)", borderRadius: 8, padding: "10px 14px", color: T.chalk, fontSize: 14, outline: "none", boxSizing: "border-box", transition: "border-color 150ms ease" };
+const LBL: React.CSSProperties = { fontSize: 8, color: "#5C5647", fontFamily: "var(--font-mono)", letterSpacing: "0.12em", textTransform: "uppercase", display: "block", marginBottom: 6 };
+
+// ── Animated temperature badge ──
+function TempBadge({ temp }: { temp: string | null }) {
+  const t = temp || "warm";
+  const cfg: Record<string, { label: string; color: string; bg: string; anim: string }> = {
+    hot: { label: "Quente", color: "#FF6B35", bg: "rgba(255,75,0,0.12)", anim: "tempShimmer 3s ease infinite" },
+    warm: { label: "Morno", color: "#F59E0B", bg: "rgba(245,158,11,0.12)", anim: "tempPulse 2.5s ease infinite" },
+    cold: { label: "Frio", color: "#60A5FA", bg: "rgba(96,165,250,0.10)", anim: "" },
+  };
+  const c = cfg[t] || cfg.warm;
+  return <span style={{ fontSize: 12, fontWeight: 600, padding: "4px 14px", borderRadius: 99, background: c.bg, color: c.color, border: `1px solid ${c.color}25`, animation: c.anim, display: "inline-flex", alignItems: "center", gap: 4 }}>{t === "hot" ? "🔥" : t === "cold" ? "❄" : "☀"} {c.label}</span>;
+}
+
+// ── Quick activity modal ──
+function QuickActivityModal({ clientId, clientName, accountId, developmentId, profileId, onClose, onSaved }: { clientId: string; clientName: string; accountId: string; developmentId: string; profileId: string; onClose: () => void; onSaved: () => void }) {
+  const [type, setType] = useState("phone_call");
+  const [title, setTitle] = useState("");
+  const [outcome, setOutcome] = useState("");
+  const [saving, setSaving] = useState(false);
+  const types = [["phone_call", "Ligação"], ["follow_up", "Follow-up"], ["visit_client", "Visita"], ["meeting_external", "Reunião"], ["other", "Outro"]];
+  async function handleSave() {
+    if (!supabase || !title.trim()) return;
+    setSaving(true);
+    try {
+      await supabase.from("activities").insert({ account_id: accountId, development_id: developmentId, profile_id: profileId, client_id: clientId, type, title: title.trim(), activity_date: new Date().toISOString().slice(0, 10), duration_minutes: 30, status: "completed", outcome: outcome.trim() || null, contact_name: clientName });
+      await supabase.from("clients").update({ last_interaction_at: new Date().toISOString() }).eq("id", clientId);
+      onSaved(); onClose();
+    } catch (err) { setOutcome(err instanceof Error ? err.message : "Erro ao salvar"); }
+    finally { setSaving(false); }
+  }
+  const IS2: React.CSSProperties = { width: "100%", background: "var(--surface-base)", border: "1px solid var(--border-default)", borderRadius: 8, padding: "10px 14px", color: "var(--text-primary)", fontSize: 14, outline: "none", boxSizing: "border-box" };
+  return (
+    <>
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 9000 }} onClick={onClose} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 14, padding: 24, width: 420, maxWidth: "90vw", zIndex: 9001 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <h3 style={{ fontSize: 16, fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>Registrar atendimento</h3>
+          <button type="button" onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 18, cursor: "pointer" }}>x</button>
+        </div>
+        <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16, padding: "8px 12px", background: "var(--surface-base)", borderRadius: 8, border: "1px solid var(--border-default)" }}>Cliente: <strong style={{ color: "var(--text-secondary)" }}>{clientName}</strong></div>
+        <label style={LBL}>Tipo</label>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+          {types.map(([k, l]) => <button key={k} type="button" onClick={() => setType(k)} style={{ padding: "6px 14px", borderRadius: 8, border: type === k ? "2px solid var(--interactive-primary)" : "1px solid var(--border-default)", background: type === k ? "rgba(74,222,128,0.08)" : "transparent", color: type === k ? "var(--interactive-primary)" : "var(--text-muted)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{l}</button>)}
+        </div>
+        <label style={LBL}>Título *</label>
+        <input style={{ ...IS2, marginBottom: 14 }} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex: Retorno sobre proposta" autoFocus />
+        <label style={LBL}>Resultado</label>
+        <input style={{ ...IS2, marginBottom: 20 }} value={outcome} onChange={(e) => setOutcome(e.target.value)} placeholder="O que aconteceu?" />
+        <button type="button" onClick={handleSave} disabled={!title.trim() || saving} style={{ width: "100%", padding: "12px", borderRadius: 8, border: "none", background: "var(--interactive-primary)", color: "var(--interactive-on-primary)", fontSize: 14, fontWeight: 700, cursor: !title.trim() || saving ? "not-allowed" : "pointer", opacity: !title.trim() || saving ? 0.5 : 1 }}>{saving ? "Salvando..." : "Registrar"}</button>
+      </div>
+    </>
+  );
+}
 
 export default function ClientDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { account } = useAccount();
+  const { development } = useDevelopment();
   const { authenticatedProfile } = useAuth();
   const screen = useScreen();
   const isMobile = screen.isMobile;
   const accountId = account?.accountId ?? null;
   const userId = authenticatedProfile?.id ?? null;
-  const canReview = ["owner", "director", "manager", "concierge"].includes((account?.role as string) ?? "");
+  const canReview = ["owner", "director", "manager", "concierge", "administrative"].includes((account?.role as string) ?? "");
+  const isManagerRole = ["owner", "director", "manager"].includes((account?.role as string) ?? "");
+  const canEditItem = (performedBy: string | null) => isManagerRole || performedBy === userId;
 
   const [client, setClient] = useState<ClientData | null>(null);
   const [negotiations, setNegotiations] = useState<ClientNeg[]>([]);
   const [activities, setActivities] = useState<ClientAct[]>([]);
   const [documents, setDocuments] = useState<ClientDoc[]>([]);
+  const [docTypeConfigs, setDocTypeConfigs] = useState<DocTypeConfig[]>([]);
   const [loading, setLoading] = useState(true);
+  const [approvingAll, setApprovingAll] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [tab, setTab] = useState<"dados" | "endereco" | "conjuge" | "documentos" | "historico">("dados");
+  const [tab, setTab] = useState<"interacoes" | "dados" | "endereco" | "interesse" | "conjuge" | "documentos" | "historico">("interacoes");
+  const [showLostModal, setShowLostModal] = useState(false);
+  const [contactInteractions, setContactInteractions] = useState<{ id: string; type: string; direction: string | null; title: string | null; description: string | null; performed_by: string | null; performed_at: string; profiles?: { name: string } | null }[]>([]);
+  const [showInlineInteraction, setShowInlineInteraction] = useState(false);
+  const [intType, setIntType] = useState("phone_call");
+  const [intTitle, setIntTitle] = useState("");
+  const [intDesc, setIntDesc] = useState("");
+  const [showSuccessHint, setShowSuccessHint] = useState(false);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<Partial<ClientData>>({});
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploadingDocType, setUploadingDocType] = useState<string | null>(null);
+  const [activityModalOpen, setActivityModalOpen] = useState(false);
+  const [rejectTarget, setRejectTarget] = useState<ClientDoc | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; onConfirm: () => void; variant?: "default" | "danger" } | null>(null);
+  const [downloadingZip, setDownloadingZip] = useState(false);
+  // Follow-up
+  const [showFollowUpForm, setShowFollowUpForm] = useState(false);
+  const [fuDate, setFuDate] = useState("");
+  const [fuType, setFuType] = useState("phone_call");
+  const [fuNote, setFuNote] = useState("");
+  // Assignment
+  const [teamMembers, setTeamMembers] = useState<{ userId: string; name: string; role: string }[]>([]);
+  const [showAssignDropdown, setShowAssignDropdown] = useState(false);
+  // Conversion
+  const [showConvertModal, setShowConvertModal] = useState(false);
+  const [convDevId, setConvDevId] = useState("");
+  const [convNote, setConvNote] = useState("");
+  const [devList, setDevList] = useState<{ id: string; name: string }[]>([]);
+  // Interaction edit/delete
+  const [activeIntMenu, setActiveIntMenu] = useState<string | null>(null);
+  const [editingInt, setEditingInt] = useState<{ id: string; title: string; description: string } | null>(null);
+
+  useEffect(() => {
+    if (!activeIntMenu) return;
+    const h = () => setActiveIntMenu(null);
+    document.addEventListener("click", h);
+    return () => document.removeEventListener("click", h);
+  }, [activeIntMenu]);
+
+
+  async function handleSaveEditInteraction() {
+    if (!supabase || !editingInt) return;
+    const { error } = await supabase.from("contact_interactions").update({ title: editingInt.title || null, description: editingInt.description || null }).eq("id", editingInt.id);
+    if (error) { setToast("Erro ao salvar"); return; }
+    setEditingInt(null);
+    setToast("Interação atualizada");
+    load(true);
+  }
 
   const f = (key: keyof ClientData) => (form[key] as string) ?? (client?.[key] as string) ?? "";
   const setF = (key: keyof ClientData, val: string) => setForm((p) => ({ ...p, [key]: val }));
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (!supabase || !id || !accountId) { setLoading(false); return; }
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
-      const { data: cl } = await supabase.from("clients").select("*").eq("id", id).single();
+      const { data: cl } = await supabase.from("clients").select(`
+        id, account_id, development_id, name, full_name, email, phone, phone_secondary,
+        cpf, rg, rg_orgao, data_nascimento, nacionalidade, naturalidade, genero,
+        marital_status, profession, renda_mensal,
+        cep, endereco, numero, complemento, bairro, city, uf,
+        conjuge_nome, conjuge_cpf, conjuge_rg, conjuge_data_nascimento, conjuge_profissao,
+        conjuge_email, conjuge_telefone, regime_casamento,
+        current_spouse_client_id,
+        observations, temperature, last_interaction_at, doc_status, created_at,
+        status, score, origin, origin_detail, buyer_profile, budget_min, budget_max,
+        purchase_timeline, payment_preference, interested_unit_type,
+        lost_at, lost_reason, lost_reason_detail, reactivated_at, reactivation_count,
+        assigned_to, assigned_at, assigned_by
+      `).eq("id", id).single();
       setClient(cl as ClientData | null);
       const { data: negs } = await supabase.from("negotiations").select("id, status, score, updated_at, units(quadra, lote, valor), brokers(name)").eq("client_id", id).eq("account_id", accountId).order("created_at", { ascending: false });
       setNegotiations((negs ?? []).map((n: Record<string, unknown>) => { const u = (Array.isArray(n.units) ? n.units[0] : n.units) as Record<string, unknown> | null; const b = (Array.isArray(n.brokers) ? n.brokers[0] : n.brokers) as Record<string, unknown> | null; return { id: n.id as string, status: n.status as string, score: n.score as number | null, updated_at: n.updated_at as string, unit_quadra: u?.quadra as string | null, unit_lote: u?.lote as string | null, unit_valor: u?.valor as number | null, broker_name: b?.name as string | null }; }));
       const { data: acts } = await supabase.from("activities").select("id, type, title, status, activity_date, outcome, duration_minutes").eq("client_id", id).eq("account_id", accountId).order("activity_date", { ascending: false }).limit(10);
       setActivities((acts ?? []) as ClientAct[]);
-      const { data: docs } = await supabase.from("client_documents").select("id, document_type, file_url, file_name, status, rejection_reason, created_at").eq("client_id", id).order("created_at", { ascending: false });
+      const { data: docs } = await supabase.from("client_documents").select("id, document_type, file_url, file_name, file_size, file_size_bytes, mime_type, storage_path, uploaded_by, status, rejection_reason, created_at, is_required, label").eq("client_id", id).order("created_at", { ascending: false });
       setDocuments((docs ?? []) as ClientDoc[]);
+      // Load document type configs for this account
+      const { data: dtConfigs } = await supabase.from("document_type_configs").select("id, name, label, description, required, active, sort_order, person_type").eq("account_id", accountId).eq("active", true).order("sort_order", { ascending: true });
+      setDocTypeConfigs((dtConfigs ?? []) as DocTypeConfig[]);
+      const { data: ints } = await supabase.from("contact_interactions").select("id, type, direction, title, description, performed_by, performed_at, profiles(name)").eq("client_id", id).order("performed_at", { ascending: false }).limit(50);
+      setContactInteractions((ints ?? []) as unknown as typeof contactInteractions);
+      // Load team members for assignment
+      const { data: team } = await supabase.from("user_account_access").select("user_id, role, profiles!inner(id, name)").eq("account_id", accountId);
+      setTeamMembers((team ?? []).map((t: Record<string, unknown>) => { const p = (Array.isArray(t.profiles) ? t.profiles[0] : t.profiles) as Record<string, unknown>; return { userId: t.user_id as string, name: (p?.name as string) ?? "—", role: t.role as string }; }));
+      // Load developments for conversion
+      const { data: devs } = await supabase.from("developments").select("id, name").eq("account_id", accountId).order("name");
+      setDevList((devs ?? []).map((d: Record<string, unknown>) => ({ id: d.id as string, name: d.name as string })));
     } catch (err) { console.error("ClientDetail load error:", err); }
     finally { setLoading(false); }
   }, [id, accountId]);
@@ -130,67 +288,505 @@ export default function ClientDetailPage() {
       const { error: upErr } = await supabase.storage.from("client-documents").upload(path, file);
       if (upErr) throw upErr;
       const { data: signedUrl } = await supabase.storage.from("client-documents").createSignedUrl(path, 60 * 60 * 24 * 365);
-      await supabase.from("client_documents").insert({ client_id: id, document_type: docType, file_url: signedUrl?.signedUrl || path, storage_path: path, file_name: file.name, file_size: file.size, status: "uploaded", uploaded_by: userId });
-      setToast("Documento enviado"); load();
-    } catch (e) { console.error(e); setToast("Erro no upload"); }
+      await supabase.from("client_documents").insert({ client_id: id, account_id: accountId, document_type: docType, file_url: signedUrl?.signedUrl || path, storage_path: path, file_name: file.name, file_size: file.size, file_size_bytes: file.size, mime_type: file.type, status: "sent", uploaded_by: userId, uploaded_at: new Date().toISOString() });
+      // Optimistic: update local state immediately
+      setDocuments((prev) => {
+        const existing = prev.find((d) => d.document_type === docType);
+        const newDoc: ClientDoc = { id: existing?.id || crypto.randomUUID(), document_type: docType, file_url: signedUrl?.signedUrl || path, file_name: file.name, file_size: file.size, file_size_bytes: file.size, mime_type: file.type, storage_path: path, uploaded_by: userId, status: "sent", rejection_reason: null, created_at: new Date().toISOString(), is_required: existing?.is_required ?? true, label: existing?.label ?? null };
+        if (existing) return prev.map((d) => d.document_type === docType ? { ...d, ...newDoc } : d);
+        return [...prev, newDoc];
+      });
+      setToast("Documento enviado");
+      load(true); // silent refetch to sync
+    } catch (e) { console.error(e); setToast("Erro no upload"); load(true); }
     finally { setUploadingDocType(null); }
   }
 
   async function reviewDoc(docId: string, action: "approved" | "rejected", reason?: string) {
-    if (!supabase || !userId) return;
+    if (!supabase || !userId || !id || !accountId) return;
+    // Optimistic update
+    setDocuments((prev) => prev.map((d) => d.id === docId ? { ...d, status: action, rejection_reason: reason || null } : d));
     await supabase.from("client_documents").update({ status: action, rejection_reason: reason || null, reviewed_by: userId, reviewed_at: new Date().toISOString() }).eq("id", docId);
-    setToast(action === "approved" ? "Documento aprovado" : "Documento rejeitado"); load();
+
+    // Find the doc to get uploaded_by and type for notification
+    const doc = documents.find((d) => d.id === docId);
+    const cfgLabel = docTypeConfigs.find((c) => c.name === doc?.document_type)?.label;
+    const fallbackLabel = DOC_TYPES.find((d) => d.key === doc?.document_type)?.label;
+    const docLabel = doc ? (cfgLabel || fallbackLabel || doc.document_type) : "Documento";
+    const clientName = client?.full_name || client?.name || "Cliente";
+
+    // Notify uploader (fire-and-forget, with email for rejections)
+    if (doc) {
+      supabase!.from("client_documents").select("uploaded_by").eq("id", docId).maybeSingle().then(({ data: docRow }) => {
+        if (docRow?.uploaded_by && docRow.uploaded_by !== userId) {
+          void createNotificationWithEmail({
+            account_id: accountId!, recipient_id: docRow.uploaded_by, sender_id: userId,
+            type: action === "approved" ? "doc_approved" : "doc_rejected",
+            title: action === "approved" ? `Documento aprovado: ${docLabel}` : `Documento recusado: ${docLabel}`,
+            message: action === "approved" ? `${docLabel} de ${clientName} foi aprovado.` : `${docLabel} de ${clientName} foi recusado. Motivo: ${reason || "Não informado"}. Por favor reenvie.`,
+            action_url: `/contatos/${id}?tab=documentos`,
+            metadata: { account_name: account?.accountName, development_name: development?.developmentName },
+          });
+        }
+      });
+    }
+
+    // Recalculate doc_status after review
+    const { data: allDocs } = await supabase.from("client_documents").select("status").eq("client_id", id);
+    if (allDocs && allDocs.length > 0) {
+      const approved = allDocs.filter((d: Record<string, unknown>) => d.status === "approved").length;
+      const rejected = allDocs.filter((d: Record<string, unknown>) => d.status === "rejected").length;
+      const total = allDocs.length;
+      const newStatus = approved === total ? "approved" : rejected > 0 ? "needs_resubmission" : "in_review";
+      await supabase.from("clients").update({ doc_status: newStatus }).eq("id", id);
+
+      // If ALL docs approved → notify managers (with email)
+      if (approved === total) {
+        supabase.from("user_account_access").select("user_id").eq("account_id", accountId).in("role", ["owner", "director", "manager"]).then(({ data: managers }) => {
+          const notifs = (managers || []).filter((m: Record<string, unknown>) => m.user_id !== userId).map((m: Record<string, unknown>) => ({
+            account_id: accountId!, recipient_id: m.user_id as string, sender_id: userId,
+            type: "client_ready_for_contract", title: "Cliente pronto para contrato",
+            message: `Todos os documentos de ${clientName} foram aprovados. Pronto para minuta.`,
+            action_url: `/contatos/${id}`,
+            metadata: { account_name: account?.accountName, development_name: development?.developmentName },
+          }));
+          if (notifs.length > 0) void createNotificationsWithEmail(notifs);
+        });
+      }
+    }
+
+    setToast(action === "approved" ? "Documento aprovado" : "Documento rejeitado"); load(true);
+  }
+
+  async function approveAllDocs() {
+    if (!supabase || !userId || !id || !accountId) return;
+    const uploadedDocs = documents.filter((d) => d.status === "uploaded" || d.status === "sent");
+    if (uploadedDocs.length === 0) return;
+    setApprovingAll(true);
+    // Optimistic: mark all uploaded as approved immediately
+    const uploadedIds = new Set(uploadedDocs.map((d) => d.id));
+    setDocuments((prev) => prev.map((d) => uploadedIds.has(d.id) ? { ...d, status: "approved", rejection_reason: null } : d));
+    try {
+      await supabase.from("client_documents").update({ status: "approved", reviewed_by: userId, reviewed_at: new Date().toISOString(), rejection_reason: null }).in("id", uploadedDocs.map((d) => d.id));
+      // Recalculate doc_status
+      const { data: allDocs } = await supabase.from("client_documents").select("status").eq("client_id", id);
+      if (allDocs) {
+        const approved = allDocs.filter((d: Record<string, unknown>) => d.status === "approved").length;
+        const total = allDocs.length;
+        const newStatus = approved === total ? "approved" : "in_review";
+        await supabase.from("clients").update({ doc_status: newStatus }).eq("id", id);
+        if (approved === total) {
+          const clientName = client?.full_name || client?.name || "Cliente";
+          supabase.from("user_account_access").select("user_id").eq("account_id", accountId).in("role", ["owner", "director", "manager"]).then(({ data: managers }) => {
+            const notifs = (managers || []).filter((m: Record<string, unknown>) => m.user_id !== userId).map((m: Record<string, unknown>) => ({
+              account_id: accountId!, recipient_id: m.user_id as string, sender_id: userId,
+              type: "client_ready_for_contract", title: "Cliente pronto para contrato",
+              message: `Todos os documentos de ${clientName} foram aprovados. Pronto para minuta.`,
+              action_url: `/contatos/${id}`,
+              metadata: { account_name: account?.accountName, development_name: development?.developmentName },
+            }));
+            if (notifs.length > 0) void createNotificationsWithEmail(notifs);
+          });
+        }
+      }
+      setToast(`${uploadedDocs.length} documento(s) aprovado(s)`); load(true);
+    } catch (e) { console.error(e); setToast("Erro ao aprovar documentos"); load(true); }
+    finally { setApprovingAll(false); }
+  }
+
+  async function removeDocument(docId: string, storagePath: string | null) {
+    if (!supabase || !id) return;
+    // Optimistic: reset to pending immediately
+    setDocuments((prev) => prev.map((d) => d.id === docId ? { ...d, status: "pending", storage_path: null, file_url: "", file_name: "", file_size: null, file_size_bytes: null, mime_type: null, rejection_reason: null } : d));
+    setToast("Arquivo removido");
+    try {
+      if (storagePath) {
+        await supabase.storage.from("client-documents").remove([storagePath]);
+      }
+      await supabase.from("client_documents").update({
+        storage_path: null, file_url: null, file_name: null, file_size: null,
+        file_size_bytes: null, mime_type: null, uploaded_by: null, uploaded_at: null,
+        reviewed_by: null, reviewed_at: null, rejection_reason: null, status: "pending",
+      }).eq("id", docId);
+      load(true);
+    } catch (e) { console.error(e); setToast("Erro ao remover"); load(true); }
+  }
+
+  const canRemoveDoc = (doc: ClientDoc) => {
+    const role = (account?.role as string) ?? "";
+    if (["owner", "director", "administrative"].includes(role)) return true;
+    if (role === "concierge") return false;
+    return doc.uploaded_by === userId;
+  };
+
+  function fmtFileSize(bytes: number | null | undefined): string {
+    if (!bytes) return "";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  async function downloadClientPackage() {
+    if (!supabase || !client) return;
+    const approvedDocs = documents.filter((d) => d.status === "approved" && d.storage_path);
+    if (approvedDocs.length === 0) { setToast("Nenhum documento aprovado para baixar"); return; }
+    setDownloadingZip(true);
+    try {
+      const zip = new JSZip();
+      const sanitize = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9\s]/g, "").replace(/\s+/g, "_");
+      const clientName = sanitize(client.full_name || client.name || "Cliente");
+      const root = zip.folder(clientName)!;
+      const docsFolder = root.folder("Documentos")!;
+
+      // 1. Download approved documents
+      for (const doc of approvedDocs) {
+        try {
+          const { data: signed } = await supabase.storage.from("client-documents").createSignedUrl(doc.storage_path!, 300);
+          if (signed?.signedUrl) {
+            const res = await fetch(signed.signedUrl);
+            const blob = await res.blob();
+            const ext = doc.file_name?.split(".").pop() || "pdf";
+            const typeName = sanitize(effectiveDocTypes.find((dt) => dt.key === doc.document_type)?.label || doc.document_type);
+            docsFolder.file(`${typeName}.${ext}`, blob);
+          }
+        } catch (err) { console.warn(`Skip ${doc.document_type}:`, err); }
+      }
+
+      // 2. Ficha cadastral PDF
+      try {
+        const { jsPDF } = await import("jspdf");
+        const pdf = new jsPDF();
+        pdf.setFontSize(18); pdf.setFont("helvetica", "bold");
+        pdf.text("Ficha Cadastral do Cliente", 20, 25);
+        pdf.setFontSize(10); pdf.setFont("helvetica", "normal"); pdf.setTextColor(120);
+        pdf.text(`Gerado em ${new Date().toLocaleDateString("pt-BR")} via NEXA`, 20, 33);
+        pdf.setDrawColor(200); pdf.line(20, 37, 190, 37);
+        pdf.setTextColor(40); pdf.setFontSize(11);
+        let y = 48;
+        const add = (label: string, val: string | null | undefined) => { if (!val) return; pdf.setFont("helvetica", "bold"); pdf.text(`${label}:`, 20, y); pdf.setFont("helvetica", "normal"); pdf.text(val, 75, y); y += 8; };
+        add("Nome completo", client.full_name || client.name);
+        add("CPF", client.cpf);
+        add("RG", client.rg ? `${client.rg}${client.rg_orgao ? ` — ${client.rg_orgao}` : ""}` : null);
+        add("Data nascimento", client.data_nascimento);
+        add("Nacionalidade", client.nacionalidade);
+        add("Naturalidade", client.naturalidade);
+        add("Estado civil", client.marital_status ? ESTADO_CIVIL_OPTS.find((o) => o.v === client.marital_status)?.l || client.marital_status : null);
+        add("Profissão", client.profession);
+        add("Renda mensal", client.renda_mensal ? fmtBRL(client.renda_mensal) : null);
+        add("Telefone", client.phone);
+        add("Email", client.email);
+        y += 4;
+        add("Endereço", client.endereco ? `${client.endereco}${client.numero ? `, ${client.numero}` : ""}${client.complemento ? ` — ${client.complemento}` : ""}` : null);
+        add("Bairro", client.bairro);
+        add("Cidade/UF", client.city ? `${client.city}${client.uf ? ` — ${client.uf}` : ""}` : null);
+        add("CEP", client.cep);
+        if (client.conjuge_nome) { y += 6; pdf.setFontSize(13); pdf.setFont("helvetica", "bold"); pdf.text("Cônjuge", 20, y); y += 8; pdf.setFontSize(11); add("Nome", client.conjuge_nome); add("CPF", client.conjuge_cpf); add("RG", client.conjuge_rg); add("Profissão", client.conjuge_profissao); add("Email", client.conjuge_email); add("Telefone", client.conjuge_telefone); }
+        y += 12; pdf.setFontSize(9); pdf.setTextColor(150);
+        pdf.text("Documento gerado automaticamente pelo NEXA Plataforma Comercial", 20, y);
+        pdf.text("app.nexacomercial.com.br", 20, y + 5);
+        root.file("Ficha_Cadastral.pdf", pdf.output("blob"));
+      } catch (err) { console.warn("Ficha PDF error:", err); }
+
+      // 3. Generate ZIP
+      const zipBlob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
+      const ts = new Date().toISOString().slice(0, 10);
+      saveAs(zipBlob, `${clientName}_Documentos_${ts}.zip`);
+      setToast("Pacote baixado");
+    } catch (err) { console.error("ZIP error:", err); setToast("Erro ao gerar pacote"); }
+    finally { setDownloadingZip(false); }
   }
 
   if (loading) return <div style={{ padding: 32 }}><div style={{ fontSize: 13, color: T.fog, fontFamily: "var(--font-mono)" }}>Carregando...</div></div>;
-  if (!client) return <div style={{ padding: 32 }}><div style={{ fontSize: 14, color: T.red }}>Cliente não encontrado.</div><button type="button" onClick={() => navigate("/clientes")} style={{ marginTop: 16, background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "8px 16px", color: T.bone, fontSize: 13, cursor: "pointer" }}>← Voltar</button></div>;
+  if (!client) return <div style={{ padding: 32 }}><div style={{ fontSize: 14, color: T.red }}>Cliente não encontrado.</div><button type="button" onClick={() => navigate("/contatos")} style={{ marginTop: 16, background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "8px 16px", color: T.bone, fontSize: 13, cursor: "pointer" }}>← Voltar</button></div>;
 
-  const tempColor = TEMP_COLORS[client.temperature ?? "warm"] ?? T.amber;
-  const tempLabel = TEMP_LABELS[client.temperature ?? "warm"] ?? "—";
   const needsSpouse = f("marital_status") === "casado" || f("marital_status") === "uniao_estavel";
+  // Engrenagem de Partes v1 — cliente casado sem vínculo relacional precisa cadastrar cônjuge.
+  const needsSpouseLink = needsSpouse && !client?.current_spouse_client_id;
+  const [showSpouseModal, setShowSpouseModal] = useState(false);
+  // Dynamic doc types: prefer configs from DB, fallback to hardcoded DOC_TYPES
+  const effectiveDocTypes: { key: string; label: string; required: boolean; description?: string | null }[] = docTypeConfigs.length > 0
+    ? docTypeConfigs.map((c) => ({ key: c.name, label: c.label || c.name, required: c.required, description: c.description }))
+    : DOC_TYPES.map((d) => ({ ...d, required: d.key !== "certidao_casamento" }));
   const docsByType: Record<string, ClientDoc> = {}; documents.forEach((d) => { if (!docsByType[d.document_type] || d.created_at > docsByType[d.document_type].created_at) docsByType[d.document_type] = d; });
-  const docCount = DOC_TYPES.filter((dt) => docsByType[dt.key]?.status === "uploaded" || docsByType[dt.key]?.status === "approved").length;
+  const docApproved = effectiveDocTypes.filter((dt) => docsByType[dt.key]?.status === "approved").length;
+  const docUploaded = effectiveDocTypes.filter((dt) => { const s = docsByType[dt.key]?.status; return s === "uploaded" || s === "sent"; }).length;
+  const docRejected = effectiveDocTypes.filter((dt) => docsByType[dt.key]?.status === "rejected").length;
+  const docPending = effectiveDocTypes.length - docApproved - docUploaded - docRejected;
+  const hasUploadedToApprove = docUploaded > 0 && canReview;
+  const allRequiredApproved = effectiveDocTypes.filter((dt) => dt.required).every((dt) => docsByType[dt.key]?.status === "approved");
 
   return (
     <div style={{ maxWidth: 780, margin: "0 auto", padding: isMobile ? "16px 12px" : "24px 0" }}>
+      {/* CSS animations for temperature badge */}
+      <style>{`@keyframes tempShimmer{0%{box-shadow:0 0 6px rgba(255,75,0,0.3)}50%{box-shadow:0 0 14px rgba(255,75,0,0.6)}100%{box-shadow:0 0 6px rgba(255,75,0,0.3)}}@keyframes tempPulse{0%,100%{box-shadow:0 0 4px rgba(245,158,11,0.2)}50%{box-shadow:0 0 10px rgba(245,158,11,0.5)}}@keyframes nxSpin{to{transform:rotate(360deg)}}@keyframes nxPulse{0%,100%{opacity:1}50%{opacity:0.4}}`}</style>
+
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
         <div>
-          <button type="button" onClick={() => navigate("/clientes")} style={{ background: "none", border: "none", color: T.fog, fontSize: 12, cursor: "pointer", padding: 0, marginBottom: 6 }}>← Clientes</button>
+          <button type="button" onClick={() => navigate("/contatos")} style={{ background: "none", border: "none", color: T.fog, fontSize: 12, cursor: "pointer", padding: 0, marginBottom: 6 }}>← Contatos</button>
           <h1 style={{ fontSize: isMobile ? 20 : 24, fontWeight: 700, color: T.chalk, margin: 0 }}>{client.full_name || client.name}</h1>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, padding: "2px 10px", borderRadius: 6, background: tempColor + "15", color: tempColor }}>{tempLabel}</span>
-            <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: T.blue + "15", color: T.blue }}>{docCount}/{DOC_TYPES.length} docs</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+            <TempBadge temp={client.temperature} />
+            <span onClick={() => setTab("documentos")} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: (docApproved === effectiveDocTypes.length ? T.sprout : docApproved > 0 ? T.blue : T.fog) + "15", color: docApproved === effectiveDocTypes.length ? T.sprout : docApproved > 0 ? T.blue : T.fog, cursor: "pointer", boxShadow: docApproved === effectiveDocTypes.length ? "0 0 6px rgba(74,222,128,0.3)" : "none", transition: "all 0.3s" }}>{docApproved}/{effectiveDocTypes.length} docs</span>
+            {client.score != null && client.score > 0 && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: "rgba(74,222,128,0.1)", color: client.score >= 70 ? T.sprout : client.score >= 40 ? T.amber : T.fog, fontFamily: "var(--font-mono)", fontWeight: 600 }}>{client.score}pt</span>}
           </div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {!editing && <button type="button" onClick={() => { setEditing(true); setForm({}); }} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.bone, fontSize: 13, cursor: "pointer" }}>✎ Editar</button>}
           {editing && <button type="button" onClick={() => { setEditing(false); setForm({}); }} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 13, cursor: "pointer" }}>Cancelar</button>}
           {editing && <button type="button" onClick={handleSave} disabled={saving} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: T.sprout, color: "var(--interactive-on-primary)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{saving ? "Salvando..." : "Salvar"}</button>}
         </div>
       </div>
 
+      {/* Engrenagem de Partes v1 — banner CTA quando cliente casado não tem cônjuge vinculado */}
+      {needsSpouseLink ? (
+        <div style={{ marginBottom: 16, padding: "12px 16px", background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.25)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+            <span style={{ fontSize: 16 }} aria-hidden="true">⚠</span>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "#FBBF24", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600 }}>Ação pendente</div>
+              <div style={{ fontSize: 13, color: T.bone, marginTop: 2 }}>
+                Falta cadastrar o cônjuge de {client.full_name || client.name}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowSpouseModal(true)}
+            style={{ padding: "8px 14px", borderRadius: 8, background: "#FBBF24", color: T.ink, fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer", letterSpacing: "0.05em", WebkitAppearance: "none", appearance: "none" }}
+          >
+            CADASTRAR AGORA
+          </button>
+        </div>
+      ) : null}
+
+      {/* KPIs */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(5, 1fr)", gap: 10, marginBottom: 16 }}>
+        <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>ATENDIMENTOS</div><div style={{ fontSize: 22, fontWeight: 700, color: T.chalk }}>{activities.length}</div></div>
+        <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>ÚLTIMO CONTATO</div><div style={{ fontSize: 14, fontWeight: 600, color: client.last_interaction_at ? T.bone : T.slate }}>{client.last_interaction_at ? timeAgo(client.last_interaction_at) : "Nunca"}</div>{!client.last_interaction_at && <button type="button" onClick={() => setActivityModalOpen(true)} style={{ fontSize: 11, color: T.sprout, background: "none", border: "none", cursor: "pointer", padding: 0, marginTop: 4 }}>+ Registrar agora</button>}</div>
+        <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>NEGOCIAÇÕES</div><div style={{ fontSize: 22, fontWeight: 700, color: T.chalk }}>{negotiations.length}</div></div>
+        <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>SCORE</div><div style={{ fontSize: 22, fontWeight: 700, color: (client.score ?? 0) >= 70 ? T.sprout : (client.score ?? 0) >= 40 ? T.amber : T.chalk }}>{client.score ?? 0}<span style={{ fontSize: 12, fontWeight: 400, color: T.fog }}>/100</span></div></div>
+        <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>INTERESSE</div>{(() => { const INTERESSE_LABELS: Record<string, string> = { lote_urbano: "Lote Urbano", lote_rural: "Lote Rural", terreno: "Terreno", apartamento: "Apartamento", casa: "Casa", outro: "Outro" }; const val = (client as unknown as Record<string, unknown>).interesse as string | null; return <select value={val || ""} onChange={async (e) => { if (!supabase) return; const v = e.target.value || null; await supabase.from("clients").update({ interesse: v }).eq("id", client.id); setClient((prev) => prev ? { ...prev, interesse: v } as ClientData : null); setToast("Interesse atualizado"); }} style={{ background: "transparent", border: "none", color: val ? T.bone : T.slate, fontSize: 14, fontWeight: 600, cursor: "pointer", outline: "none", padding: 0, fontFamily: "inherit", width: "100%" }}><option value="">— Selecionar</option>{Object.entries(INTERESSE_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>; })()}</div>
+      </div>
+
+      {/* Quick actions */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+        <button type="button" onClick={() => navigate(`/simulador?clientId=${client.id}`)} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.bone, fontSize: 13, cursor: "pointer" }}>Simular</button>
+      </div>
+
       {/* Tabs */}
       <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.stone}`, marginBottom: 20, overflowX: "auto" }}>
-        {([["dados", "Dados Pessoais"], ["endereco", "Endereço"], ...(needsSpouse ? [["conjuge", "Cônjuge"]] : []), ["documentos", `Documentos (${docCount})`], ["historico", "Histórico"]] as [string, string][]).map(([k, l]) => (
+        {([["interacoes", "Interações"], ["dados", "Dados"], ["endereco", "Endereço"], ["interesse", "Interesse"], ...(needsSpouse ? [["conjuge", "Cônjuge"]] : []), ["documentos", `Documentos (${docApproved}/${effectiveDocTypes.length})`], ["historico", "Histórico"]] as [string, string][]).map(([k, l]) => (
           <button key={k} type="button" onClick={() => setTab(k as typeof tab)} style={{ padding: "10px 16px", background: "none", border: "none", borderBottom: tab === k ? `2px solid ${T.sprout}` : "2px solid transparent", color: tab === k ? T.sprout : T.fog, fontSize: 13, fontWeight: tab === k ? 600 : 400, cursor: "pointer", whiteSpace: "nowrap" }}>{l}</button>
         ))}
       </div>
 
-      {/* Tab: Dados Pessoais */}
+      {/* Tab: Interações */}
+      {tab === "interacoes" && (
+        <div>
+          {/* Qualificação rápida */}
+          <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 12, padding: "16px 20px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 500, color: T.fog }}>Temperatura</span>
+              <div style={{ display: "flex", gap: 4 }}>
+                {(["cold", "warm", "hot"] as const).map((t) => { const c = TEMP_CFG[t]; const active = client.temperature === t; return <button key={t} type="button" onClick={async () => { if (!supabase || !id) return; await supabase.from("clients").update({ temperature: t }).eq("id", id); setClient((p) => p ? { ...p, temperature: t } as ClientData : null); setToast("Temperatura atualizada"); }} style={{ padding: "5px 14px", borderRadius: 20, border: `1.5px solid ${active ? c.color : T.stone}`, background: active ? c.bg : "transparent", color: active ? c.color : T.fog, fontSize: 12, fontWeight: 600, cursor: "pointer", transition: "all 0.15s" }}>{c.label}</button>; })}
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 13, fontWeight: 500, color: T.fog, marginRight: 4 }}>Status</span>
+              {["new", "contacted", "qualifying", "qualified", "nurturing", "negotiating", "active"].map((s) => { const color = STATUS_COLORS[s] || T.fog; const isCurrent = (client.status || "active") === s; return <button key={s} type="button" onClick={async () => { if (!supabase || !id || saving) return; setSaving(true); try { await supabase.from("clients").update({ status: s }).eq("id", id); setClient((p) => p ? { ...p, status: s } as ClientData : null); setToast("Status atualizado"); } finally { setSaving(false); } }} disabled={saving} style={{ padding: "3px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600, border: `1px solid ${isCurrent ? color : T.stone}`, background: isCurrent ? color + "18" : "transparent", color: isCurrent ? color : T.slate, cursor: "pointer", transition: "all 0.15s" }}>{STATUS_LABELS[s]}</button>; })}
+              {client.status === "lost" && <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: "#F8717118", color: "#F87171", border: "1px solid #F8717130" }}>Perdido</span>}
+              {client.status === "converted" && <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: "#22C55E18", color: "#22C55E", border: "1px solid #22C55E30" }}>Convertido</span>}
+            </div>
+          </div>
+
+          {/* Follow-up destaque (topo) */}
+          {(() => { const nextFu = (client as unknown as Record<string, unknown>).next_follow_up_at as string | null; if (!nextFu) return null; const isOverdue = new Date(nextFu) < new Date(); const daysUntil = Math.ceil((new Date(nextFu).getTime() - Date.now()) / 864e5); const isToday = daysUntil === 0; const fuColor = isOverdue ? T.red : isToday ? T.amber : T.blue; return (
+            <div style={{ background: isOverdue ? "rgba(248,113,113,0.08)" : isToday ? "rgba(251,191,36,0.08)" : "rgba(96,165,250,0.08)", border: `1px solid ${fuColor}30`, borderRadius: 12, padding: "14px 16px", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: fuColor }}>{isOverdue ? `Follow-up atrasado há ${Math.abs(daysUntil)} dia${Math.abs(daysUntil) !== 1 ? "s" : ""}` : isToday ? "Follow-up para hoje" : daysUntil === 1 ? "Follow-up amanhã" : `Follow-up em ${daysUntil} dias`}</div>
+                <div style={{ fontSize: 12, color: T.fog, marginTop: 2 }}>{formatDateBRT(nextFu)} às {formatTimeBRT(nextFu)}</div>
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button type="button" onClick={async () => { if (!supabase || !id || !userId || !accountId) return; setSaving(true); try { await supabase.from("contact_interactions").insert({ account_id: accountId, client_id: id, type: "follow_up", direction: "outbound", title: "Follow-up concluído", performed_by: userId }); if (development?.developmentId) { await supabase.from("activities").insert({ account_id: accountId, development_id: development.developmentId, profile_id: userId, client_id: id, type: "follow_up", title: "Follow-up concluído", activity_date: new Date().toISOString().slice(0, 10), duration_minutes: 15, status: "completed", contact_name: client.full_name || client.name }); } await supabase.from("clients").update({ next_follow_up_at: null, last_interaction_at: new Date().toISOString() }).eq("id", id); setShowSuccessHint(true); load(true); } finally { setSaving(false); } }} style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: T.sprout, color: "var(--interactive-on-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Concluir</button>
+                <button type="button" onClick={() => { setFuDate(nextFu.slice(0, 16)); setShowFollowUpForm(true); setShowInlineInteraction(false); }} style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 12, cursor: "pointer" }}>Reagendar</button>
+              </div>
+            </div>
+          ); })()}
+
+          {/* Success hint after interaction */}
+          {showSuccessHint && (
+            <div style={{ background: "rgba(96,165,250,0.08)", border: "1px solid rgba(96,165,250,0.2)", borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.blue }}>Interação registrada!</div>
+                <div style={{ fontSize: 12, color: T.fog, marginTop: 2 }}>Deseja agendar o próximo contato?</div>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" onClick={() => { const days = client.temperature === "hot" ? 2 : client.temperature === "cold" ? 14 : 5; const d = new Date(); d.setDate(d.getDate() + days); setFuDate(d.toISOString().slice(0, 16)); setShowSuccessHint(false); setShowFollowUpForm(true); setShowInlineInteraction(false); }} style={{ fontSize: 12, fontWeight: 600, padding: "6px 14px", borderRadius: 8, background: T.blue, color: "#fff", border: "none", cursor: "pointer" }}>Sim, agendar</button>
+                <button type="button" onClick={() => setShowSuccessHint(false)} style={{ fontSize: 12, fontWeight: 500, padding: "6px 14px", borderRadius: 8, background: "transparent", color: T.fog, border: `1px solid ${T.stone}`, cursor: "pointer" }}>Agora não</button>
+              </div>
+            </div>
+          )}
+
+          {/* Responsável */}
+          <div style={{ background: "linear-gradient(168deg, rgba(34,33,28,0.5), rgba(18,17,14,0.15))", border: "1px solid rgba(61,58,48,0.08)", borderRadius: 12, padding: "14px 16px", marginBottom: 12, position: "relative" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 8, color: "#5C5647", fontFamily: "var(--font-mono)", letterSpacing: "0.12em" }}>RESPONSÁVEL</span>
+                {(() => { const assignedName = teamMembers.find((m) => m.userId === client.assigned_to)?.name; return assignedName ? <><div style={{ width: 24, height: 24, borderRadius: "50%", background: "rgba(74,222,128,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "#4ADE80", marginLeft: 8 }}>{assignedName.charAt(0)}</div><span style={{ fontSize: 13, fontWeight: 600, color: "#E8E5DE" }}>{assignedName}</span></> : <span style={{ fontSize: 13, color: "#5C5647", marginLeft: 8 }}>Sem responsável</span>; })()}
+              </div>
+              {canReview && <button type="button" onClick={() => setShowAssignDropdown(!showAssignDropdown)} style={{ fontSize: 11, color: "#706B5F", background: "none", border: "1px solid rgba(61,58,48,0.2)", borderRadius: 6, padding: "4px 10px", cursor: "pointer", transition: "all 150ms ease" }}>Alterar</button>}
+            </div>
+            {showAssignDropdown && (
+              <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 20, background: "linear-gradient(168deg, rgba(34,33,28,0.95), rgba(18,17,14,0.85))", border: "1px solid rgba(61,58,48,0.2)", borderRadius: "0 0 10px 10px", maxHeight: 200, overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+                <div key="none" onClick={async () => { if (!supabase || !id || !userId) return; setSaving(true); try { await supabase.from("clients").update({ assigned_to: null, assigned_at: null, assigned_by: null }).eq("id", id); await supabase.from("contact_interactions").insert({ account_id: accountId, client_id: id, type: "assignment_change", title: "Responsável removido", performed_by: userId }); setClient((p) => p ? { ...p, assigned_to: null, assigned_at: null, assigned_by: null } : null); setShowAssignDropdown(false); setToast("Responsável removido"); load(true); } finally { setSaving(false); } }} style={{ padding: "9px 14px", cursor: "pointer", fontSize: 13, color: "#5C5647", fontStyle: "italic", borderBottom: "1px solid rgba(61,58,48,0.1)" }}>— Nenhum</div>
+                {teamMembers.map((m) => <div key={m.userId} onClick={async () => { if (!supabase || !id || !userId) return; setSaving(true); try { await supabase.from("clients").update({ assigned_to: m.userId, assigned_at: new Date().toISOString(), assigned_by: userId }).eq("id", id); await supabase.from("contact_interactions").insert({ account_id: accountId, client_id: id, type: "assignment_change", title: `Atribuído para ${m.name}`, metadata: { to_user: m.userId }, performed_by: userId }); setClient((p) => p ? { ...p, assigned_to: m.userId, assigned_at: new Date().toISOString(), assigned_by: userId } : null); setShowAssignDropdown(false); setToast(`Atribuído para ${m.name}`); load(true); } finally { setSaving(false); } }} style={{ padding: "9px 14px", cursor: "pointer", fontSize: 13, color: "#C4BFB3", borderBottom: "1px solid rgba(61,58,48,0.06)", transition: "all 100ms ease" }} onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(74,222,128,0.04)"; e.currentTarget.style.color = "#E8E5DE"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#C4BFB3"; }}>{m.name} <span style={{ fontSize: 11, color: "#706B5F" }}>· {m.role}</span></div>)}
+              </div>
+            )}
+          </div>
+
+          {/* Two action cards */}
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 16 }}>
+            <button type="button" onClick={() => { setShowInlineInteraction(!showInlineInteraction); setShowFollowUpForm(false); setShowSuccessHint(false); }} style={{ background: showInlineInteraction ? "rgba(74,222,128,0.06)" : T.carbon, border: `1px solid ${showInlineInteraction ? T.sprout : T.stone}`, borderRadius: 12, padding: "14px 16px", cursor: "pointer", textAlign: "left", transition: "all 0.15s" }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: showInlineInteraction ? T.sprout : T.chalk, marginBottom: 4 }}>+ Registrar interação</div>
+              <div style={{ fontSize: 11, color: T.fog, lineHeight: 1.4 }}>O que você acabou de fazer? Ligou, visitou, enviou mensagem...</div>
+            </button>
+            <button type="button" onClick={() => { setShowFollowUpForm(!showFollowUpForm); setShowInlineInteraction(false); setShowSuccessHint(false); const d = new Date(); d.setDate(d.getDate() + (client.temperature === "hot" ? 2 : client.temperature === "cold" ? 14 : 5)); if (!showFollowUpForm) setFuDate(d.toISOString().slice(0, 16)); }} style={{ background: showFollowUpForm ? "rgba(96,165,250,0.06)" : T.carbon, border: `1px solid ${showFollowUpForm ? T.blue : T.stone}`, borderRadius: 12, padding: "14px 16px", cursor: "pointer", textAlign: "left", transition: "all 0.15s" }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: showFollowUpForm ? T.blue : T.chalk, marginBottom: 4 }}>+ Agendar follow-up</div>
+              <div style={{ fontSize: 11, color: T.fog, lineHeight: 1.4 }}>Qual será seu próximo passo? Agende uma ligação, visita, reunião...</div>
+            </button>
+          </div>
+
+          {/* Follow-up form */}
+          {showFollowUpForm && (
+            <div style={{ background: T.carbon, border: `1px solid rgba(96,165,250,0.3)`, borderRadius: 12, padding: "16px 20px", marginBottom: 16 }}>
+              <div style={{ marginBottom: 12 }}><label style={LBL}>Data e hora</label><input type="datetime-local" style={IS} value={fuDate} onChange={(e) => setFuDate(e.target.value)} /></div>
+              <div style={{ fontSize: 11, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 8 }}>TIPO</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+                {[["phone_call", "Ligação"], ["whatsapp", "WhatsApp"], ["visit_client", "Visita"], ["email", "Email"], ["meeting_external", "Reunião"]].map(([k, l]) => <button key={k} type="button" onClick={() => setFuType(k)} style={{ padding: "6px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, border: `1.5px solid ${fuType === k ? T.blue : T.stone}`, background: fuType === k ? "rgba(96,165,250,0.10)" : "transparent", color: fuType === k ? T.blue : T.fog, cursor: "pointer", transition: "all 0.15s" }}>{l}</button>)}
+              </div>
+              <div style={{ marginBottom: 14 }}><label style={LBL}>Observação</label><input style={IS} value={fuNote} onChange={(e) => setFuNote(e.target.value)} placeholder="Lembrete para o follow-up..." /></div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button type="button" onClick={() => setShowFollowUpForm(false)} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 13, cursor: "pointer" }}>Cancelar</button>
+                <button type="button" disabled={!fuDate || saving} onClick={async () => { if (!supabase || !id || !accountId || !userId) return; setSaving(true); try { await supabase.from("clients").update({ next_follow_up_at: new Date(fuDate).toISOString() }).eq("id", id); await supabase.from("contact_interactions").insert({ account_id: accountId, client_id: id, type: "follow_up_scheduled", title: `Follow-up agendado`, description: fuNote.trim() || null, metadata: { scheduled_at: fuDate, follow_up_type: fuType }, performed_by: userId }); if (development?.developmentId) { const fuDateStr = new Date(fuDate).toISOString().slice(0, 10); await supabase.from("activities").insert({ account_id: accountId, development_id: development.developmentId, profile_id: userId, client_id: id, type: fuType, title: `Follow-up: ${client.full_name || client.name}`, activity_date: fuDateStr, start_time: new Date(fuDate).toISOString().slice(11, 16), duration_minutes: 30, status: "scheduled", outcome: fuNote.trim() || null, contact_name: client.full_name || client.name }).then(() => {}, () => {}); } setShowFollowUpForm(false); setFuNote(""); setToast("Follow-up agendado"); load(true); } finally { setSaving(false); } }} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: T.blue, color: "#fff", fontSize: 13, fontWeight: 600, cursor: !fuDate || saving ? "not-allowed" : "pointer", opacity: !fuDate || saving ? 0.5 : 1 }}>{saving ? "..." : "Agendar"}</button>
+              </div>
+            </div>
+          )}
+
+          {/* Interaction form */}
+          {showInlineInteraction && (
+            <div style={{ background: T.carbon, border: `1px solid ${T.sprout}30`, borderRadius: 12, padding: "16px 20px", marginBottom: 16 }}>
+              <div style={{ fontSize: 11, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 10 }}>TIPO</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+                {[["phone_call", "Ligação"], ["whatsapp", "WhatsApp"], ["follow_up", "Follow-up"], ["visit_client", "Visita"], ["meeting_external", "Reunião"], ["email", "Email"], ["note", "Nota"]].map(([k, l]) => <button key={k} type="button" onClick={() => setIntType(k)} style={{ padding: "6px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, border: `1.5px solid ${intType === k ? T.sprout : T.stone}`, background: intType === k ? "rgba(74,222,128,0.08)" : "transparent", color: intType === k ? T.sprout : T.fog, cursor: "pointer", transition: "all 0.15s" }}>{l}</button>)}
+              </div>
+              <div style={{ marginBottom: 10 }}><label style={LBL}>Título *</label><input style={IS} value={intTitle} onChange={(e) => setIntTitle(e.target.value)} placeholder="Ex: Retorno sobre proposta" autoFocus /></div>
+              <div style={{ marginBottom: 14 }}><label style={LBL}>Descrição</label><textarea rows={2} style={{ ...IS, resize: "vertical" }} value={intDesc} onChange={(e) => setIntDesc(e.target.value)} placeholder="O que aconteceu?" /></div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button type="button" onClick={() => { setShowInlineInteraction(false); setIntTitle(""); setIntDesc(""); }} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 13, cursor: "pointer" }}>Cancelar</button>
+                <button type="button" disabled={!intTitle.trim() || saving} onClick={async () => { if (!supabase || !id || !accountId || !userId) return; setSaving(true); try { await supabase.from("contact_interactions").insert({ account_id: accountId, client_id: id, type: intType, direction: "outbound", title: intTitle.trim(), description: intDesc.trim() || null, performed_by: userId }); if (development?.developmentId) { await supabase.from("activities").insert({ account_id: accountId, development_id: development.developmentId, profile_id: userId, client_id: id, type: intType, title: intTitle.trim(), activity_date: getTodayDateStringBRT(), duration_minutes: 15, status: "completed", outcome: intDesc.trim() || null, contact_name: client.full_name || client.name }).then(() => {}, () => {}); } await supabase.from("clients").update({ last_interaction_at: new Date().toISOString() }).eq("id", id); setShowInlineInteraction(false); setIntTitle(""); setIntDesc(""); setShowSuccessHint(true); load(true); } finally { setSaving(false); } }} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: T.sprout, color: "var(--interactive-on-primary)", fontSize: 13, fontWeight: 600, cursor: !intTitle.trim() || saving ? "not-allowed" : "pointer", opacity: !intTitle.trim() || saving ? 0.5 : 1 }}>{saving ? "Salvando..." : "Registrar"}</button>
+              </div>
+            </div>
+          )}
+
+          {/* Timeline de interações (merged: contact_interactions + activities) */}
+          {(() => {
+            const activityItems = activities.map((a) => ({
+              id: `act-${a.id}`, type: a.type, direction: null as string | null, title: a.title, description: a.outcome || null, performed_by: null as string | null, performed_at: a.activity_date + "T12:00:00", profiles: null as { name: string } | null, _source: "activity" as const, _activityId: a.id,
+            }));
+            const mergedTimeline = [
+              ...contactInteractions.map((ci) => ({ ...ci, _source: "interaction" as const, _activityId: null as string | null })),
+              ...activityItems,
+            ].sort((a, b) => new Date(b.performed_at).getTime() - new Date(a.performed_at).getTime());
+
+            if (mergedTimeline.length === 0) return (
+              <div style={{ textAlign: "center", padding: "40px 0", color: T.fog, fontSize: 14 }}>Nenhuma interação registrada. Clique em "+ Registrar interação" para começar.</div>
+            );
+            return (
+            <div>
+              {mergedTimeline.map((i) => {
+                const cfg: Record<string, { icon: string; label: string; bg: string; color: string }> = { phone_call: { icon: "📞", label: "Ligação", bg: "rgba(96,165,250,0.12)", color: "#60A5FA" }, whatsapp: { icon: "💬", label: "WhatsApp", bg: "rgba(74,222,128,0.12)", color: "#4ADE80" }, follow_up: { icon: "🔄", label: "Follow-up", bg: "rgba(167,139,250,0.12)", color: "#A78BFA" }, visit_client: { icon: "🏠", label: "Visita", bg: "rgba(251,191,36,0.12)", color: "#FBBF24" }, meeting_external: { icon: "👥", label: "Reunião", bg: "rgba(251,191,36,0.12)", color: "#FBBF24" }, email: { icon: "✉", label: "Email", bg: "rgba(96,165,250,0.12)", color: "#60A5FA" }, note: { icon: "📝", label: "Nota", bg: "rgba(156,150,134,0.12)", color: "#9C9686" }, status_change: { icon: "→", label: "Status", bg: "rgba(74,222,128,0.12)", color: "#4ADE80" }, assignment_change: { icon: "👤", label: "Reatribuição", bg: "rgba(167,139,250,0.12)", color: "#A78BFA" } };
+                const tc = cfg[i.type] || { icon: "●", label: i.type, bg: T.stone, color: T.fog };
+                const profile = Array.isArray(i.profiles) ? i.profiles[0] : i.profiles;
+                const isFromActivity = i._source === "activity";
+                const isAuto = !isFromActivity && (i.type === "status_change" || i.type === "assignment_change");
+                const isEditing = !isFromActivity && editingInt?.id === i.id;
+                return (
+                  <div key={i.id} style={{ display: "flex", gap: 12, padding: "14px 0", borderBottom: `1px solid ${T.stone}` }}>
+                    <div style={{ width: 36, height: 36, borderRadius: "50%", background: tc.bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 14 }}>{tc.icon}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {isEditing ? (
+                        <div>
+                          <input autoFocus value={editingInt!.title} onChange={(e) => setEditingInt((p) => p ? { ...p, title: e.target.value } : null)} placeholder="Título" style={{ ...IS, marginBottom: 6 }} />
+                          <textarea value={editingInt!.description} onChange={(e) => setEditingInt((p) => p ? { ...p, description: e.target.value } : null)} rows={2} placeholder="Descrição" style={{ ...IS, resize: "vertical", marginBottom: 8 }} />
+                          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                            <button type="button" onClick={() => setEditingInt(null)} style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 12, cursor: "pointer" }}>Cancelar</button>
+                            <button type="button" onClick={handleSaveEditInteraction} style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: T.sprout, color: "#12110F", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Salvar</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                                <span style={{ fontSize: 13, fontWeight: 600, color: T.chalk }}>{i.title || tc.label}</span>
+                                <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, background: tc.bg, color: tc.color, fontWeight: 500 }}>{tc.label}</span>
+                              </div>
+                              {i.description && <p style={{ fontSize: 13, color: T.bone, margin: "4px 0 0", lineHeight: 1.5 }}>{i.description}</p>}
+                              <div style={{ fontSize: 11, color: T.slate, marginTop: 4 }}>{formatDateBRT(i.performed_at)} às {formatTimeBRT(i.performed_at)} · {(profile as Record<string, unknown> | null)?.name as string || "Sistema"}</div>
+                            </div>
+                            {!isAuto && canEditItem(i.performed_by) && (
+                              <div style={{ position: "relative", flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+                                <button type="button" onClick={(e) => { e.stopPropagation(); setActiveIntMenu(activeIntMenu === i.id ? null : i.id); }} style={{ background: "none", border: "none", cursor: "pointer", padding: "4px 8px", color: T.slate, borderRadius: 4, fontSize: 18, lineHeight: 1 }} title="Opções">⋮</button>
+                                {activeIntMenu === i.id && (
+                                  <div style={{ position: "absolute", right: 0, top: "100%", zIndex: 100, background: "var(--surface-elevated, #1C1B18)", borderRadius: 8, border: `1px solid ${T.stone}`, boxShadow: "0 4px 12px rgba(0,0,0,0.4)", minWidth: 140, padding: "4px 0", marginTop: 4 }}>
+                                    {!isFromActivity && <button type="button" onClick={() => { setEditingInt({ id: i.id, title: i.title || "", description: i.description || "" }); setActiveIntMenu(null); }} style={{ width: "100%", textAlign: "left", padding: "8px 12px", background: "none", border: "none", cursor: "pointer", color: T.chalk, fontSize: 13 }}>Editar</button>}
+                                    <button type="button" onClick={() => { setActiveIntMenu(null); const label = isFromActivity ? "esta atividade" : "esta interação"; setConfirmDialog({ title: "Excluir " + (isFromActivity ? "atividade" : "interação"), message: `Tem certeza que deseja excluir ${label}? Esta ação não pode ser desfeita.`, variant: "danger", onConfirm: async () => { setConfirmDialog(null); if (!supabase) return; if (isFromActivity && i._activityId) { await supabase.from("activities").delete().eq("id", i._activityId); } else { await supabase.from("contact_interactions").delete().eq("id", i.id); } setToast("Excluído"); load(true); } }); }} style={{ width: "100%", textAlign: "left", padding: "8px 12px", background: "none", border: "none", cursor: "pointer", color: "#E24B4A", fontSize: 13 }}>Excluir</button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Tab: Dados */}
       {tab === "dados" && (
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 14 }}>
           <div style={{ gridColumn: isMobile ? "1" : "1 / 3" }}><label style={LBL}>Nome completo</label>{editing ? <input style={IS} value={f("full_name") || f("name")} onChange={(e) => setF("full_name", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.full_name || client.name || "—"}</div>}</div>
-          <div><label style={LBL}>CPF</label>{editing ? <input style={IS} value={maskCPF(f("cpf"))} onChange={(e) => setF("cpf", e.target.value.replace(/\D/g, "").slice(0, 11))} maxLength={14} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.cpf ? maskCPF(client.cpf) : "—"}</div>}</div>
-          <div><label style={LBL}>RG</label>{editing ? <input style={IS} value={maskRG(f("rg"))} onChange={(e) => setF("rg", maskRG(e.target.value))} maxLength={12} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.rg || "—"}</div>}</div>
+          <div><label style={LBL}>CPF</label>{editing ? <input style={IS} value={maskCPF(f("cpf"))} onChange={(e) => setF("cpf", e.target.value.replace(/\D/g, "").slice(0, 11))} maxLength={14} /> : <SensitiveField label="CPF" maskedValue={secureMaskCPF(client.cpf)} fullValue={client.cpf ? maskCPF(client.cpf) : ""} entityType="client" entityId={client.id} field="cpf" />}</div>
+          <div><label style={LBL}>RG</label>{editing ? <input style={IS} value={maskRG(f("rg"))} onChange={(e) => setF("rg", maskRG(e.target.value))} maxLength={12} /> : <SensitiveField label="RG" maskedValue={secureMaskRG(client.rg)} fullValue={client.rg || ""} entityType="client" entityId={client.id} field="rg" />}</div>
           <div><label style={LBL}>Órgão emissor</label>{editing ? <input style={IS} value={f("rg_orgao")} onChange={(e) => setF("rg_orgao", e.target.value)} placeholder="SSP/PR" /> : <div style={{ fontSize: 14, color: T.bone }}>{client.rg_orgao || "—"}</div>}</div>
-          <div><label style={LBL}>Data nascimento</label>{editing ? <input type="date" style={IS} value={f("data_nascimento")} onChange={(e) => setF("data_nascimento", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.data_nascimento ? new Date(client.data_nascimento + "T12:00:00").toLocaleDateString("pt-BR") : "—"}</div>}</div>
+          <div><label style={LBL}>Data nascimento</label>{editing ? <input type="date" style={IS} value={f("data_nascimento")} onChange={(e) => setF("data_nascimento", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.data_nascimento ? formatDateBRT(client.data_nascimento + "T12:00:00") : "—"}</div>}</div>
           <div><label style={LBL}>Estado civil</label>{editing ? <select style={IS} value={f("marital_status")} onChange={(e) => setF("marital_status", e.target.value)}><option value="">Selecione</option>{ESTADO_CIVIL_OPTS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}</select> : <div style={{ fontSize: 14, color: T.bone }}>{ESTADO_CIVIL_OPTS.find((o) => o.v === client.marital_status)?.l || client.marital_status || "—"}</div>}</div>
           <div><label style={LBL}>Profissão</label>{editing ? <input style={IS} value={f("profession")} onChange={(e) => setF("profession", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.profession || "—"}</div>}</div>
-          <div><label style={LBL}>Renda mensal</label>{editing ? <input style={IS} value={f("renda_mensal") ? maskCurrency(String(Math.round(Number(f("renda_mensal")) * 100))) : ""} onChange={(e) => setF("renda_mensal", String(currencyToNumber(e.target.value)))} placeholder="R$ 0,00" /> : <div style={{ fontSize: 14, color: T.bone }}>{client.renda_mensal ? fmtBRL(client.renda_mensal) : "—"}</div>}</div>
+          <div><label style={LBL}>Renda mensal</label>{editing ? <input style={IS} value={f("renda_mensal") ? maskCurrency(String(Math.round(Number(f("renda_mensal")) * 100))) : ""} onChange={(e) => setF("renda_mensal", String(currencyToNumber(e.target.value)))} placeholder="R$ 0,00" /> : <SensitiveField label="Renda" maskedValue={secureMaskRenda(client.renda_mensal)} fullValue={client.renda_mensal ? fmtBRL(client.renda_mensal) : ""} entityType="client" entityId={client.id} field="renda_mensal" />}</div>
           <div><label style={LBL}>Telefone</label>{editing ? <input style={IS} value={maskPhone(f("phone"))} onChange={(e) => setF("phone", e.target.value.replace(/\D/g, "").slice(0, 11))} maxLength={15} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.phone ? maskPhone(client.phone) : "—"}</div>}</div>
           <div><label style={LBL}>Email</label>{editing ? <input type="email" style={IS} value={f("email")} onChange={(e) => setF("email", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.email || "—"}</div>}</div>
           <div style={{ gridColumn: "1 / -1" }}><label style={LBL}>Observações</label>{editing ? <textarea rows={2} style={{ ...IS, resize: "vertical" }} value={f("observations")} onChange={(e) => setF("observations", e.target.value)} /> : <div style={{ fontSize: 13, color: T.fog }}>{client.observations || "—"}</div>}</div>
+          <div><label style={LBL}>Origem</label>{editing ? <select style={IS} value={(form.origin as string) ?? client.origin ?? ""} onChange={(e) => setForm((p) => ({ ...p, origin: e.target.value }))}><option value="">Selecione</option>{Object.entries(SOURCE_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select> : <div style={{ fontSize: 14, color: T.bone }}>{client.origin ? (SOURCE_LABELS[client.origin] ?? client.origin) : "—"}</div>}</div>
+          <div><label style={LBL}>Detalhe da origem</label>{editing ? <input style={IS} value={(form.origin_detail as string) ?? client.origin_detail ?? ""} onChange={(e) => setForm((p) => ({ ...p, origin_detail: e.target.value }))} placeholder="Campanha, corretor, etc." /> : <div style={{ fontSize: 14, color: T.bone }}>{client.origin_detail || "—"}</div>}</div>
+        </div>
+      )}
+
+      {/* Tab: Interesse */}
+      {tab === "interesse" && (
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 14 }}>
+          <div><label style={LBL}>Perfil de comprador</label>{editing ? <select style={IS} value={(form.buyer_profile as string) ?? client.buyer_profile ?? ""} onChange={(e) => setForm((p) => ({ ...p, buyer_profile: e.target.value }))}><option value="">Selecione</option><option value="investor">Investidor</option><option value="resident">Morador</option><option value="both">Ambos</option></select> : <div style={{ fontSize: 14, color: T.bone }}>{client.buyer_profile === "investor" ? "Investidor" : client.buyer_profile === "resident" ? "Morador" : client.buyer_profile === "both" ? "Ambos" : "—"}</div>}</div>
+          <div><label style={LBL}>Tipo de imóvel</label>{editing ? <select style={IS} value={(form.interested_unit_type as string) ?? client.interested_unit_type ?? ""} onChange={(e) => setForm((p) => ({ ...p, interested_unit_type: e.target.value }))}><option value="">Selecione</option><option value="lote">Lote</option><option value="casa">Casa</option><option value="apartamento">Apartamento</option><option value="comercial">Comercial</option></select> : <div style={{ fontSize: 14, color: T.bone }}>{client.interested_unit_type || "—"}</div>}</div>
+          <div><label style={LBL}>Prazo de compra</label>{editing ? <select style={IS} value={(form.purchase_timeline as string) ?? client.purchase_timeline ?? ""} onChange={(e) => setForm((p) => ({ ...p, purchase_timeline: e.target.value }))}><option value="">Selecione</option><option value="immediate">Imediato</option><option value="1_to_3_months">1-3 meses</option><option value="3_to_6_months">3-6 meses</option><option value="6_to_12_months">6-12 meses</option><option value="over_12_months">+12 meses</option></select> : <div style={{ fontSize: 14, color: T.bone }}>{client.purchase_timeline || "—"}</div>}</div>
+          <div><label style={LBL}>Budget mínimo</label>{editing ? <input type="number" style={IS} value={String((form as Record<string, unknown>).budget_min ?? client.budget_min ?? "")} onChange={(e) => setForm((p) => ({ ...p, budget_min: Number(e.target.value) || null } as Partial<ClientData>))} placeholder="0" /> : <div style={{ fontSize: 14, color: T.bone }}>{client.budget_min ? fmtBRL(client.budget_min) : "—"}</div>}</div>
+          <div><label style={LBL}>Budget máximo</label>{editing ? <input type="number" style={IS} value={String((form as Record<string, unknown>).budget_max ?? client.budget_max ?? "")} onChange={(e) => setForm((p) => ({ ...p, budget_max: Number(e.target.value) || null } as Partial<ClientData>))} placeholder="0" /> : <div style={{ fontSize: 14, color: T.bone }}>{client.budget_max ? fmtBRL(client.budget_max) : "—"}</div>}</div>
+          <div><label style={LBL}>Preferência pagamento</label>{editing ? <select style={IS} value={(form.payment_preference as string) ?? client.payment_preference ?? ""} onChange={(e) => setForm((p) => ({ ...p, payment_preference: e.target.value }))}><option value="">Selecione</option><option value="cash">À vista</option><option value="installment">Parcelado</option><option value="financing">Financiamento</option><option value="fgts">FGTS</option></select> : <div style={{ fontSize: 14, color: T.bone }}>{client.payment_preference || "—"}</div>}</div>
         </div>
       )}
 
@@ -213,10 +809,10 @@ export default function ClientDetailPage() {
       {/* Tab: Cônjuge */}
       {tab === "conjuge" && needsSpouse && (
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 14 }}>
-          <div><label style={LBL}>Regime de casamento</label>{editing ? <select style={IS} value={f("regime_casamento")} onChange={(e) => setF("regime_casamento", e.target.value)}><option value="">Selecione</option><option value="comunhao_parcial">Comunhão parcial</option><option value="comunhao_universal">Comunhão universal</option><option value="separacao_total">Separação total</option></select> : <div style={{ fontSize: 14, color: T.bone }}>{client.regime_casamento || "—"}</div>}</div>
+          <div><label style={LBL}>Regime de casamento</label>{editing ? <select style={IS} value={f("regime_casamento")} onChange={(e) => setF("regime_casamento", e.target.value)}><option value="">Selecione</option><option value="comunhao_parcial">Comunhão parcial</option><option value="comunhao_universal">Comunhão universal</option><option value="separacao_total">Separação total</option><option value="participacao_final_aquestos">Participação final nos aquestos</option></select> : <div style={{ fontSize: 14, color: T.bone }}>{client.regime_casamento || "—"}</div>}</div>
           <div style={{ gridColumn: isMobile ? "1" : "1 / 3" }}><label style={LBL}>Nome do cônjuge</label>{editing ? <input style={IS} value={f("conjuge_nome")} onChange={(e) => setF("conjuge_nome", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.conjuge_nome || "—"}</div>}</div>
-          <div><label style={LBL}>CPF cônjuge</label>{editing ? <input style={IS} value={f("conjuge_cpf")} onChange={(e) => setF("conjuge_cpf", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.conjuge_cpf || "—"}</div>}</div>
-          <div><label style={LBL}>RG cônjuge</label>{editing ? <input style={IS} value={f("conjuge_rg")} onChange={(e) => setF("conjuge_rg", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.conjuge_rg || "—"}</div>}</div>
+          <div><label style={LBL}>CPF cônjuge</label>{editing ? <input style={IS} value={f("conjuge_cpf")} onChange={(e) => setF("conjuge_cpf", e.target.value)} /> : <SensitiveField label="CPF cônjuge" maskedValue={secureMaskCPF(client.conjuge_cpf)} fullValue={client.conjuge_cpf || ""} entityType="client" entityId={client.id} field="conjuge_cpf" />}</div>
+          <div><label style={LBL}>RG cônjuge</label>{editing ? <input style={IS} value={f("conjuge_rg")} onChange={(e) => setF("conjuge_rg", e.target.value)} /> : <SensitiveField label="RG cônjuge" maskedValue={secureMaskRG(client.conjuge_rg)} fullValue={client.conjuge_rg || ""} entityType="client" entityId={client.id} field="conjuge_rg" />}</div>
           <div><label style={LBL}>Data nasc. cônjuge</label>{editing ? <input type="date" style={IS} value={f("conjuge_data_nascimento")} onChange={(e) => setF("conjuge_data_nascimento", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.conjuge_data_nascimento || "—"}</div>}</div>
           <div><label style={LBL}>Profissão cônjuge</label>{editing ? <input style={IS} value={f("conjuge_profissao")} onChange={(e) => setF("conjuge_profissao", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.conjuge_profissao || "—"}</div>}</div>
           <div><label style={LBL}>Email cônjuge</label>{editing ? <input style={IS} value={f("conjuge_email")} onChange={(e) => setF("conjuge_email", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.conjuge_email || "—"}</div>}</div>
@@ -227,76 +823,364 @@ export default function ClientDetailPage() {
       {/* Tab: Documentos */}
       {tab === "documentos" && (
         <div>
-          <div style={{ fontSize: 12, color: T.fog, marginBottom: 16 }}>Progresso: {docCount}/{DOC_TYPES.length} documentos enviados</div>
-          <div style={{ display: "grid", gap: 8 }}>
-            {DOC_TYPES.map((dt) => {
+          {/* Progress bar + approve all */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <span style={{ fontSize: 13, color: T.fog }}>Progresso da documentação</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: docApproved === effectiveDocTypes.length ? T.sprout : T.bone, fontWeight: 600 }}>{docApproved}/{effectiveDocTypes.length} aprovados</span>
+                {hasUploadedToApprove && <button type="button" onClick={approveAllDocs} disabled={approvingAll} style={{ padding: "4px 12px", borderRadius: 6, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.08)", color: T.sprout, fontSize: 11, fontWeight: 600, cursor: approvingAll ? "wait" : "pointer", opacity: approvingAll ? 0.7 : 1 }}>{approvingAll ? "Aprovando..." : `Aprovar todos (${docUploaded})`}</button>}
+                {docApproved > 0 && !["broker", "concierge"].includes((account?.role as string) ?? "") && (
+                  <button type="button" onClick={downloadClientPackage} disabled={downloadingZip} title={allRequiredApproved ? "Baixar todos os documentos aprovados em ZIP" : "Aprove todos os documentos obrigatórios primeiro"} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 12px", borderRadius: 6, border: `1px solid ${allRequiredApproved ? "rgba(74,222,128,0.3)" : T.stone}`, background: "transparent", color: allRequiredApproved ? T.sprout : T.fog, fontSize: 11, fontWeight: 500, cursor: downloadingZip ? "wait" : "pointer", opacity: allRequiredApproved ? 1 : 0.5 }}>
+                    {downloadingZip ? <><span style={{ width: 12, height: 12, border: "2px solid rgba(74,222,128,0.3)", borderTopColor: "#4ADE80", borderRadius: "50%", animation: "nxSpin 0.8s linear infinite", display: "inline-block" }} /> Gerando...</> : <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2v8m0 0l-3-3m3 3l3-3M2 12v1a1 1 0 001 1h10a1 1 0 001-1v-1"/></svg> Baixar pacote</>}
+                  </button>
+                )}
+              </div>
+            </div>
+            {/* Multi-segment progress bar */}
+            <div style={{ height: 6, borderRadius: 100, background: T.stone, overflow: "hidden", display: "flex" }}>
+              {docApproved > 0 && <div style={{ height: "100%", width: `${Math.round((docApproved / effectiveDocTypes.length) * 100)}%`, background: T.sprout, transition: "width 0.4s ease" }} />}
+              {docUploaded > 0 && <div style={{ height: "100%", width: `${Math.round((docUploaded / effectiveDocTypes.length) * 100)}%`, background: T.blue, transition: "width 0.4s ease" }} />}
+            </div>
+            <div style={{ display: "flex", gap: 16, marginTop: 8 }}>
+              {[
+                docPending > 0 && <span key="p" style={{ fontSize: 11, color: T.slate }}>○ {docPending} pendente{docPending > 1 ? "s" : ""}</span>,
+                docUploaded > 0 && <span key="s" style={{ fontSize: 11, color: T.blue }}>↑ {docUploaded} enviado{docUploaded > 1 ? "s" : ""}</span>,
+                docApproved > 0 && <span key="a" style={{ fontSize: 11, color: T.sprout }}>✓ {docApproved} aprovado{docApproved > 1 ? "s" : ""}</span>,
+                docRejected > 0 && <span key="r" style={{ fontSize: 11, color: "#D97706" }}>✕ {docRejected} rejeitado{docRejected > 1 ? "s" : ""}</span>,
+              ].filter(Boolean)}
+            </div>
+          </div>
+
+          {/* Document cards — v7 gradient */}
+          <div style={{ display: "grid", gap: 10 }}>
+            {effectiveDocTypes.map((dt) => {
               const doc = docsByType[dt.key];
-              const statusIcon = !doc ? "⚠" : doc.status === "approved" ? "✅" : doc.status === "rejected" ? "❌" : "⏳";
-              const statusColor = !doc ? T.slate : doc.status === "approved" ? "#4ADE80" : doc.status === "rejected" ? T.red : T.blue;
-              const statusLabel = !doc ? "Pendente" : doc.status === "approved" ? "Aprovado" : doc.status === "rejected" ? "Rejeitado" : "Enviado";
+              const statusCfg: Record<string, { bg: string; color: string; text: string }> = {
+                approved: { bg: "rgba(74,222,128,0.15)", color: "#4ADE80", text: "Aprovado" },
+                rejected: { bg: "rgba(217,119,6,0.15)", color: "#D97706", text: "Rejeitado" },
+                uploaded: { bg: "rgba(96,165,250,0.15)", color: "#60A5FA", text: "Enviado" },
+                sent: { bg: "rgba(96,165,250,0.15)", color: "#60A5FA", text: "Enviado" },
+              };
+              const st = doc ? (statusCfg[doc.status] || { bg: "rgba(156,150,134,0.15)", color: "#9C9686", text: "Pendente" }) : { bg: "rgba(156,150,134,0.15)", color: "#9C9686", text: "Pendente" };
+              const fileSize = doc?.file_size_bytes || doc?.file_size;
+              const isUploading = uploadingDocType === dt.key;
               return (
-                <div key={dt.key} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, color: T.bone, fontWeight: 500 }}>{dt.label}</div>
-                    {doc && <div style={{ fontSize: 11, color: T.slate, marginTop: 2 }}>{doc.file_name}</div>}
-                    {doc?.rejection_reason && <div style={{ fontSize: 11, color: T.red, marginTop: 2 }}>Motivo: {doc.rejection_reason}</div>}
+                <div key={dt.key} style={{ position: "relative", background: "linear-gradient(145deg, var(--surface-raised), var(--surface-base))", border: `1px solid ${doc?.status === "approved" ? "rgba(74,222,128,0.2)" : doc?.status === "rejected" ? "rgba(217,119,6,0.2)" : T.stone}`, borderRadius: 12, padding: isMobile ? "14px 12px" : "16px 18px", transition: "border-color 0.2s, opacity 0.2s", overflow: "hidden" }}>
+                  {isUploading && <div style={{ position: "absolute", inset: 0, borderRadius: 12, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }}><div style={{ width: 24, height: 24, border: "2px solid rgba(74,222,128,0.3)", borderTopColor: "#4ADE80", borderRadius: "50%", animation: "nxSpin 0.8s linear infinite" }} /></div>}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: doc ? 10 : 0 }}>
+                    {/* Status badge */}
+                    <span style={{ padding: "3px 10px", borderRadius: 100, background: st.bg, color: st.color, fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 600, whiteSpace: "nowrap" }}>{st.text}</span>
+                    {/* Doc name */}
+                    <span style={{ fontSize: 13, color: T.bone, fontWeight: 500, flex: 1 }}>{dt.label}</span>
+                    {/* Required pill */}
+                    {dt.required && <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 4, background: "rgba(156,150,134,0.1)", color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.04em" }}>Obrigatório</span>}
                   </div>
-                  <span style={{ fontSize: 12, color: statusColor, fontWeight: 600, whiteSpace: "nowrap" }}>{statusIcon} {statusLabel}</span>
-                  <div style={{ display: "flex", gap: 4 }}>
-                    {doc && <button type="button" onClick={() => window.open(doc.file_url, "_blank")} style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 11, cursor: "pointer" }}>👁</button>}
-                    {doc && doc.status === "uploaded" && canReview && (
-                      <>
-                        <button type="button" onClick={() => reviewDoc(doc.id, "approved")} style={{ padding: "4px 8px", borderRadius: 6, border: "none", background: "#4ADE8020", color: "#4ADE80", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✓</button>
-                        <button type="button" onClick={() => { const reason = prompt("Motivo da rejeição:"); if (reason) reviewDoc(doc.id, "rejected", reason); }} style={{ padding: "4px 8px", borderRadius: 6, border: "none", background: T.red + "20", color: T.red, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✕</button>
-                      </>
-                    )}
-                    {!doc && (
-                      <button type="button" onClick={() => { setUploadingDocType(dt.key); setTimeout(() => fileRef.current?.click(), 50); }} style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 11, cursor: "pointer" }}>{uploadingDocType === dt.key ? "..." : "📎"}</button>
-                    )}
-                  </div>
+
+                  {/* Status: pending — upload button */}
+                  {(!doc || doc.status === "pending") && (
+                    <button type="button" onClick={() => { setUploadingDocType(dt.key); setTimeout(() => fileRef.current?.click(), 50); }} style={{ width: "100%", padding: "10px 0", borderRadius: 8, border: `1px dashed ${T.stone}`, background: "transparent", color: T.fog, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, minHeight: 44 }}>{isUploading ? "Enviando..." : "⊕ Enviar arquivo"}</button>
+                  )}
+
+                  {/* Status: uploaded/sent — file info + actions */}
+                  {doc && (doc.status === "uploaded" || doc.status === "sent") && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 16 }}>{doc.mime_type?.startsWith("image/") ? "🖼" : "📄"}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, color: T.bone, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.file_name}</div>
+                        {fileSize ? <div style={{ fontSize: 10, color: T.slate }}>{fmtFileSize(fileSize)}</div> : null}
+                      </div>
+                      <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                        {canRemoveDoc(doc) && <button type="button" onClick={() => setConfirmDialog({ title: "Remover arquivo", message: "Você poderá enviar outro documento após a remoção.", variant: "default", onConfirm: () => { removeDocument(doc.id, doc.storage_path); setConfirmDialog(null); } })} title="Remover arquivo" style={{ minWidth: 36, height: 36, borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.slate, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M5.333 4V2.667a1.333 1.333 0 011.334-1.334h2.666a1.333 1.333 0 011.334 1.334V4m2 0v9.333a1.333 1.333 0 01-1.334 1.334H4.667a1.333 1.333 0 01-1.334-1.334V4h9.334z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg></button>}
+                        <button type="button" onClick={() => window.open(doc.file_url, "_blank")} title="Visualizar" style={{ minWidth: 36, height: 36, borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>↗</button>
+                        {canReview && (
+                          <>
+                            <button type="button" onClick={() => reviewDoc(doc.id, "approved")} title="Aprovar" style={{ minWidth: 36, height: 36, borderRadius: 8, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.08)", color: T.sprout, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✓</button>
+                            <button type="button" onClick={() => { setRejectTarget(doc); setRejectReason(""); }} title="Reprovar" style={{ minWidth: 36, height: 36, borderRadius: 8, border: "1px solid rgba(217,119,6,0.3)", background: "rgba(217,119,6,0.08)", color: "#D97706", fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Status: approved — file info */}
+                  {doc && doc.status === "approved" && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 16 }}>{doc.mime_type?.startsWith("image/") ? "🖼" : "📄"}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, color: T.bone, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.file_name}</div>
+                        {fileSize ? <div style={{ fontSize: 10, color: T.slate }}>{fmtFileSize(fileSize)}</div> : null}
+                      </div>
+                      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                        {["owner", "director"].includes((account?.role as string) ?? "") && <button type="button" onClick={() => setConfirmDialog({ title: "Remover documento aprovado", message: "Este documento já foi aprovado. Tem certeza que deseja remover? O documento voltará ao estado pendente.", variant: "danger", onConfirm: () => { removeDocument(doc.id, doc.storage_path); setConfirmDialog(null); } })} title="Remover (admin)" style={{ minWidth: 36, height: 36, borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.slate, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0.5 }}><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M5.333 4V2.667a1.333 1.333 0 011.334-1.334h2.666a1.333 1.333 0 011.334 1.334V4m2 0v9.333a1.333 1.333 0 01-1.334 1.334H4.667a1.333 1.333 0 01-1.334-1.334V4h9.334z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg></button>}
+                        <button type="button" onClick={() => window.open(doc.file_url, "_blank")} title="Visualizar" style={{ minWidth: 36, height: 36, borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>↗</button>
+                        <span style={{ fontSize: 11, color: T.sprout, fontWeight: 600, padding: "4px 8px" }}>✓ Aprovado</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Status: rejected — file info + reason + re-upload */}
+                  {doc && doc.status === "rejected" && (
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                        <span style={{ fontSize: 16 }}>📄</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, color: T.bone, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.file_name}</div>
+                        </div>
+                        <button type="button" onClick={() => window.open(doc.file_url, "_blank")} title="Visualizar" style={{ minWidth: 36, height: 36, borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>↗</button>
+                      </div>
+                      {doc.rejection_reason && <div style={{ fontSize: 11, color: "#D97706", padding: "6px 10px", background: "rgba(217,119,6,0.06)", borderRadius: 6, marginBottom: 8 }}>Motivo: {doc.rejection_reason}</div>}
+                      <button type="button" onClick={() => { setUploadingDocType(dt.key); setTimeout(() => fileRef.current?.click(), 50); }} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.bone, fontSize: 12, cursor: "pointer", minHeight: 44 }}>{isUploading ? "Enviando..." : "↻ Reenviar"}</button>
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
           <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => { const file = e.target.files?.[0]; if (file && uploadingDocType) { uploadDocument(file, uploadingDocType); } else { setUploadingDocType(null); } e.target.value = ""; }} onBlur={() => setTimeout(() => setUploadingDocType(null), 300)} />
+
+          {/* Rejection modal */}
+          {rejectTarget && createPortal(
+            <div style={{ position: "fixed", inset: 0, zIndex: 9000 }}>
+              <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)" }} onClick={() => setRejectTarget(null)} />
+              <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", background: "linear-gradient(145deg, var(--surface-raised), var(--surface-base))", border: `1px solid ${T.stone}`, borderRadius: 14, padding: 24, width: 420, maxWidth: "90vw", zIndex: 1 }}>
+                <p style={{ fontSize: 15, color: T.bone, fontWeight: 600, marginBottom: 4 }}>Reprovar documento</p>
+                <p style={{ fontSize: 13, color: T.fog, marginBottom: 16 }}>{effectiveDocTypes.find((d) => d.key === rejectTarget.document_type)?.label || rejectTarget.document_type}</p>
+                <label style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Motivo da reprovação *</label>
+                <textarea autoFocus value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="Ex: Documento ilegível, data vencida..." rows={3} style={{ width: "100%", marginTop: 6, background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "10px 12px", color: T.chalk, fontSize: 14, resize: "none", outline: "none", boxSizing: "border-box" }} />
+                <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
+                  <button type="button" onClick={() => setRejectTarget(null)} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 13, cursor: "pointer" }}>Cancelar</button>
+                  <button type="button" disabled={!rejectReason.trim()} onClick={() => { reviewDoc(rejectTarget.id, "rejected", rejectReason.trim()); setRejectTarget(null); }} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#D97706", color: "#fff", fontSize: 13, fontWeight: 600, cursor: rejectReason.trim() ? "pointer" : "not-allowed", opacity: rejectReason.trim() ? 1 : 0.5 }}>Confirmar reprovação</button>
+                </div>
+              </div>
+            </div>, document.body
+          )}
         </div>
       )}
 
-      {/* Tab: Histórico (negociações + atividades) */}
-      {tab === "historico" && (
-        <div>
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, color: T.slate, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>NEGOCIAÇÕES ({negotiations.length})</div>
-          {negotiations.length === 0 ? <div style={{ fontSize: 13, color: T.fog, marginBottom: 20 }}>Nenhuma negociação.</div> : (
-            <div style={{ display: "grid", gap: 8, marginBottom: 20 }}>
-              {negotiations.map((n) => (
-                <Link key={n.id} to={`/negociacoes/${n.id}`} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, textDecoration: "none" }}>
-                  <div style={{ flex: 1 }}><div style={{ fontSize: 14, fontWeight: 500, color: T.bone }}>Q{n.unit_quadra} · L{n.unit_lote} — {fmtBRL(n.unit_valor)}</div><div style={{ fontSize: 11, color: T.fog }}>{n.broker_name || "—"} · {timeAgo(n.updated_at)}</div></div>
-                  {n.score != null && <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 6, fontFamily: "var(--font-mono)", background: (n.score > 70 ? "#4ADE80" : n.score >= 40 ? "#FBBF24" : "#F87171") + "15", color: n.score > 70 ? "#4ADE80" : n.score >= 40 ? "#FBBF24" : "#F87171" }}>{n.score}</span>}
-                  <NexaBadge entity="negotiation" status={n.status.toUpperCase() as never} label={getNegotiationStatusLabel(n.status.toUpperCase() as never)} />
-                </Link>
-              ))}
-            </div>
-          )}
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, color: T.slate, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>ATIVIDADES ({activities.length})</div>
-          {activities.length === 0 ? <div style={{ fontSize: 13, color: T.fog }}>Nenhuma atividade.</div> : (
-            <div style={{ display: "grid", gap: 6 }}>
-              {activities.map((a) => (
-                <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 8 }}>
-                  <span style={{ fontSize: 11, color: T.fog, fontFamily: "var(--font-mono)", minWidth: 55 }}>{new Date(a.activity_date + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}</span>
-                  <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 6, background: T.sprout + "15", color: T.sprout, whiteSpace: "nowrap" }}>{TYPE_LABELS[a.type] || a.type}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, color: T.bone, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.title}</div>{a.outcome && <div style={{ fontSize: 11, color: T.fog }}>{a.outcome}</div>}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {/* Tab: Histórico — unified timeline */}
+      {tab === "historico" && (() => {
+        // Build unified timeline
+        type TItem = { id: string; type: string; date: string; title: string; desc: string; badge: string; badgeColor: string; linkTo?: string };
+        const timeline: TItem[] = [];
+        for (const a of activities) {
+          const typeColor: Record<string, string> = { phone_call: "#4ADE80", follow_up: "#60A5FA", visit_client: "#FBBF24", visit_broker: "#4ADE80", visit_development: "#FBBF24", meeting_internal: "#A78BFA", meeting_external: "#A78BFA", training: "#10B981", other: "#8A8985" };
+          timeline.push({ id: a.id, type: "activity", date: a.activity_date, title: a.title, desc: a.outcome || "", badge: TYPE_LABELS[a.type] || a.type, badgeColor: typeColor[a.type] || T.fog });
+        }
+        for (const n of negotiations) {
+          timeline.push({ id: n.id, type: "negotiation", date: n.updated_at, title: `Negociação — Q${n.unit_quadra}/L${n.unit_lote}`, desc: `${fmtBRL(n.unit_valor)} · ${n.broker_name || "—"}`, badge: getNegotiationStatusLabel(n.status.toUpperCase() as never), badgeColor: "#60A5FA", linkTo: `/negociacoes/${n.id}` });
+        }
+        // Registration event
+        timeline.push({ id: "reg", type: "registration", date: client.created_at, title: "Cliente cadastrado", desc: "", badge: "CADASTRO", badgeColor: "#A78BFA" });
+        timeline.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+        // Group by date label
+        const groups: [string, TItem[]][] = [];
+        let lastLabel = "";
+        for (const item of timeline) {
+          const d = new Date(item.date.length === 10 ? item.date + "T12:00:00" : item.date);
+          const label = formatDateLongBRT(d);
+          if (label !== lastLabel) { groups.push([label, []]); lastLabel = label; }
+          groups[groups.length - 1][1].push(item);
+        }
+
+        return (
+          <div>
+            {timeline.length <= 1 && <div style={{ fontSize: 13, color: T.fog, marginBottom: 16 }}>Nenhuma interação registrada ainda.</div>}
+            {groups.map(([dateLabel, items]) => (
+              <div key={dateLabel} style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 11, color: T.slate, fontFamily: "var(--font-mono)", letterSpacing: "0.05em", marginBottom: 10 }}>{dateLabel.toUpperCase()}</div>
+                {items.map((item, i) => (
+                  <div key={item.id} style={{ display: "flex", gap: 12, marginBottom: i < items.length - 1 ? 0 : 8 }}>
+                    {/* Dot + connector line */}
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
+                      <div style={{ width: 28, height: 28, borderRadius: "50%", background: item.badgeColor + "18", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: item.badgeColor }} />
+                      </div>
+                      {i < items.length - 1 && <div style={{ width: 1, flex: 1, minHeight: 16, background: T.stone, marginTop: 4 }} />}
+                    </div>
+                    {/* Content */}
+                    <div style={{ flex: 1, paddingBottom: 16, cursor: item.linkTo ? "pointer" : "default" }} onClick={() => item.linkTo && navigate(item.linkTo)}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: item.badgeColor + "18", color: item.badgeColor }}>{item.badge}</span>
+                        <span style={{ fontSize: 13, fontWeight: 500, color: T.bone }}>{item.title}</span>
+                      </div>
+                      {item.desc && <div style={{ fontSize: 12, color: T.fog, marginTop: 4 }}>{item.desc}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* Actions section */}
+      <div style={{ display: "flex", gap: 8, marginTop: 24, flexWrap: "wrap" }}>
+        {client.status !== "lost" && client.status !== "inactive" && client.status !== "converted" && (
+          <button type="button" disabled={saving} onClick={async () => {
+            if (!supabase || !id || !accountId || saving) return;
+            const hasActive = negotiations.some((n) => isNegotiationActive(n.status));
+            if (hasActive) { setShowLostModal(true); return; }
+            setConfirmDialog({ title: "Arquivar contato", message: "O contato permanecerá na base para futuras abordagens.", variant: "default", onConfirm: async () => {
+              setConfirmDialog(null); setSaving(true);
+              try {
+                await supabase!.from("clients").update({ status: "inactive", updated_at: new Date().toISOString() }).eq("id", id!);
+                setClient((p) => p ? { ...p, status: "inactive" } : null);
+                setToast("Contato arquivado"); load(true);
+              } finally { setSaving(false); }
+            } });
+          }} style={{ padding: "10px 18px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 13, cursor: "pointer" }}>Arquivar contato</button>
+        )}
+        {(client.status === "lost" || client.status === "inactive") && (
+          <button type="button" onClick={async () => { if (!supabase || !id || saving) return; setSaving(true); try { await supabase.from("clients").update({ status: "contacted", lost_at: null, lost_reason: null, lost_reason_detail: null, reactivated_at: new Date().toISOString(), reactivation_count: (client.reactivation_count ?? 0) + 1 }).eq("id", id); setClient((p) => p ? { ...p, status: "contacted", lost_at: null, lost_reason: null, reactivation_count: (p.reactivation_count ?? 0) + 1 } : null); setToast("Contato reativado"); load(true); } finally { setSaving(false); } }} disabled={saving} style={{ padding: "10px 18px", borderRadius: 8, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.06)", color: T.sprout, fontSize: 13, cursor: "pointer" }}>Reativar contato</button>
+        )}
+        {(() => {
+          const activeNeg = negotiations.find((n) => isNegotiationActive(n.status));
+          if (activeNeg) {
+            return <button type="button" onClick={() => navigate(`/negociacoes/${activeNeg.id}`)} style={{ padding: "10px 18px", borderRadius: 8, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.06)", color: T.sprout, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>Ver negociação ativa →</button>;
+          }
+          if (negotiations.length > 0) {
+            return <button type="button" onClick={() => navigate(`/negociacoes/${negotiations[0].id}`)} style={{ padding: "10px 18px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 13, cursor: "pointer" }}>Ver última negociação</button>;
+          }
+          if (["contacted", "qualifying", "qualified", "nurturing"].includes(client.status || "")) {
+            return <button type="button" onClick={() => { setConvDevId(devList.length === 1 ? devList[0].id : ""); setConvNote(""); setShowConvertModal(true); }} style={{ padding: "10px 18px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.bone, fontSize: 13, cursor: "pointer" }}>Converter em negociação</button>;
+          }
+          return null;
+        })()}
+      </div>
 
       {/* Footer */}
       <div style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${T.stone}`, fontSize: 11, color: T.slate }}>
-        Cliente cadastrado em {new Date(client.created_at).toLocaleDateString("pt-BR")}
+        Contato cadastrado em {formatDateBRT(client.created_at)}
         {client.last_interaction_at && ` · Último contato: ${timeAgo(client.last_interaction_at)}`}
       </div>
+
+      {/* Activity modal */}
+      {activityModalOpen && accountId && development?.developmentId && userId && client && (
+        <QuickActivityModal clientId={client.id} clientName={client.full_name || client.name} accountId={accountId} developmentId={development.developmentId} profileId={userId} onClose={() => setActivityModalOpen(false)} onSaved={() => { setToast("Atendimento registrado"); load(true); }} />
+      )}
+
+      {/* Engrenagem de Partes v1 — modal para vincular/cadastrar cônjuge */}
+      {client ? (
+        <SpouseLinkModal
+          open={showSpouseModal}
+          clientId={client.id}
+          clientName={client.full_name || client.name}
+          clientRegimeCasamento={(client.regime_casamento as LegalRegime | null) ?? null}
+          onClose={() => setShowSpouseModal(false)}
+          onLinked={(spouseId) => {
+            // Atualiza estado local refletindo o vínculo recém-criado.
+            setClient((prev) => prev ? { ...prev, current_spouse_client_id: spouseId } as ClientData : null);
+            setToast("Cônjuge vinculado");
+          }}
+        />
+      ) : null}
+
+      {/* Lost modal */}
+      <LostReasonModal
+        isOpen={showLostModal}
+        onClose={() => setShowLostModal(false)}
+        showCascadeOption
+        entityLabel="contato"
+        onConfirm={async ({ reason, detail, cascadeToNegotiations }) => {
+          if (!supabase || !id) return;
+          const nowIso = new Date().toISOString();
+          await supabase.from("clients").update({
+            status: "inactive",
+            lost_at: nowIso,
+            lost_reason: reason,
+            lost_reason_detail: detail || null,
+          }).eq("id", id);
+          setClient((p) => p ? { ...p, status: "inactive", lost_at: nowIso, lost_reason: reason } : null);
+          // Cascade: mark active negotiations as LOST
+          if (cascadeToNegotiations && accountId) {
+            const { data: activeNegs } = await supabase
+              .from("negotiations")
+              .select("id, status")
+              .eq("client_id", id)
+              .eq("account_id", accountId)
+              .in("status", ["OPEN", "IN_PROGRESS"]);
+            if (activeNegs && activeNegs.length > 0) {
+              for (const neg of activeNegs) {
+                const { error: negErr } = await supabase.from("negotiations").update({
+                  status: "LOST",
+                  lost_reason: reason,
+                  lost_at: nowIso,
+                  lost_at_stage: neg.status,
+                }).eq("id", neg.id);
+                if (negErr) console.error("Erro ao cascatear negociação:", neg.id, negErr);
+              }
+            }
+          }
+          setToast("Contato arquivado" + (cascadeToNegotiations ? " e negociações marcadas como perdidas" : ""));
+          load(true);
+        }}
+      />
+
+      {/* Convert modal */}
+      {showConvertModal && createPortal(
+        <div style={{ position: "fixed", inset: 0, zIndex: 9000 }}>
+          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)" }} onClick={() => setShowConvertModal(false)} />
+          <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 14, padding: 28, width: 440, maxWidth: "90vw", zIndex: 1 }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: T.chalk, margin: "0 0 16px" }}>Converter em negociação</h3>
+            <div style={{ fontSize: 13, color: T.fog, marginBottom: 16, padding: "8px 12px", background: T.ink, borderRadius: 8, border: `1px solid ${T.stone}` }}>Contato: <strong style={{ color: T.bone }}>{client.full_name || client.name}</strong></div>
+            <label style={LBL}>Empreendimento *</label>
+            <select style={{ ...IS, marginBottom: 14 }} value={convDevId} onChange={(e) => setConvDevId(e.target.value)}>
+              <option value="">Selecione...</option>
+              {devList.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+            <label style={LBL}>Observações</label>
+            <textarea rows={2} style={{ ...IS, resize: "vertical", marginBottom: 16 }} value={convNote} onChange={(e) => setConvNote(e.target.value)} placeholder="Observações sobre a negociação..." />
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button type="button" onClick={() => setShowConvertModal(false)} style={{ padding: "10px 16px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 13, cursor: "pointer" }}>Cancelar</button>
+              <button type="button" disabled={!convDevId || saving} onClick={async () => {
+                if (!supabase || !id || !accountId || !userId || !convDevId) return;
+                setSaving(true);
+                try {
+                  // Check for existing active negotiation
+                  const { data: existing } = await supabase.from("negotiations").select("id").eq("client_id", id).not("status", "in", '("LOST","CANCELLED","WON")').limit(1).maybeSingle();
+                  if (existing) {
+                    setShowConvertModal(false);
+                    setToast("Este contato já possui uma negociação ativa");
+                    navigate(`/negociacoes/${existing.id}`);
+                    return;
+                  }
+                  const assignedTo = client.assigned_to as string | null;
+                  const { data: neg } = await supabase.from("negotiations").insert({
+                    account_id: accountId, development_id: convDevId, client_id: id,
+                    broker_id: assignedTo || null, owner_profile_id: userId,
+                    status: "OPEN", origem: client.origin || "manual",
+                    notes: convNote.trim() || null,
+                  }).select("id").single();
+                  if (neg) {
+                    await supabase.from("clients").update({ status: "negotiating", converted_at: new Date().toISOString(), converted_to: "negotiation", converted_negotiation_id: neg.id }).eq("id", id);
+                    await supabase.from("contact_interactions").insert({ account_id: accountId, client_id: id, type: "status_change", title: "Convertido em negociação", metadata: { from: client.status, to: "negotiating", negotiation_id: neg.id }, performed_by: userId });
+                    setShowConvertModal(false);
+                    navigate(`/negociacoes/${neg.id}`);
+                  }
+                } catch (err) { setToast(err instanceof Error ? err.message : "Erro ao criar negociação"); }
+                finally { setSaving(false); }
+              }} style={{ padding: "10px 16px", borderRadius: 8, border: "none", background: T.sprout, color: "var(--interactive-on-primary)", fontSize: 13, fontWeight: 600, cursor: !convDevId || saving ? "not-allowed" : "pointer", opacity: !convDevId || saving ? 0.5 : 1 }}>{saving ? "Criando..." : "Criar negociação"}</button>
+            </div>
+          </div>
+        </div>, document.body
+      )}
+
+      {/* Confirm dialog v7 */}
+      {confirmDialog && createPortal(
+        <div onClick={() => setConfirmDialog(null)} onKeyDown={(e) => { if (e.key === "Escape") setConfirmDialog(null); }} tabIndex={-1} style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", animation: "cdFadeIn 150ms ease" }}>
+          <style>{`@keyframes cdFadeIn{from{opacity:0}to{opacity:1}}`}</style>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "linear-gradient(145deg, var(--surface-raised), var(--surface-base))", border: "1px solid rgba(42,40,34,0.8)", borderRadius: 12, padding: 24, maxWidth: 400, width: "90%" }}>
+            <h3 style={{ fontSize: 16, fontWeight: 600, color: T.bone, margin: "0 0 8px" }}>{confirmDialog.title}</h3>
+            <p style={{ fontSize: 14, color: T.fog, margin: "0 0 24px", lineHeight: 1.5 }}>{confirmDialog.message}</p>
+            <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+              <button type="button" onClick={() => setConfirmDialog(null)} style={{ padding: "8px 16px", borderRadius: 8, cursor: "pointer", background: "transparent", border: `1px solid ${T.stone}`, color: T.fog, fontSize: 13 }}>Cancelar</button>
+              <button type="button" onClick={confirmDialog.onConfirm} style={{ padding: "8px 16px", borderRadius: 8, cursor: "pointer", border: "none", fontSize: 13, fontWeight: 600, ...(confirmDialog.variant === "danger" ? { background: "rgba(248,113,113,0.15)", color: "#F87171" } : { background: T.sprout, color: T.ink }) }}>{confirmDialog.variant === "danger" ? "Remover mesmo assim" : "Confirmar"}</button>
+            </div>
+          </div>
+        </div>, document.body
+      )}
 
       {/* Toast */}
       {toast && (() => { setTimeout(() => setToast(null), 3000); return <div style={{ position: "fixed", bottom: 32, left: "50%", transform: "translateX(-50%)", background: T.sprout, color: "var(--interactive-on-primary)", padding: "10px 24px", borderRadius: 8, fontSize: 13, fontWeight: 700, zIndex: 10000, boxShadow: "0 4px 16px rgba(0,0,0,0.4)" }}>{toast}</div>; })()}
