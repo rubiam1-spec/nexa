@@ -12,7 +12,9 @@ import { timeAgo } from "../../../shared/utils/timeAgo";
 import { formatDateBRT, formatTimeBRT, formatDateLongBRT, getTodayDateStringBRT } from "../../../shared/utils/dateUtils";
 import LostReasonModal from "../../../shared/components/LostReasonModal";
 import SpouseLinkModal from "../components/SpouseLinkModal";
-import type { LegalRegime } from "../../../shared/types/client";
+import type { Client, LegalRegime, MaritalStatus } from "../../../shared/types/client";
+import { getClientWithSpouse, unlinkSpouses } from "../../../infra/repositories/clientsSupabaseRepository";
+import { ConfirmacaoDestructiva } from "../../../shared/components/ConfirmacaoDestructiva";
 import { isNegotiationActive } from "../../../shared/utils/normalizeStatus";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
@@ -73,8 +75,15 @@ const DOC_TYPES = [
 ];
 const ESTADO_CIVIL_OPTS = [{ v: "solteiro", l: "Solteiro(a)" }, { v: "casado", l: "Casado(a)" }, { v: "divorciado", l: "Divorciado(a)" }, { v: "viuvo", l: "Viúvo(a)" }, { v: "uniao_estavel", l: "União estável" }];
 const UF_OPTS = UF_OPTIONS;
+const SPOUSE_LINKABLE_STATUSES: MaritalStatus[] = ["casado", "uniao_estavel"];
+const REGIME_CASAMENTO_LABEL: Record<string, string> = {
+  comunhao_parcial: "Comunhão parcial",
+  comunhao_universal: "Comunhão universal",
+  separacao_total: "Separação total",
+  participacao_final_aquestos: "Participação final nos aquestos",
+};
 
-import { maskCPF, maskPhone, maskCurrency, currencyToNumber, maskRG, maskCEP, formatCurrency, UF_OPTIONS } from "../../../shared/utils/masks";
+import { maskCPF, maskPhone, maskCurrency, currencyToNumber, maskRG, maskCEP, formatCurrency, formatCPF, formatPhone, UF_OPTIONS } from "../../../shared/utils/masks";
 import { secureMaskCPF, secureMaskRG, secureMaskRenda } from "../../../lib/security";
 import SensitiveField from "../../../shared/components/SensitiveField";
 function fmtBRL(v: number | null) { return formatCurrency(v); }
@@ -158,7 +167,7 @@ export default function ClientDetailPage() {
   const [approvingAll, setApprovingAll] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [tab, setTab] = useState<"interacoes" | "dados" | "endereco" | "interesse" | "conjuge" | "documentos" | "historico">("interacoes");
+  const [tab, setTab] = useState<"interacoes" | "dados" | "endereco" | "interesse" | "documentos" | "historico">("interacoes");
   const [showLostModal, setShowLostModal] = useState(false);
   const [contactInteractions, setContactInteractions] = useState<{ id: string; type: string; direction: string | null; title: string | null; description: string | null; performed_by: string | null; performed_at: string; profiles?: { name: string } | null }[]>([]);
   const [showInlineInteraction, setShowInlineInteraction] = useState(false);
@@ -192,6 +201,9 @@ export default function ClientDetailPage() {
   const [activeIntMenu, setActiveIntMenu] = useState<string | null>(null);
   const [editingInt, setEditingInt] = useState<{ id: string; title: string; description: string } | null>(null);
   const [showSpouseModal, setShowSpouseModal] = useState(false);
+  const [spouse, setSpouse] = useState<Client | null>(null);
+  const [spouseLoading, setSpouseLoading] = useState(false);
+  const [showUnlinkConfirm, setShowUnlinkConfirm] = useState(false);
 
   useEffect(() => {
     if (!activeIntMenu) return;
@@ -231,7 +243,22 @@ export default function ClientDetailPage() {
         lost_at, lost_reason, lost_reason_detail, reactivated_at, reactivation_count,
         assigned_to, assigned_at, assigned_by
       `).eq("id", id).single();
-      setClient(cl as ClientData | null);
+      const loaded = cl as ClientData | null;
+      setClient(loaded);
+      if (loaded?.current_spouse_client_id) {
+        setSpouseLoading(true);
+        try {
+          const result = await getClientWithSpouse(loaded.id);
+          setSpouse(result?.spouse ?? null);
+        } catch (err) {
+          console.error("[ClientDetailPage] Falha ao carregar cônjuge:", err);
+          setSpouse(null);
+        } finally {
+          setSpouseLoading(false);
+        }
+      } else {
+        setSpouse(null);
+      }
       const { data: negs } = await supabase.from("negotiations").select("id, status, score, updated_at, units(quadra, lote, valor), brokers(name)").eq("client_id", id).eq("account_id", accountId).order("created_at", { ascending: false });
       setNegotiations((negs ?? []).map((n: Record<string, unknown>) => { const u = (Array.isArray(n.units) ? n.units[0] : n.units) as Record<string, unknown> | null; const b = (Array.isArray(n.brokers) ? n.brokers[0] : n.brokers) as Record<string, unknown> | null; return { id: n.id as string, status: n.status as string, score: n.score as number | null, updated_at: n.updated_at as string, unit_quadra: u?.quadra as string | null, unit_lote: u?.lote as string | null, unit_valor: u?.valor as number | null, broker_name: b?.name as string | null }; }));
       const { data: acts } = await supabase.from("activities").select("id, type, title, status, activity_date, outcome, duration_minutes").eq("client_id", id).eq("account_id", accountId).order("activity_date", { ascending: false }).limit(10);
@@ -520,8 +547,6 @@ export default function ClientDetailPage() {
   if (loading) return <div style={{ padding: 32 }}><div style={{ fontSize: 13, color: T.fog, fontFamily: "var(--font-mono)" }}>Carregando...</div></div>;
   if (!client) return <div style={{ padding: 32 }}><div style={{ fontSize: 14, color: T.red }}>Cliente não encontrado.</div><button type="button" onClick={() => navigate("/contatos")} style={{ marginTop: 16, background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "8px 16px", color: T.bone, fontSize: 13, cursor: "pointer" }}>← Voltar</button></div>;
 
-  const needsSpouse = f("marital_status") === "casado" || f("marital_status") === "uniao_estavel";
-  const needsSpouseLink = needsSpouse && !client?.current_spouse_client_id;
   // Dynamic doc types: prefer configs from DB, fallback to hardcoded DOC_TYPES
   const effectiveDocTypes: { key: string; label: string; required: boolean; description?: string | null }[] = docTypeConfigs.length > 0
     ? docTypeConfigs.map((c) => ({ key: c.name, label: c.label || c.name, required: c.required, description: c.description }))
@@ -557,28 +582,6 @@ export default function ClientDetailPage() {
         </div>
       </div>
 
-      {/* Engrenagem de Partes v1 — banner CTA quando cliente casado não tem cônjuge vinculado */}
-      {needsSpouseLink ? (
-        <div style={{ marginBottom: 16, padding: "12px 16px", background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.25)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-            <span style={{ fontSize: 16 }} aria-hidden="true">⚠</span>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "#FBBF24", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600 }}>Ação pendente</div>
-              <div style={{ fontSize: 13, color: T.bone, marginTop: 2 }}>
-                Falta cadastrar o cônjuge de {client.full_name || client.name}
-              </div>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowSpouseModal(true)}
-            style={{ padding: "8px 14px", borderRadius: 8, background: "#FBBF24", color: T.ink, fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer", letterSpacing: "0.05em", WebkitAppearance: "none", appearance: "none" }}
-          >
-            CADASTRAR AGORA
-          </button>
-        </div>
-      ) : null}
-
       {/* KPIs */}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(5, 1fr)", gap: 10, marginBottom: 16 }}>
         <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>ATENDIMENTOS</div><div style={{ fontSize: 22, fontWeight: 700, color: T.chalk }}>{activities.length}</div></div>
@@ -593,9 +596,92 @@ export default function ClientDetailPage() {
         <button type="button" onClick={() => navigate(`/simulador?clientId=${client.id}`)} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.bone, fontSize: 13, cursor: "pointer" }}>Simular</button>
       </div>
 
+      {/* Engrenagem de Cônjuge v2 — card hero */}
+      {client.marital_status && SPOUSE_LINKABLE_STATUSES.includes(client.marital_status as MaritalStatus) && (
+        <div style={{
+          marginBottom: 20,
+          padding: 16,
+          borderRadius: 8,
+          border: `1px solid ${client.current_spouse_client_id ? T.stone : T.amber}`,
+          background: T.carbon,
+          display: "flex",
+          flexDirection: isMobile ? "column" : "row",
+          alignItems: isMobile ? "stretch" : "center",
+          justifyContent: "space-between",
+          gap: 12,
+        }}>
+          {/* Modo A — Vinculado completo */}
+          {client.current_spouse_client_id && spouse && !spouseLoading && (
+            <>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11, letterSpacing: 1.2, color: T.bone, fontFamily: "var(--font-mono)", textTransform: "uppercase", marginBottom: 6 }}>
+                  💑 CÔNJUGE
+                </div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: T.chalk, marginBottom: 4 }}>
+                  {spouse.fullName || spouse.name || "(sem nome)"}
+                </div>
+                <div style={{ fontSize: 13, color: T.bone, lineHeight: 1.6 }}>
+                  {spouse.cpf && <>CPF: {formatCPF(spouse.cpf)} · </>}
+                  {spouse.phone ? <>📞 {formatPhone(spouse.phone)}</> : "📞 (sem telefone)"}
+                </div>
+                {client.regime_casamento && (
+                  <div style={{ fontSize: 12, color: T.bone, marginTop: 4 }}>
+                    {REGIME_CASAMENTO_LABEL[client.regime_casamento] ?? client.regime_casamento}
+                  </div>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/contatos/${spouse.id}`)}
+                  style={{ padding: "8px 14px", borderRadius: 6, border: `1px solid ${T.stone}`, background: "transparent", color: T.chalk, fontSize: 12, fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: 0.5, cursor: "pointer" }}
+                >
+                  VER FICHA →
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowUnlinkConfirm(true)}
+                  style={{ padding: "8px 14px", borderRadius: 6, border: `1px solid ${T.stone}`, background: "transparent", color: T.bone, fontSize: 12, fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: 0.5, cursor: "pointer" }}
+                >
+                  DESVINCULAR
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Estado de loading */}
+          {client.current_spouse_client_id && spouseLoading && (
+            <div style={{ color: T.bone, fontSize: 13 }}>
+              Carregando dados do cônjuge...
+            </div>
+          )}
+
+          {/* Modo B — Casado mas sem cônjuge */}
+          {!client.current_spouse_client_id && (
+            <>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11, letterSpacing: 1.2, color: T.amber, fontFamily: "var(--font-mono)", textTransform: "uppercase", marginBottom: 6 }}>
+                  ⚠ CÔNJUGE NÃO CADASTRADO
+                </div>
+                <div style={{ fontSize: 14, color: T.chalk, lineHeight: 1.5 }}>
+                  Cliente marcado como casado(a). Cadastre o cônjuge para completar o registro familiar.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSpouseModal(true)}
+                style={{ padding: "10px 16px", borderRadius: 6, border: "none", background: T.sprout, color: T.ink, fontSize: 12, fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 600, cursor: "pointer", flexShrink: 0, width: isMobile ? "100%" : "auto" }}
+              >
+                + CADASTRAR CÔNJUGE
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Tabs */}
       <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${T.stone}`, marginBottom: 20, overflowX: "auto" }}>
-        {([["interacoes", "Interações"], ["dados", "Dados"], ["endereco", "Endereço"], ["interesse", "Interesse"], ...(needsSpouse ? [["conjuge", "Cônjuge"]] : []), ["documentos", `Documentos (${docApproved}/${effectiveDocTypes.length})`], ["historico", "Histórico"]] as [string, string][]).map(([k, l]) => (
+        {([["interacoes", "Interações"], ["dados", "Dados"], ["endereco", "Endereço"], ["interesse", "Interesse"], ["documentos", `Documentos (${docApproved}/${effectiveDocTypes.length})`], ["historico", "Histórico"]] as [string, string][]).map(([k, l]) => (
           <button key={k} type="button" onClick={() => setTab(k as typeof tab)} style={{ padding: "10px 16px", background: "none", border: "none", borderBottom: tab === k ? `2px solid ${T.sprout}` : "2px solid transparent", color: tab === k ? T.sprout : T.fog, fontSize: 13, fontWeight: tab === k ? 600 : 400, cursor: "pointer", whiteSpace: "nowrap" }}>{l}</button>
         ))}
       </div>
@@ -822,20 +908,6 @@ export default function ClientDetailPage() {
           <div><label style={LBL}>Bairro</label>{editing ? <input style={IS} value={f("bairro")} onChange={(e) => setF("bairro", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.bairro || "—"}</div>}</div>
           <div><label style={LBL}>Cidade</label>{editing ? <input style={IS} value={f("city")} onChange={(e) => setF("city", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.city || "—"}</div>}</div>
           <div><label style={LBL}>UF</label>{editing ? <select style={IS} value={f("uf")} onChange={(e) => setF("uf", e.target.value)}><option value="">—</option>{UF_OPTS.map((u) => <option key={u} value={u}>{u}</option>)}</select> : <div style={{ fontSize: 14, color: T.bone }}>{client.uf || "—"}</div>}</div>
-        </div>
-      )}
-
-      {/* Tab: Cônjuge */}
-      {tab === "conjuge" && needsSpouse && (
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 14 }}>
-          <div><label style={LBL}>Regime de casamento</label>{editing ? <select style={IS} value={f("regime_casamento")} onChange={(e) => setF("regime_casamento", e.target.value)}><option value="">Selecione</option><option value="comunhao_parcial">Comunhão parcial</option><option value="comunhao_universal">Comunhão universal</option><option value="separacao_total">Separação total</option><option value="participacao_final_aquestos">Participação final nos aquestos</option></select> : <div style={{ fontSize: 14, color: T.bone }}>{client.regime_casamento || "—"}</div>}</div>
-          <div style={{ gridColumn: isMobile ? "1" : "1 / 3" }}><label style={LBL}>Nome do cônjuge</label>{editing ? <input style={IS} value={f("conjuge_nome")} onChange={(e) => setF("conjuge_nome", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.conjuge_nome || "—"}</div>}</div>
-          <div><label style={LBL}>CPF cônjuge</label>{editing ? <input style={IS} value={f("conjuge_cpf")} onChange={(e) => setF("conjuge_cpf", e.target.value)} /> : <SensitiveField label="CPF cônjuge" maskedValue={secureMaskCPF(client.conjuge_cpf)} fullValue={client.conjuge_cpf || ""} entityType="client" entityId={client.id} field="conjuge_cpf" />}</div>
-          <div><label style={LBL}>RG cônjuge</label>{editing ? <input style={IS} value={f("conjuge_rg")} onChange={(e) => setF("conjuge_rg", e.target.value)} /> : <SensitiveField label="RG cônjuge" maskedValue={secureMaskRG(client.conjuge_rg)} fullValue={client.conjuge_rg || ""} entityType="client" entityId={client.id} field="conjuge_rg" />}</div>
-          <div><label style={LBL}>Data nasc. cônjuge</label>{editing ? <input type="date" style={IS} value={f("conjuge_data_nascimento")} onChange={(e) => setF("conjuge_data_nascimento", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.conjuge_data_nascimento || "—"}</div>}</div>
-          <div><label style={LBL}>Profissão cônjuge</label>{editing ? <input style={IS} value={f("conjuge_profissao")} onChange={(e) => setF("conjuge_profissao", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.conjuge_profissao || "—"}</div>}</div>
-          <div><label style={LBL}>Email cônjuge</label>{editing ? <input style={IS} value={f("conjuge_email")} onChange={(e) => setF("conjuge_email", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.conjuge_email || "—"}</div>}</div>
-          <div><label style={LBL}>Telefone cônjuge</label>{editing ? <input style={IS} value={f("conjuge_telefone")} onChange={(e) => setF("conjuge_telefone", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.conjuge_telefone || "—"}</div>}</div>
         </div>
       )}
 
@@ -1088,13 +1160,35 @@ export default function ClientDetailPage() {
           clientName={client.full_name || client.name}
           clientRegimeCasamento={(client.regime_casamento as LegalRegime | null) ?? null}
           onClose={() => setShowSpouseModal(false)}
-          onLinked={(spouseId) => {
-            // Atualiza estado local refletindo o vínculo recém-criado.
-            setClient((prev) => prev ? { ...prev, current_spouse_client_id: spouseId } as ClientData : null);
+          onLinked={async () => {
+            setShowSpouseModal(false);
             setToast("Cônjuge vinculado");
+            await load(true);
           }}
         />
       ) : null}
+
+      {/* Engrenagem de Cônjuge v2 — confirmação de desvínculo */}
+      {spouse && (
+        <ConfirmacaoDestructiva
+          open={showUnlinkConfirm}
+          titulo="Remover vínculo de cônjuge?"
+          descricao={`Os cadastros de ${client.full_name || client.name} e ${spouse.fullName || spouse.name} permanecerão. Apenas o vínculo de cônjuge será removido.`}
+          labelConfirmar="Remover vínculo"
+          onConfirmar={async () => {
+            try {
+              await unlinkSpouses(client.id);
+              setShowUnlinkConfirm(false);
+              setToast("Vínculo de cônjuge removido");
+              await load(true);
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : "Erro ao desvincular";
+              setToast(msg);
+            }
+          }}
+          onCancelar={() => setShowUnlinkConfirm(false)}
+        />
+      )}
 
       {/* Lost modal */}
       <LostReasonModal
