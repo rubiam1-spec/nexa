@@ -18,6 +18,7 @@ import NexaBadge from "../../../shared/components/NexaBadge";
 import { SaleService } from "../../../domain/venda/SaleService";
 import { getSaleStatusLabel } from "../../../domain/venda/SaleStatusLabel";
 import { getClientWithSpouse } from "../../../infra/repositories/clientsSupabaseRepository";
+import { formatPhone } from "../../../shared/utils/masks";
 import { useNegotiationDetail } from "../hooks/useNegotiationDetail";
 import { formatDateTimeBRT } from "../../../shared/utils/dateUtils";
 import LostReasonModal from "../../../shared/components/LostReasonModal";
@@ -31,6 +32,7 @@ import {
   PARTY_ROLE_LABELS,
   SIGNING_CAPACITY_LABELS,
 } from "../../../shared/types/negotiationParty";
+import type { NegotiationParty } from "../../../shared/types/negotiationParty";
 
 type ThirdPartyPropertySummary = { id: string; titulo: string; tipo: string; status: string; valorVenda: number | null; endereco: string | null };
 
@@ -210,6 +212,7 @@ export default function NegotiationDetailPage() {
     refresh: refreshParties,
   } = useNegotiationParties(id ?? null);
   const {
+    addParty,
     removeParty,
     isMutating: isMutatingParty,
     errorMessage: partyMutationError,
@@ -220,7 +223,15 @@ export default function NegotiationDetailPage() {
   const [expandAllSimulations, setExpandAllSimulations] = useState(false);
 
   // Sprint B.1 — buscar cônjuge se houver, para compor título do casal
-  type SpouseSummary = { id: string; name: string; fullName: string | null };
+  // Sprint B.2 — expandido com cpf/phone/email para card de cônjuge pendente
+  type SpouseSummary = {
+    id: string;
+    name: string;
+    fullName: string | null;
+    cpf: string | null;
+    phone: string | null;
+    email: string | null;
+  };
   const [spouseClient, setSpouseClient] = useState<SpouseSummary | null>(null);
   type ActiveTab = "resumo" | "partes" | "documentos" | "proposta" | "reserva" | "historico";
   const [activeTab, setActiveTab] = useState<ActiveTab>("resumo");
@@ -239,6 +250,9 @@ export default function NegotiationDetailPage() {
             id: result.spouse.id,
             name: result.spouse.name,
             fullName: result.spouse.fullName ?? null,
+            cpf: result.spouse.cpf ?? null,
+            phone: result.spouse.phone || null,
+            email: result.spouse.email || null,
           });
         } else {
           setSpouseClient(null);
@@ -585,6 +599,23 @@ export default function NegotiationDetailPage() {
       } catch (err) {
         console.error("[NEXA] Auto reservation request after accept:", err);
       }
+    }
+  }
+
+  // Sprint B.2 — vincula spouse cadastrado mas ainda não em
+  // negotiation_parties (caso real: casal vinculado depois da
+  // negociação; trigger auto-link não disparou).
+  async function handleAddSpouseToNegotiation() {
+    if (!spouseClient || !id) return;
+    const result = await addParty({
+      negotiationId: id,
+      clientId: spouseClient.id,
+      role: "spouse",
+      legalRegime: null,
+      signingCapacity: null,
+    });
+    if (result) {
+      await refreshParties();
     }
   }
 
@@ -1045,94 +1076,102 @@ export default function NegotiationDetailPage() {
       </>
       )}
 
-      {/* Tab: Partes */}
-      {activeTab === "partes" && (
-      <div>
-        {isLoadingParties ? (
-          <p style={{ color: "var(--color-fog)", fontSize: 13, fontStyle: "italic", margin: 0 }}>Carregando partes...</p>
-        ) : parties.length === 0 ? (
-          <p style={{ color: "var(--color-fog)", fontSize: 13, fontStyle: "italic", margin: 0 }}>
-            Comprador não identificado. Vincule um cliente à negociação.
-          </p>
-        ) : (
-          <div style={{ display: "grid", gap: 12 }}>
-            {parties.map(({ party, client }) => {
-              const displayName = client.fullName || client.name || "—";
-              const isPrimary = party.role === "primary_buyer";
-              return (
-                <div
+      {/* Tab: Partes (Sprint B.2 — cards lado a lado) */}
+      {activeTab === "partes" && (() => {
+        const primaryParty = parties.find((p) => p.party.role === "primary_buyer") ?? null;
+        const spouseLinkedParty = parties.find((p) => p.party.role === "spouse") ?? null;
+        const spousePending =
+          client?.id && spouseClient && !spouseLinkedParty && spouseClient.id !== client.id
+            ? spouseClient
+            : null;
+        const otherParties = parties.filter(
+          (p) => p.party.role !== "primary_buyer" && p.party.role !== "spouse",
+        );
+        const showCoupleGrid = Boolean(spouseLinkedParty || spousePending);
+
+        return (
+        <div>
+          {isLoadingParties ? (
+            <p style={{ color: "var(--color-fog)", fontSize: 13, fontStyle: "italic", margin: 0 }}>Carregando partes...</p>
+          ) : !primaryParty && parties.length === 0 ? (
+            <p style={{ color: "var(--color-fog)", fontSize: 13, fontStyle: "italic", margin: 0 }}>
+              Comprador não identificado. Vincule um cliente à negociação.
+            </p>
+          ) : (
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: isMobile ? "1fr" : (showCoupleGrid ? "1fr 1fr" : "1fr"),
+              gap: 16,
+              alignItems: "start",
+            }}>
+              {primaryParty && (
+                <PartyCard
+                  party={primaryParty.party}
+                  clientName={primaryParty.client.fullName || primaryParty.client.name || "—"}
+                  clientCpf={primaryParty.client.cpf}
+                  clientPhone={primaryParty.client.phone || null}
+                  clientEmail={primaryParty.client.email || null}
+                  variant="primary"
+                  isMutating={isMutatingParty}
+                  onRemove={null}
+                />
+              )}
+              {spouseLinkedParty && (
+                <PartyCard
+                  party={spouseLinkedParty.party}
+                  clientName={spouseLinkedParty.client.fullName || spouseLinkedParty.client.name || "—"}
+                  clientCpf={spouseLinkedParty.client.cpf}
+                  clientPhone={spouseLinkedParty.client.phone || null}
+                  clientEmail={spouseLinkedParty.client.email || null}
+                  variant="spouse_linked"
+                  isMutating={isMutatingParty}
+                  onRemove={() => setPartyToRemove({
+                    id: spouseLinkedParty.party.id,
+                    name: spouseLinkedParty.client.fullName || spouseLinkedParty.client.name || "—",
+                  })}
+                />
+              )}
+              {spousePending && !spouseLinkedParty && (
+                <SpousePendingCard
+                  spouseClient={spousePending}
+                  isMutating={isMutatingParty}
+                  onAdd={() => void handleAddSpouseToNegotiation()}
+                />
+              )}
+            </div>
+          )}
+
+          {/* Outras partes (coobrigado, fiador, procurador) — listadas abaixo */}
+          {otherParties.length > 0 && (
+            <div style={{ display: "grid", gap: 12, marginTop: 16 }}>
+              {otherParties.map(({ party, client }) => (
+                <PartyCard
                   key={party.id}
-                  style={{
-                    background: "var(--color-ink)",
-                    border: "1px solid var(--color-stone)",
-                    borderRadius: 8,
-                    padding: 16,
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 8 }}>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--color-sprout)", letterSpacing: "0.16em", textTransform: "uppercase", fontWeight: 600, marginBottom: 4 }}>
-                        {PARTY_ROLE_LABELS[party.role]}
-                      </div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--color-bone)" }}>
-                        {displayName}
-                      </div>
-                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-slate)", marginTop: 2 }}>
-                        {formatCPF(client.cpf)}
-                      </div>
-                    </div>
-                    {!isPrimary ? (
-                      <button
-                        type="button"
-                        onClick={() => setPartyToRemove({ id: party.id, name: displayName })}
-                        disabled={isMutatingParty}
-                        style={{
-                          background: "transparent",
-                          color: "var(--color-fog)",
-                          border: "1px solid var(--color-stone)",
-                          borderRadius: 6,
-                          padding: "4px 10px",
-                          fontSize: 11,
-                          fontWeight: 600,
-                          cursor: isMutatingParty ? "not-allowed" : "pointer",
-                          opacity: isMutatingParty ? 0.55 : 1,
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        Remover
-                      </button>
-                    ) : null}
-                  </div>
+                  party={party}
+                  clientName={client.fullName || client.name || "—"}
+                  clientCpf={client.cpf}
+                  clientPhone={client.phone || null}
+                  clientEmail={client.email || null}
+                  variant="other"
+                  isMutating={isMutatingParty}
+                  onRemove={() => setPartyToRemove({
+                    id: party.id,
+                    name: client.fullName || client.name || "—",
+                  })}
+                />
+              ))}
+            </div>
+          )}
 
-                  {party.role === "spouse" && (party.legalRegime || party.signingCapacity) ? (
-                    <div style={{ fontSize: 12, color: "var(--color-dust)", marginTop: 6, display: "flex", gap: 12, flexWrap: "wrap" }}>
-                      {party.legalRegime ? (
-                        <span>Regime: {LEGAL_REGIME_LABELS[party.legalRegime]}</span>
-                      ) : null}
-                      {party.signingCapacity ? (
-                        <span>{SIGNING_CAPACITY_LABELS[party.signingCapacity]}</span>
-                      ) : null}
-                    </div>
-                  ) : null}
-
-                  {party.notes ? (
-                    <div style={{ fontSize: 12, color: "var(--color-fog)", marginTop: 8, fontStyle: "italic" }}>
-                      {party.notes}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        )}
-        {partiesErrorMessage ? (
-          <p style={{ color: "var(--color-red)", fontSize: 12, marginTop: 8 }}>{partiesErrorMessage}</p>
-        ) : null}
-        {partyMutationError ? (
-          <p style={{ color: "var(--color-red)", fontSize: 12, marginTop: 8 }}>{partyMutationError}</p>
-        ) : null}
-      </div>
-      )}
+          {partiesErrorMessage ? (
+            <p style={{ color: "var(--color-red)", fontSize: 12, marginTop: 8 }}>{partiesErrorMessage}</p>
+          ) : null}
+          {partyMutationError ? (
+            <p style={{ color: "var(--color-red)", fontSize: 12, marginTop: 8 }}>{partyMutationError}</p>
+          ) : null}
+        </div>
+        );
+      })()}
 
       {/* Tab: Documentos (placeholder para Sprint B.3) */}
       {activeTab === "documentos" && (
@@ -2101,6 +2140,236 @@ function ReservationRequestForm(props: {
             Cancelar
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Sprint B.2 — helpers para a aba Partes (cards do casal + spouse pendente).
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div style={{
+        fontFamily: "var(--font-mono)",
+        fontSize: 9,
+        letterSpacing: "0.12em",
+        textTransform: "uppercase",
+        color: "#5C5647",
+        marginBottom: 2,
+        fontWeight: 600,
+      }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 13, color: "#E8E5DE", wordBreak: "break-word" }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function PartyCard({
+  party,
+  clientName,
+  clientCpf,
+  clientPhone,
+  clientEmail,
+  variant,
+  isMutating,
+  onRemove,
+}: {
+  party: NegotiationParty;
+  clientName: string;
+  clientCpf: string | null;
+  clientPhone: string | null;
+  clientEmail: string | null;
+  variant: "primary" | "spouse_linked" | "other";
+  isMutating: boolean;
+  onRemove: (() => void) | null;
+}) {
+  const pillStyle =
+    variant === "primary" || variant === "spouse_linked"
+      ? { color: "var(--color-sprout)", background: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.2)" }
+      : { color: "#9C9686", background: "rgba(156,150,134,0.12)", border: "1px solid rgba(156,150,134,0.2)" };
+
+  const pillLabel = PARTY_ROLE_LABELS[party.role] || party.role;
+
+  return (
+    <div style={{
+      background: "linear-gradient(168deg, rgba(34,33,28,0.5), rgba(18,17,14,0.15))",
+      border: "1px solid rgba(61,58,48,0.2)",
+      borderRadius: 10,
+      padding: 18,
+      display: "flex",
+      flexDirection: "column",
+      gap: 12,
+    }}>
+      <div>
+        <span style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 9,
+          letterSpacing: "0.16em",
+          textTransform: "uppercase",
+          fontWeight: 600,
+          padding: "4px 8px",
+          borderRadius: 4,
+          ...pillStyle,
+        }}>
+          {pillLabel}
+        </span>
+      </div>
+
+      <div style={{ fontSize: 16, fontWeight: 600, color: "#FAF9F6", lineHeight: 1.2 }}>
+        {clientName}
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <Field label="CPF" value={clientCpf ? formatCPF(clientCpf) : "—"} />
+        <Field label="Telefone" value={clientPhone ? formatPhone(clientPhone) : "—"} />
+        <Field label="Email" value={clientEmail || "—"} />
+      </div>
+
+      {variant === "spouse_linked" && (party.legalRegime || party.signingCapacity) ? (
+        <div style={{
+          fontSize: 12,
+          color: "#9C9686",
+          display: "flex",
+          gap: 12,
+          flexWrap: "wrap",
+          paddingTop: 8,
+          borderTop: "1px solid rgba(61,58,48,0.2)",
+        }}>
+          {party.legalRegime ? <span>Regime: {LEGAL_REGIME_LABELS[party.legalRegime]}</span> : null}
+          {party.signingCapacity ? <span>{SIGNING_CAPACITY_LABELS[party.signingCapacity]}</span> : null}
+        </div>
+      ) : null}
+
+      {party.notes ? (
+        <div style={{
+          fontSize: 12,
+          color: "#9C9686",
+          fontStyle: "italic",
+          paddingTop: 8,
+          borderTop: "1px solid rgba(61,58,48,0.2)",
+        }}>
+          {party.notes}
+        </div>
+      ) : null}
+
+      {onRemove ? (
+        <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 4 }}>
+          <button
+            type="button"
+            onClick={onRemove}
+            disabled={isMutating}
+            style={{
+              background: "transparent",
+              color: "#9C9686",
+              border: "1px solid var(--color-stone)",
+              borderRadius: 6,
+              padding: "6px 12px",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: isMutating ? "not-allowed" : "pointer",
+              opacity: isMutating ? 0.55 : 1,
+            }}
+          >
+            Remover
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SpousePendingCard({
+  spouseClient,
+  isMutating,
+  onAdd,
+}: {
+  spouseClient: {
+    id: string;
+    name: string;
+    fullName: string | null;
+    cpf: string | null;
+    phone: string | null;
+    email: string | null;
+  };
+  isMutating: boolean;
+  onAdd: () => void;
+}) {
+  const displayName = spouseClient.fullName || spouseClient.name || "—";
+
+  return (
+    <div style={{
+      background: "linear-gradient(168deg, rgba(251,191,36,0.06), rgba(18,17,14,0.15))",
+      border: "1px solid rgba(251,191,36,0.25)",
+      borderRadius: 10,
+      padding: 18,
+      display: "flex",
+      flexDirection: "column",
+      gap: 12,
+    }}>
+      <div>
+        <span style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 9,
+          letterSpacing: "0.16em",
+          textTransform: "uppercase",
+          fontWeight: 600,
+          color: "#FBBF24",
+          background: "rgba(251,191,36,0.12)",
+          border: "1px solid rgba(251,191,36,0.2)",
+          padding: "4px 8px",
+          borderRadius: 4,
+        }}>
+          Cônjuge · Pendente de vínculo
+        </span>
+      </div>
+
+      <div style={{ fontSize: 16, fontWeight: 600, color: "#FAF9F6", lineHeight: 1.2 }}>
+        {displayName}
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <Field label="CPF" value={spouseClient.cpf ? formatCPF(spouseClient.cpf) : "—"} />
+        <Field label="Telefone" value={spouseClient.phone ? formatPhone(spouseClient.phone) : "—"} />
+        <Field label="Email" value={spouseClient.email || "—"} />
+      </div>
+
+      <div style={{
+        fontSize: 12,
+        color: "#9C9686",
+        background: "rgba(251,191,36,0.04)",
+        border: "1px solid rgba(251,191,36,0.15)",
+        borderRadius: 6,
+        padding: "8px 12px",
+        lineHeight: 1.5,
+      }}>
+        Cônjuge cadastrado mas ainda não vinculado a esta negociação. Adicione para incluir na documentação da venda.
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 4 }}>
+        <button
+          type="button"
+          onClick={onAdd}
+          disabled={isMutating}
+          style={{
+            background: "var(--color-sprout)",
+            color: "var(--color-ink)",
+            border: "none",
+            borderRadius: 6,
+            padding: "8px 14px",
+            fontSize: 12,
+            fontWeight: 700,
+            cursor: isMutating ? "not-allowed" : "pointer",
+            opacity: isMutating ? 0.55 : 1,
+            fontFamily: "var(--font-mono)",
+            letterSpacing: "0.04em",
+            textTransform: "uppercase",
+          }}
+        >
+          {isMutating ? "Adicionando..." : "Adicionar à negociação"}
+        </button>
       </div>
     </div>
   );
