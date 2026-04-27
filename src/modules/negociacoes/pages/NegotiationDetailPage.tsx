@@ -17,7 +17,7 @@ import { getNegotiationStatusLabel } from "../../../domain/negociacao/Negotiatio
 import NexaBadge from "../../../shared/components/NexaBadge";
 import { SaleService } from "../../../domain/venda/SaleService";
 import { getSaleStatusLabel } from "../../../domain/venda/SaleStatusLabel";
-import { getUserRoleLabel } from "../../../shared/types/role";
+import { getClientWithSpouse } from "../../../infra/repositories/clientsSupabaseRepository";
 import { useNegotiationDetail } from "../hooks/useNegotiationDetail";
 import { formatDateTimeBRT } from "../../../shared/utils/dateUtils";
 import LostReasonModal from "../../../shared/components/LostReasonModal";
@@ -81,61 +81,6 @@ function formatRelativeDate(iso: string): string {
   if (weeks < 5) return `há ${weeks}sem`;
   const months = Math.floor(days / 30);
   return `há ${months}m`;
-}
-
-function CollapsibleSection({
-  label, isEmpty, defaultOpen, children, actionButton,
-}: {
-  label: string;
-  isEmpty: boolean;
-  defaultOpen: boolean;
-  children: React.ReactNode;
-  actionButton?: React.ReactNode;
-}) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
-  return (
-    <div style={{
-      marginBottom: 8,
-      background: "linear-gradient(145deg, var(--surface-raised), var(--surface-base))",
-      border: "1px solid var(--border-default)",
-      borderRadius: 10, overflow: "hidden",
-    }}>
-      <div
-        onClick={() => setIsOpen((p) => !p)}
-        style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "12px 16px", cursor: "pointer", transition: "background 0.1s",
-        }}
-        onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(42,40,34,0.2)"; }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
-            style={{ transform: isOpen ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s", flexShrink: 0 }}>
-            <path d="M4 2L8 6L4 10" stroke="#706B5F" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-          <span style={{
-            fontFamily: "var(--font-mono)", fontSize: 9,
-            color: isEmpty ? "#706B5F" : "#9C9686",
-            letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600,
-          }}>
-            {label}
-          </span>
-          {isEmpty && (
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "#3D3A30", fontStyle: "italic" }}>
-              vazio
-            </span>
-          )}
-        </div>
-        {actionButton ? <div onClick={(e) => e.stopPropagation()}>{actionButton}</div> : null}
-      </div>
-      {isOpen && (
-        <div style={{ padding: "14px 20px 18px", borderTop: "1px solid rgba(42,40,34,0.3)" }}>
-          {children}
-        </div>
-      )}
-    </div>
-  );
 }
 
 export default function NegotiationDetailPage() {
@@ -273,6 +218,37 @@ export default function NegotiationDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [pendingPrefillSimId, setPendingPrefillSimId] = useState<string | null>(null);
   const [expandAllSimulations, setExpandAllSimulations] = useState(false);
+
+  // Sprint B.1 — buscar cônjuge se houver, para compor título do casal
+  type SpouseSummary = { id: string; name: string; fullName: string | null };
+  const [spouseClient, setSpouseClient] = useState<SpouseSummary | null>(null);
+  type ActiveTab = "resumo" | "partes" | "documentos" | "proposta" | "reserva" | "historico";
+  const [activeTab, setActiveTab] = useState<ActiveTab>("resumo");
+
+  useEffect(() => {
+    if (!client?.id) {
+      setSpouseClient(null);
+      return;
+    }
+    let cancelled = false;
+    getClientWithSpouse(client.id)
+      .then((result) => {
+        if (cancelled) return;
+        if (result?.spouse) {
+          setSpouseClient({
+            id: result.spouse.id,
+            name: result.spouse.name,
+            fullName: result.spouse.fullName ?? null,
+          });
+        } else {
+          setSpouseClient(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSpouseClient(null);
+      });
+    return () => { cancelled = true; };
+  }, [client?.id]);
 
   // Ao mount, se a URL tem ?createProposalFrom=SIM_ID, guarda e remove da URL
   // (evita reentrada caso o usuário navegue e volte).
@@ -811,6 +787,41 @@ export default function NegotiationDetailPage() {
     transition: "all 150ms ease",
   };
 
+  // Sprint B.1 — vars lifted da IIFE antiga para acesso compartilhado entre
+  // banner (acima das tabs) e tab content (abaixo).
+  const hasProposals = proposals.length > 0;
+  const hasAcceptedProp = proposals.some((p) => p.status === "ACCEPTED");
+  const hasReservationRequest = reservationRequests.length > 0;
+  const hasReservation = reservations.length > 0;
+  const hasSale = sales.length > 0;
+  const queueEnabled = Boolean(effectiveSettings?.queueEnabled);
+  const hasQueue = visibleQueueEntries.length > 0;
+  const showQueue = queueEnabled && (hasQueue || queueRequired);
+  const showReservationRequest = hasProposals || hasReservationRequest;
+  const showReservation = hasReservationRequest || hasReservation;
+  const showSale = hasReservation || hasSale;
+
+  // Sprint B.1 — título do casal/cliente
+  const principalNome = client?.fullName || client?.name || null;
+  const conjugeNome = spouseClient?.fullName || spouseClient?.name || null;
+  const tituloPrincipal = principalNome
+    ? (conjugeNome ? `${principalNome} + ${conjugeNome}` : principalNome)
+    : (isThirdParty
+        ? (thirdPartyProperty?.titulo || "Imóvel de terceiro")
+        : unit
+          ? `Quadra ${unit.quadra} – Lote ${unit.lote}`
+          : "Negociação");
+  const subtituloUnidade = isThirdParty && thirdPartyProperty
+    ? `${thirdPartyProperty.titulo} · ${thirdPartyProperty.tipo}`
+    : unit
+      ? `Quadra ${unit.quadra} · Lote ${unit.lote}`
+      : null;
+  const subtituloValor = isThirdParty && thirdPartyProperty?.valorVenda
+    ? `R$ ${thirdPartyProperty.valorVenda.toLocaleString("pt-BR")}`
+    : unit
+      ? `R$ ${unit.valor.toLocaleString("pt-BR")}`
+      : null;
+
   return (
     <div>
       {/* Breadcrumb + Header */}
@@ -820,19 +831,29 @@ export default function NegotiationDetailPage() {
           <span style={{ color: "#3D3A30" }}>›</span>
           <Link to="/negociacoes" style={{ color: "#706B5F", textDecoration: "none" }}>Negociações</Link>
           <span style={{ color: "#3D3A30" }}>›</span>
-          <span>{isThirdParty ? (thirdPartyProperty?.titulo || "Imóvel") : unit ? `Q${unit.quadra} · L${unit.lote}` : negotiation.id.slice(0, 8)}</span>
+          <span>{negotiation.id.slice(0, 8).toUpperCase()}</span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, marginBottom: 6, flexWrap: "wrap" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <h1 style={{
-              fontFamily: "'Instrument Serif', Georgia, serif",
-              fontStyle: "italic", fontSize: 28, color: "#FAF9F6",
-              fontWeight: 400, margin: 0, lineHeight: 1.1,
-            }}>
-              {isThirdParty ? (thirdPartyProperty?.titulo || "Imóvel de terceiro") : unit ? `Quadra ${unit.quadra} – Lote ${unit.lote}` : `Negociação`}
-            </h1>
-            <NexaBadge entity="negotiation" status={negotiation.status} label={getNegotiationStatusLabel(negotiation.status)} />
-            {isThirdParty ? <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.08em", color: "#D97706", background: "rgba(217,119,6,0.08)", padding: "3px 8px", borderRadius: 4, fontFamily: "var(--font-mono)", textTransform: "uppercase" }}>IMÓVEL</span> : null}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 6, flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 4 }}>
+              <h1 style={{
+                fontFamily: "'Instrument Serif', Georgia, serif",
+                fontStyle: "italic", fontSize: 28, color: "#FAF9F6",
+                fontWeight: 400, margin: 0, lineHeight: 1.1,
+              }}>
+                {tituloPrincipal}
+              </h1>
+              <NexaBadge entity="negotiation" status={negotiation.status} label={getNegotiationStatusLabel(negotiation.status)} />
+              {isThirdParty ? <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.08em", color: "#D97706", background: "rgba(217,119,6,0.08)", padding: "3px 8px", borderRadius: 4, fontFamily: "var(--font-mono)", textTransform: "uppercase" }}>IMÓVEL</span> : null}
+            </div>
+            {/* Subtítulo: unidade · valor · corretor */}
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "#9C9686", letterSpacing: "0.03em", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              {subtituloUnidade ? <span>{subtituloUnidade}</span> : null}
+              {subtituloUnidade && subtituloValor ? <span style={{ color: "#3D3A30" }}>·</span> : null}
+              {subtituloValor ? <span style={{ color: "#4ADE80", fontWeight: 600 }}>{subtituloValor}</span> : null}
+              {(subtituloUnidade || subtituloValor) && broker?.name ? <span style={{ color: "#3D3A30" }}>·</span> : null}
+              {broker?.name ? <span>{broker.name}</span> : null}
+            </div>
           </div>
 
           {/* Action bar — moved to top */}
@@ -862,11 +883,92 @@ export default function NegotiationDetailPage() {
             )}
           </div>
         </div>
-        <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "#9C9686", marginTop: 4, letterSpacing: "0.03em" }}>
-          {client?.name ?? "Sem cliente"} · {broker?.name ?? "Sem corretor"} · {isThirdParty && thirdPartyProperty?.valorVenda ? `R$ ${thirdPartyProperty.valorVenda.toLocaleString("pt-BR")}` : unit ? `R$ ${unit.valor.toLocaleString("pt-BR")}` : "—"} · {getUserRoleLabel(actorRole)}
-        </div>
       </div>
 
+      {/* Sprint B.1 — Banner "Próximo passo" acima das tabs (sempre visível) */}
+      {!hasProposals && negotiation.status !== NegotiationStatus.CANCELLED && negotiation.status !== NegotiationStatus.LOST && negotiation.status !== NegotiationStatus.WON ? (
+        <div style={{ marginBottom: 12, padding: "12px 16px", background: "linear-gradient(145deg, rgba(74,222,128,0.08), rgba(74,222,128,0.02))", border: "1px solid rgba(74,222,128,0.2)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "#4ADE80", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600 }}>Próximo passo</div>
+            <div style={{ fontSize: 13, color: "var(--text-primary)", marginTop: 2 }}>Criar a primeira proposta para esta negociação</div>
+          </div>
+          <button type="button" onClick={() => setActiveTab("proposta")} style={{ padding: "8px 14px", borderRadius: 8, background: "#4ADE80", color: "#12110F", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer", letterSpacing: "0.05em" }}>IR PARA PROPOSTA</button>
+        </div>
+      ) : hasAcceptedProp && !hasReservationRequest && !hasReservation ? (
+        <div style={{ marginBottom: 12, padding: "12px 16px", background: "linear-gradient(145deg, rgba(74,222,128,0.08), rgba(74,222,128,0.02))", border: "1px solid rgba(74,222,128,0.2)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "#4ADE80", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600 }}>Próximo passo</div>
+            <div style={{ fontSize: 13, color: "var(--text-primary)", marginTop: 2 }}>Proposta aceita — solicitar reserva da unidade</div>
+          </div>
+          <button type="button" disabled={!canRequestReservationByRole || isCreatingReservationRequest} onClick={() => void handleCreateReservationRequest()} style={{ padding: "8px 14px", borderRadius: 8, background: "#4ADE80", color: "#12110F", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer", letterSpacing: "0.05em" }}>SOLICITAR RESERVA</button>
+        </div>
+      ) : hasReservation && !hasSale ? (
+        <div style={{ marginBottom: 12, padding: "12px 16px", background: "linear-gradient(145deg, rgba(96,165,250,0.08), rgba(96,165,250,0.02))", border: "1px solid rgba(96,165,250,0.2)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "#60A5FA", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600 }}>Próximo passo</div>
+            <div style={{ fontSize: 13, color: "var(--text-primary)", marginTop: 2 }}>Reserva ativa — converter em venda</div>
+          </div>
+          <button type="button" disabled={!canConvertSaleByRole || isCreatingSale || !activeReservation} onClick={() => void handleCreateSale()} style={{ padding: "8px 14px", borderRadius: 8, background: "#60A5FA", color: "#12110F", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer", letterSpacing: "0.05em" }}>CONVERTER EM VENDA</button>
+        </div>
+      ) : null}
+
+      {/* Sprint B.1 — Tabs */}
+      <nav style={{ display: "flex", gap: 0, borderBottom: "1px solid var(--border-default)", marginBottom: 20, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+        {([
+          { id: "resumo" as ActiveTab, label: "Resumo", count: undefined as number | undefined },
+          { id: "partes" as ActiveTab, label: "Partes", count: parties.length },
+          { id: "documentos" as ActiveTab, label: "Documentos", count: undefined },
+          { id: "proposta" as ActiveTab, label: "Proposta", count: proposals.length },
+          { id: "reserva" as ActiveTab, label: "Reserva", count: reservations.length + sales.length },
+          { id: "historico" as ActiveTab, label: "Histórico", count: events.length },
+        ]).map((tab) => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                padding: "12px 16px",
+                border: "none",
+                borderBottom: isActive ? "2px solid #4ADE80" : "2px solid transparent",
+                background: "transparent",
+                color: isActive ? "#4ADE80" : "#9C9686",
+                cursor: "pointer",
+                fontSize: 13,
+                fontWeight: isActive ? 700 : 500,
+                fontFamily: "var(--font-mono)",
+                letterSpacing: "0.02em",
+                whiteSpace: "nowrap",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                transition: "all 150ms ease",
+              }}
+            >
+              {tab.label}
+              {tab.count !== undefined && tab.count > 0 ? (
+                <span style={{
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: isActive ? "#4ADE80" : "#5C5647",
+                  background: isActive ? "rgba(74,222,128,0.12)" : "rgba(61,58,48,0.3)",
+                  padding: "1px 6px",
+                  borderRadius: 4,
+                  minWidth: 16,
+                  textAlign: "center",
+                }}>
+                  {tab.count}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* Tab: Resumo (Stepper + Summary card) */}
+      {activeTab === "resumo" && (
+      <>
       {/* Stepper do fluxo comercial */}
       {(() => {
         const hasAcceptedProposal = proposals.some((p) => p.status === "ACCEPTED");
@@ -940,52 +1042,12 @@ export default function NegotiationDetailPage() {
           </div>
         </div>
       </div>
-      {(() => {
-        const hasProposals = proposals.length > 0;
-        const hasAcceptedProp = proposals.some((p) => p.status === "ACCEPTED");
-        const hasReservationRequest = reservationRequests.length > 0;
-        const hasReservation = reservations.length > 0;
-        const hasSale = sales.length > 0;
-        const queueEnabled = Boolean(effectiveSettings?.queueEnabled);
-        const hasQueue = visibleQueueEntries.length > 0;
-        const hasHistory = events.length > 0;
+      </>
+      )}
 
-        const showQueue = queueEnabled && (hasQueue || queueRequired);
-        const showReservationRequest = hasProposals || hasReservationRequest;
-        const showReservation = hasReservationRequest || hasReservation;
-        const showSale = hasReservation || hasSale;
-
-        return (
-          <>
-            {/* Primary CTA by stage */}
-            {!hasProposals && negotiation.status !== NegotiationStatus.CANCELLED && negotiation.status !== NegotiationStatus.LOST && negotiation.status !== NegotiationStatus.WON ? (
-              <div style={{ marginBottom: 12, padding: "12px 16px", background: "linear-gradient(145deg, rgba(74,222,128,0.08), rgba(74,222,128,0.02))", border: "1px solid rgba(74,222,128,0.2)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                <div>
-                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "#4ADE80", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600 }}>Próximo passo</div>
-                  <div style={{ fontSize: 13, color: "var(--text-primary)", marginTop: 2 }}>Criar a primeira proposta para esta negociação</div>
-                </div>
-                <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "#706B5F" }}>↓ veja a seção Propostas</div>
-              </div>
-            ) : hasAcceptedProp && !hasReservationRequest && !hasReservation ? (
-              <div style={{ marginBottom: 12, padding: "12px 16px", background: "linear-gradient(145deg, rgba(74,222,128,0.08), rgba(74,222,128,0.02))", border: "1px solid rgba(74,222,128,0.2)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                <div>
-                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "#4ADE80", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600 }}>Próximo passo</div>
-                  <div style={{ fontSize: 13, color: "var(--text-primary)", marginTop: 2 }}>Proposta aceita — solicitar reserva da unidade</div>
-                </div>
-                <button type="button" disabled={!canRequestReservationByRole || isCreatingReservationRequest} onClick={() => void handleCreateReservationRequest()} style={{ padding: "8px 14px", borderRadius: 8, background: "#4ADE80", color: "#12110F", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer", letterSpacing: "0.05em" }}>SOLICITAR RESERVA</button>
-              </div>
-            ) : hasReservation && !hasSale ? (
-              <div style={{ marginBottom: 12, padding: "12px 16px", background: "linear-gradient(145deg, rgba(96,165,250,0.08), rgba(96,165,250,0.02))", border: "1px solid rgba(96,165,250,0.2)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                <div>
-                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "#60A5FA", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600 }}>Próximo passo</div>
-                  <div style={{ fontSize: 13, color: "var(--text-primary)", marginTop: 2 }}>Reserva ativa — converter em venda</div>
-                </div>
-                <button type="button" disabled={!canConvertSaleByRole || isCreatingSale || !activeReservation} onClick={() => void handleCreateSale()} style={{ padding: "8px 14px", borderRadius: 8, background: "#60A5FA", color: "#12110F", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer", letterSpacing: "0.05em" }}>CONVERTER EM VENDA</button>
-              </div>
-            ) : null}
-
-      {/* Engrenagem de Partes v1 — partes envolvidas (primary_buyer via trigger, spouse via auto-link, outros roles em sprints futuras) */}
-      <CollapsibleSection label="Partes" isEmpty={parties.length === 0 && !isLoadingParties} defaultOpen={parties.length > 0}>
+      {/* Tab: Partes */}
+      {activeTab === "partes" && (
+      <div>
         {isLoadingParties ? (
           <p style={{ color: "var(--color-fog)", fontSize: 13, fontStyle: "italic", margin: 0 }}>Carregando partes...</p>
         ) : parties.length === 0 ? (
@@ -1069,9 +1131,21 @@ export default function NegotiationDetailPage() {
         {partyMutationError ? (
           <p style={{ color: "var(--color-red)", fontSize: 12, marginTop: 8 }}>{partyMutationError}</p>
         ) : null}
-      </CollapsibleSection>
+      </div>
+      )}
 
-      <CollapsibleSection label="Histórico" isEmpty={!hasHistory} defaultOpen={hasHistory}>
+      {/* Tab: Documentos (placeholder para Sprint B.3) */}
+      {activeTab === "documentos" && (
+      <div style={{ background: "linear-gradient(145deg, var(--surface-raised), var(--surface-base))", border: "1px solid var(--border-default)", borderRadius: 10, padding: 48, textAlign: "center" }}>
+        <div style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: 8, fontWeight: 600 }}>Documentos da negociação</div>
+        <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16, lineHeight: 1.6 }}>Esta seção vai centralizar a documentação necessária para esta venda — RG, CPF, comprovantes e certidões de cada parte.</div>
+        <div style={{ fontSize: 10, fontFamily: "var(--font-mono)", letterSpacing: "0.12em", textTransform: "uppercase", color: "#5C5647", padding: "6px 12px", background: "rgba(74,222,128,0.06)", border: "1px solid rgba(74,222,128,0.15)", borderRadius: 6, display: "inline-block" }}>Em breve · Sprint B.3</div>
+      </div>
+      )}
+
+      {/* Tab: Histórico */}
+      {activeTab === "historico" && (
+      <div>
         {events.length === 0 ? (
           <p style={{ color: "var(--color-fog)", fontSize: 13, fontStyle: "italic", margin: 0 }}>Nenhum registro</p>
         ) : (
@@ -1103,10 +1177,68 @@ export default function NegotiationDetailPage() {
             ))}
           </div>
         )}
-      </CollapsibleSection>
+      {/* Sprint B.1 — Fila operacional dentro de Histórico, quando aplicável */}
+      {showQueue && (
+        <div style={{ marginTop: 24 }}>
+          <h3 style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "#9C9686", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600, margin: "0 0 12px" }}>Fila operacional</h3>
+          {!effectiveSettings?.queueEnabled ? (
+            <p style={{ color: "var(--color-fog)", fontSize: 13 }}>Fila desativada para este contexto.</p>
+          ) : visibleQueueEntries.length === 0 ? (
+            <p>
+              {canViewCompleteQueue
+                ? "Nenhuma posição registrada na fila desta unidade."
+                : currentActorEntry
+                  ? "Sua posição de fila não está mais disponível."
+                  : "Você ainda não possui posição registrada na fila desta unidade."}
+            </p>
+          ) : (
+            <div style={{ display: "grid", gap: 8 }}>
+              {visibleQueueEntries.map((entry) => (
+                <div key={entry.id} style={{ background: "linear-gradient(168deg, rgba(34,33,28,0.35), rgba(18,17,14,0.1))", border: "1px solid rgba(61,58,48,0.08)", borderRadius: 8, padding: 12, fontSize: 13, color: "var(--color-dust)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ color: "var(--color-bone)", fontWeight: 600 }}>Posição {entry.position}</span>
+                    <span className="nexa-badge" style={{ color: "var(--color-fog)", background: "rgba(156,150,134,0.12)" }}>{getUnitQueueStatusLabel(entry.status)}</span>
+                  </div>
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-slate)" }}>{formatDateTimeBRT(entry.createdAt)}</div>
+                  {canViewCompleteQueue ? (
+                    <p>
+                      Negociação vinculada:{" "}
+                      <Link to={`/negociacoes/${entry.negotiationId}`}>
+                        {entry.negotiationId}
+                      </Link>
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+          {effectiveSettings?.queueEnabled && queueRequired ? (
+            <p style={{ color: "var(--color-terracotta)", fontSize: 12, marginTop: 12 }}>
+              A unidade está indisponível. Entre na fila operacional.
+            </p>
+          ) : null}
+          {unitQueueErrorMessage ? <p style={{ color: "var(--color-red)", fontSize: 12 }}>{unitQueueErrorMessage}</p> : null}
+          {effectiveSettings?.queueEnabled && queueRequired ? (
+            <button
+              type="button"
+              disabled={!canEnterQueueByRole || isCreatingQueueEntry || isUpdatingQueue || hasOpenQueueEntry}
+              onClick={() => void handleCreateQueueEntry()}
+              style={{ ...btnSecondary, marginTop: 12 }}
+            >
+              Entrar na fila
+            </button>
+          ) : null}
+        </div>
+      )}
+      </div>
+      )}
 
+      {/* Tab: Proposta (Simulações + Propostas + Solicitação de reserva) */}
+      {activeTab === "proposta" && (
+      <div>
       {/* Engrenagem Comercial v1 — Simulações vinculadas à negociação */}
-      <CollapsibleSection label="Simulações" isEmpty={simulations.length === 0} defaultOpen={simulations.length > 0 || !!pendingPrefillSimId}>
+      <h3 style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "#9C9686", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600, margin: "0 0 12px" }}>Simulações</h3>
+      <div style={{ marginBottom: 24 }}>
         {isLoadingSimulations ? (
           <p style={{ color: "var(--color-fog)", fontSize: 13, fontStyle: "italic", margin: 0 }}>Carregando simulações...</p>
         ) : simulations.length === 0 ? (
@@ -1216,9 +1348,10 @@ export default function NegotiationDetailPage() {
         {simulationsErrorMessage ? (
           <p style={{ color: "var(--color-red)", fontSize: 12, marginTop: 8 }}>{simulationsErrorMessage}</p>
         ) : null}
-      </CollapsibleSection>
+      </div>
 
-      <CollapsibleSection label="Propostas" isEmpty={!hasProposals} defaultOpen={true}>
+      <h3 style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "#9C9686", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600, margin: "0 0 12px" }}>Propostas</h3>
+      <div style={{ marginBottom: 24 }}>
         {proposals.length === 0 ? (
           <p style={{ color: "var(--color-fog)", fontSize: 13, fontStyle: "italic", margin: "0 0 12px" }}>Nenhuma proposta vinculada.</p>
         ) : (
@@ -1315,62 +1448,12 @@ export default function NegotiationDetailPage() {
             />
           ) : null;
         })()}
-      </CollapsibleSection>
-
-      {showQueue && (
-      <CollapsibleSection label="Fila operacional" isEmpty={!hasQueue} defaultOpen={hasQueue || queueRequired}>
-        {!effectiveSettings?.queueEnabled ? (
-          <p style={{ color: "var(--color-fog)", fontSize: 13 }}>Fila desativada para este contexto.</p>
-        ) : visibleQueueEntries.length === 0 ? (
-          <p>
-            {canViewCompleteQueue
-              ? "Nenhuma posição registrada na fila desta unidade."
-              : currentActorEntry
-                ? "Sua posição de fila não está mais disponível."
-                : "Você ainda não possui posição registrada na fila desta unidade."}
-          </p>
-        ) : (
-          <div style={{ display: "grid", gap: 8 }}>
-            {visibleQueueEntries.map((entry) => (
-              <div key={entry.id} style={{ background: "linear-gradient(168deg, rgba(34,33,28,0.35), rgba(18,17,14,0.1))", border: "1px solid rgba(61,58,48,0.08)", borderRadius: 8, padding: 12, fontSize: 13, color: "var(--color-dust)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ color: "var(--color-bone)", fontWeight: 600 }}>Posição {entry.position}</span>
-                  <span className="nexa-badge" style={{ color: "var(--color-fog)", background: "rgba(156,150,134,0.12)" }}>{getUnitQueueStatusLabel(entry.status)}</span>
-                </div>
-                <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-slate)" }}>{formatDateTimeBRT(entry.createdAt)}</div>
-                {canViewCompleteQueue ? (
-                  <p>
-                    Negociação vinculada:{" "}
-                    <Link to={`/negociacoes/${entry.negotiationId}`}>
-                      {entry.negotiationId}
-                    </Link>
-                  </p>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        )}
-        {effectiveSettings?.queueEnabled && queueRequired ? (
-          <p style={{ color: "var(--color-terracotta)", fontSize: 12, marginTop: 12 }}>
-            A unidade está indisponível. Entre na fila operacional.
-          </p>
-        ) : null}
-        {unitQueueErrorMessage ? <p style={{ color: "var(--color-red)", fontSize: 12 }}>{unitQueueErrorMessage}</p> : null}
-        {effectiveSettings?.queueEnabled && queueRequired ? (
-          <button
-            type="button"
-            disabled={!canEnterQueueByRole || isCreatingQueueEntry || isUpdatingQueue || hasOpenQueueEntry}
-            onClick={() => void handleCreateQueueEntry()}
-            style={{ ...btnSecondary, marginTop: 12 }}
-          >
-            Entrar na fila
-          </button>
-        ) : null}
-      </CollapsibleSection>
-      )}
+      </div>
 
       {showReservationRequest && (
-      <CollapsibleSection label="Solicitação de reserva" isEmpty={!hasReservationRequest} defaultOpen={hasReservationRequest}>
+      <>
+      <h3 style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "#9C9686", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600, margin: "0 0 12px" }}>Solicitação de reserva</h3>
+      <div style={{ marginBottom: 24 }}>
         {reservationRequests.length === 0 ? (
           <p style={{ color: "var(--color-fog)", fontSize: 13 }}>Nenhuma solicitação de reserva registrada.</p>
         ) : (
@@ -1411,11 +1494,19 @@ export default function NegotiationDetailPage() {
           isCreating={isCreatingReservationRequest}
           onSubmit={() => void handleCreateReservationRequest()}
         />
-      </CollapsibleSection>
+      </div>
+      </>
+      )}
+      </div>
       )}
 
+      {/* Tab: Reserva (Reserva ativa + Venda) */}
+      {activeTab === "reserva" && (
+      <div>
       {showReservation && (
-      <CollapsibleSection label="Reserva" isEmpty={!hasReservation} defaultOpen={hasReservation}>
+      <>
+      <h3 style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "#9C9686", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600, margin: "0 0 12px" }}>Reserva</h3>
+      <div style={{ marginBottom: 24 }}>
         {reservations.length === 0 ? (
           <p style={{ color: "var(--color-fog)", fontSize: 13 }}>Nenhuma reserva registrada.</p>
         ) : (
@@ -1450,11 +1541,14 @@ export default function NegotiationDetailPage() {
             ))}
           </div>
         )}
-      </CollapsibleSection>
+      </div>
+      </>
       )}
 
       {showSale && (
-      <CollapsibleSection label="Venda" isEmpty={!hasSale} defaultOpen={hasSale}>
+      <>
+      <h3 style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "#9C9686", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600, margin: "0 0 12px" }}>Venda</h3>
+      <div style={{ marginBottom: 24 }}>
         {sales.length === 0 ? (
           <p style={{ color: "var(--color-fog)", fontSize: 13 }}>Nenhuma venda registrada.</p>
         ) : (
@@ -1487,11 +1581,11 @@ export default function NegotiationDetailPage() {
         <button type="button" disabled={!canConvertSaleByRole || isCreatingSale || !activeReservation || sales.length > 0} onClick={() => void handleCreateSale()} style={{ ...btnPrimary, marginTop: 12 }}>
           Converter em venda
         </button>
-      </CollapsibleSection>
+      </div>
+      </>
       )}
-          </>
-        );
-      })()}
+      </div>
+      )}
       {negotiationErrorMessage ? <p style={{ color: "var(--color-red)", fontSize: 12 }}>{negotiationErrorMessage}</p> : null}
 
 
