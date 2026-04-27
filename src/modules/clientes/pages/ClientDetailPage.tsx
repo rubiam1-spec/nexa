@@ -12,6 +12,7 @@ import { timeAgo } from "../../../shared/utils/timeAgo";
 import { formatDateBRT, formatTimeBRT, formatDateLongBRT, getTodayDateStringBRT } from "../../../shared/utils/dateUtils";
 import LostReasonModal from "../../../shared/components/LostReasonModal";
 import SpouseLinkModal from "../components/SpouseLinkModal";
+import SpousePeek from "../components/SpousePeek";
 import type { Client, LegalRegime, MaritalStatus } from "../../../shared/types/client";
 import { getClientWithSpouse, unlinkSpouses } from "../../../infra/repositories/clientsSupabaseRepository";
 import { ConfirmacaoDestructiva } from "../../../shared/components/ConfirmacaoDestructiva";
@@ -81,6 +82,35 @@ const REGIME_CASAMENTO_LABEL: Record<string, string> = {
   comunhao_universal: "Comunhão universal",
   separacao_total: "Separação total",
   participacao_final_aquestos: "Participação final nos aquestos",
+};
+
+// SVG icons inline para o card hero de cônjuge — substitui emojis sem
+// adicionar dependência de lucide-react (Sprint A.1).
+type SpouseIconProps = { size?: number; color?: string };
+const SpouseIcon = {
+  Heart: ({ size = 14, color = "currentColor" }: SpouseIconProps) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7Z" />
+    </svg>
+  ),
+  Phone: ({ size = 12, color = "currentColor" }: SpouseIconProps) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+    </svg>
+  ),
+  AlertTriangle: ({ size = 14, color = "currentColor" }: SpouseIconProps) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+      <path d="M12 9v4" />
+      <path d="M12 17h.01" />
+    </svg>
+  ),
+  ArrowRight: ({ size = 12, color = "currentColor" }: SpouseIconProps) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5 12h14" />
+      <path d="m12 5 7 7-7 7" />
+    </svg>
+  ),
 };
 
 import { maskCPF, maskPhone, maskCurrency, currencyToNumber, maskRG, maskCEP, formatCurrency, formatCPF, formatPhone, UF_OPTIONS } from "../../../shared/utils/masks";
@@ -204,6 +234,7 @@ export default function ClientDetailPage() {
   const [spouse, setSpouse] = useState<Client | null>(null);
   const [spouseLoading, setSpouseLoading] = useState(false);
   const [showUnlinkConfirm, setShowUnlinkConfirm] = useState(false);
+  const [showSpousePeek, setShowSpousePeek] = useState(false);
 
   useEffect(() => {
     if (!activeIntMenu) return;
@@ -614,15 +645,17 @@ export default function ClientDetailPage() {
           {client.current_spouse_client_id && spouse && !spouseLoading && (
             <>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11, letterSpacing: 1.2, color: T.bone, fontFamily: "var(--font-mono)", textTransform: "uppercase", marginBottom: 6 }}>
-                  💑 CÔNJUGE
+                <div style={{ fontSize: 11, letterSpacing: 1.2, color: T.bone, fontFamily: "var(--font-mono)", textTransform: "uppercase", marginBottom: 6, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <SpouseIcon.Heart size={14} color={T.bone} />
+                  CÔNJUGE
                 </div>
                 <div style={{ fontSize: 16, fontWeight: 600, color: T.chalk, marginBottom: 4 }}>
                   {spouse.fullName || spouse.name || "(sem nome)"}
                 </div>
-                <div style={{ fontSize: 13, color: T.bone, lineHeight: 1.6 }}>
-                  {spouse.cpf && <>CPF: {formatCPF(spouse.cpf)} · </>}
-                  {spouse.phone ? <>📞 {formatPhone(spouse.phone)}</> : "📞 (sem telefone)"}
+                <div style={{ fontSize: 13, color: T.bone, lineHeight: 1.6, display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+                  {spouse.cpf && <span>CPF: {formatCPF(spouse.cpf)} ·</span>}
+                  <SpouseIcon.Phone size={12} color={T.bone} />
+                  <span>{spouse.phone ? formatPhone(spouse.phone) : "(sem telefone)"}</span>
                 </div>
                 {client.regime_casamento && (
                   <div style={{ fontSize: 12, color: T.bone, marginTop: 4 }}>
@@ -633,10 +666,11 @@ export default function ClientDetailPage() {
               <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
                 <button
                   type="button"
-                  onClick={() => navigate(`/contatos/${spouse.id}`)}
-                  style={{ padding: "8px 14px", borderRadius: 6, border: `1px solid ${T.stone}`, background: "transparent", color: T.chalk, fontSize: 12, fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: 0.5, cursor: "pointer" }}
+                  onClick={() => setShowSpousePeek(true)}
+                  style={{ padding: "8px 14px", borderRadius: 6, border: `1px solid ${T.stone}`, background: "transparent", color: T.chalk, fontSize: 12, fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: 0.5, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}
                 >
-                  VER FICHA →
+                  VER FICHA
+                  <SpouseIcon.ArrowRight size={12} color={T.chalk} />
                 </button>
                 <button
                   type="button"
@@ -660,8 +694,9 @@ export default function ClientDetailPage() {
           {!client.current_spouse_client_id && (
             <>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11, letterSpacing: 1.2, color: T.amber, fontFamily: "var(--font-mono)", textTransform: "uppercase", marginBottom: 6 }}>
-                  ⚠ CÔNJUGE NÃO CADASTRADO
+                <div style={{ fontSize: 11, letterSpacing: 1.2, color: T.amber, fontFamily: "var(--font-mono)", textTransform: "uppercase", marginBottom: 6, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <SpouseIcon.AlertTriangle size={14} color={T.amber} />
+                  CÔNJUGE NÃO CADASTRADO
                 </div>
                 <div style={{ fontSize: 14, color: T.chalk, lineHeight: 1.5 }}>
                   Cliente marcado como casado(a). Cadastre o cônjuge para completar o registro familiar.
@@ -1187,6 +1222,15 @@ export default function ClientDetailPage() {
             }
           }}
           onCancelar={() => setShowUnlinkConfirm(false)}
+        />
+      )}
+
+      {/* Engrenagem de Cônjuge v2 (Sprint A.1) — drawer peek */}
+      {spouse && (
+        <SpousePeek
+          open={showSpousePeek}
+          spouseId={spouse.id}
+          onClose={() => setShowSpousePeek(false)}
         />
       )}
 
