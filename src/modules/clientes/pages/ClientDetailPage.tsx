@@ -1226,9 +1226,10 @@ export default function ClientDetailPage() {
       )}
 
       {/* Engrenagem de Cônjuge v2 (Sprint A.1) — drawer peek */}
-      {spouse && (
+      {spouse && client && (
         <SpousePeek
           open={showSpousePeek}
+          principalClient={client}
           spouseId={spouse.id}
           onClose={() => setShowSpousePeek(false)}
         />
