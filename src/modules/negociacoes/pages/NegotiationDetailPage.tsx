@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, useCallback, useReducer } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, useReducer } from "react";
+import { createPortal } from "react-dom";
 import { Link, useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useIsMobile } from "../../../shared/hooks/useIsMobile";
 import { supabase } from "../../../infra/supabase/supabaseClient";
@@ -17,7 +18,8 @@ import { getNegotiationStatusLabel } from "../../../domain/negociacao/Negotiatio
 import NexaBadge from "../../../shared/components/NexaBadge";
 import { SaleService } from "../../../domain/venda/SaleService";
 import { getSaleStatusLabel } from "../../../domain/venda/SaleStatusLabel";
-import { getClientWithSpouse } from "../../../infra/repositories/clientsSupabaseRepository";
+import { createClient, getClientWithSpouse } from "../../../infra/repositories/clientsSupabaseRepository";
+import { addParty as addPartyRepo } from "../../../infra/repositories/negotiationPartiesSupabaseRepository";
 import { formatPhone } from "../../../shared/utils/masks";
 import { useNegotiationDetail } from "../hooks/useNegotiationDetail";
 import { formatDateTimeBRT } from "../../../shared/utils/dateUtils";
@@ -219,9 +221,17 @@ export default function NegotiationDetailPage() {
     errorMessage: partyMutationError,
   } = usePartyMutations();
   const [partyToRemove, setPartyToRemove] = useState<{ id: string; name: string } | null>(null);
+  const [showAddPartyModal, setShowAddPartyModal] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const [pendingPrefillSimId, setPendingPrefillSimId] = useState<string | null>(null);
   const [expandAllSimulations, setExpandAllSimulations] = useState(false);
+
+  // Sprint B.2.2 — IDs de clientes já vinculados como party (evita aparecer
+  // novamente na busca do AddPartyModal).
+  const alreadyLinkedClientIds = useMemo(
+    () => parties.map(({ client }) => client.id),
+    [parties],
+  );
 
   // Sprint B.1 — buscar cônjuge se houver, para compor título do casal
   // Sprint B.2 — expandido com cpf/phone/email para card de cônjuge pendente
@@ -1092,6 +1102,26 @@ export default function NegotiationDetailPage() {
 
         return (
         <div>
+          {/* Sprint B.2.2 — header com botão "+ Adicionar parte" */}
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+            <button
+              type="button"
+              onClick={() => setShowAddPartyModal(true)}
+              style={{
+                background: "transparent",
+                color: "var(--color-sprout)",
+                border: "1px solid var(--color-sprout)",
+                borderRadius: 8,
+                padding: "6px 12px",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              + Adicionar parte
+            </button>
+          </div>
+
           {isLoadingParties ? (
             <p style={{ color: "var(--color-fog)", fontSize: 13, fontStyle: "italic", margin: 0 }}>Carregando partes...</p>
           ) : !primaryParty && parties.length === 0 ? (
@@ -1167,6 +1197,46 @@ export default function NegotiationDetailPage() {
                   onSaved={() => void refreshParties()}
                 />
               ))}
+            </div>
+          )}
+
+          {/* Sprint B.2.2 — card vazio dashed que convida a adicionar */}
+          {primaryParty && (
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setShowAddPartyModal(true)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setShowAddPartyModal(true); }}
+              style={{
+                marginTop: 16,
+                background: "transparent",
+                border: "1px dashed rgba(74,222,128,0.3)",
+                borderRadius: 10,
+                padding: 24,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                transition: "background 150ms ease, border-color 150ms ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(74,222,128,0.04)";
+                e.currentTarget.style.borderColor = "rgba(74,222,128,0.5)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "transparent";
+                e.currentTarget.style.borderColor = "rgba(74,222,128,0.3)";
+              }}
+            >
+              <span style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 12,
+                color: "var(--color-sprout)",
+                fontWeight: 600,
+                letterSpacing: "0.04em",
+              }}>
+                + Adicionar parte
+              </span>
             </div>
           )}
 
@@ -1678,6 +1748,19 @@ export default function NegotiationDetailPage() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {/* Sprint B.2.2 — modal para adicionar parte (coobrigado, procurador, beneficiário) */}
+      {accountId ? (
+        <AddPartyModal
+          open={showAddPartyModal}
+          negotiationId={negotiation.id}
+          accountId={accountId}
+          alreadyLinkedClientIds={alreadyLinkedClientIds}
+          performedBy={authenticatedProfile?.id ?? null}
+          onClose={() => setShowAddPartyModal(false)}
+          onAdded={() => void refreshParties()}
+        />
       ) : null}
 
       {/* Lost modal */}
@@ -2583,6 +2666,559 @@ function SpousePendingCard({
           {isMutating ? "Adicionando..." : "Adicionar à negociação"}
         </button>
       </div>
+    </div>
+  );
+}
+
+// Sprint B.2.2 — modal completo para adicionar parte adicional
+// (coobrigado, procurador, beneficiário final). 3 estados sequenciais:
+// search → (opcional create_new) → define_role → addParty no banco.
+
+type ModalStep = "search" | "create_new" | "define_role";
+
+type ClientSearchResult = {
+  id: string;
+  name: string;
+  full_name: string | null;
+  cpf: string | null;
+  phone: string | null;
+  email: string | null;
+};
+
+const MODAL_INPUT_STYLE: React.CSSProperties = {
+  width: "100%",
+  background: "var(--color-ink)",
+  border: "1px solid var(--color-stone)",
+  color: "#E8E5DE",
+  borderRadius: 6,
+  padding: "10px 12px",
+  fontSize: 13,
+  outline: "none",
+  boxSizing: "border-box",
+};
+const MODAL_LABEL_STYLE: React.CSSProperties = {
+  display: "block",
+  fontSize: 11,
+  fontFamily: "var(--font-mono)",
+  letterSpacing: "0.12em",
+  textTransform: "uppercase",
+  color: "#5C5647",
+  marginBottom: 4,
+  fontWeight: 600,
+};
+const MODAL_BTN_PRIMARY: React.CSSProperties = {
+  background: "var(--color-sprout)",
+  color: "var(--color-ink)",
+  border: "none",
+  borderRadius: 8,
+  padding: "8px 14px",
+  fontSize: 12,
+  fontWeight: 700,
+  cursor: "pointer",
+  fontFamily: "var(--font-mono)",
+  letterSpacing: "0.04em",
+  textTransform: "uppercase",
+};
+const MODAL_BTN_SECONDARY: React.CSSProperties = {
+  background: "transparent",
+  color: "#9C9686",
+  border: "1px solid var(--color-stone)",
+  borderRadius: 8,
+  padding: "8px 14px",
+  fontSize: 12,
+  fontWeight: 600,
+  cursor: "pointer",
+};
+
+function AddPartyModal({
+  open,
+  negotiationId,
+  accountId,
+  alreadyLinkedClientIds,
+  performedBy,
+  onClose,
+  onAdded,
+}: {
+  open: boolean;
+  negotiationId: string;
+  accountId: string;
+  alreadyLinkedClientIds: string[];
+  performedBy: string | null;
+  onClose: () => void;
+  onAdded: () => void;
+}) {
+  const [step, setStep] = useState<ModalStep>("search");
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<ClientSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+
+  const [newClient, setNewClient] = useState({ name: "", email: "", phone: "", cpf: "" });
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  const [selectedClient, setSelectedClient] = useState<ClientSearchResult | null>(null);
+
+  const [role, setRole] = useState<"co_obligor" | "attorney_in_fact" | "beneficial_owner">("co_obligor");
+  const [signingCapacity, setSigningCapacity] = useState<SigningCapacity | null>(null);
+  const [notes, setNotes] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+
+  // Reset ao fechar
+  useEffect(() => {
+    if (!open) {
+      setStep("search");
+      setSearchQuery("");
+      setSearchResults([]);
+      setNewClient({ name: "", email: "", phone: "", cpf: "" });
+      setSelectedClient(null);
+      setRole("co_obligor");
+      setSigningCapacity(null);
+      setNotes("");
+      setCreateError(null);
+      setAddError(null);
+    }
+  }, [open]);
+
+  // ESC fecha
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [open, onClose]);
+
+  // Busca com debounce 300ms (cancelable)
+  useEffect(() => {
+    if (!open || step !== "search" || !searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    let cancelled = false;
+    setSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        if (!supabase) return;
+        const queryDigits = searchQuery.replace(/\D/g, "");
+        const looksLikeCpf = queryDigits.length >= 3 && queryDigits.length === searchQuery.replace(/[\s.-]/g, "").length;
+
+        let qb = supabase
+          .from("clients")
+          .select("id, name, full_name, cpf, phone, email")
+          .eq("account_id", accountId)
+          .is("deleted_at", null)
+          .order("name")
+          .limit(10);
+
+        if (looksLikeCpf) {
+          qb = qb.ilike("cpf", `%${queryDigits}%`);
+        } else {
+          qb = qb.or(`name.ilike.%${searchQuery}%,full_name.ilike.%${searchQuery}%`);
+        }
+
+        if (alreadyLinkedClientIds.length > 0) {
+          const idList = alreadyLinkedClientIds.map((id) => `"${id}"`).join(",");
+          qb = qb.not("id", "in", `(${idList})`);
+        }
+
+        const { data, error } = await qb;
+        if (cancelled) return;
+        if (error) {
+          console.error("[AddPartyModal] search error:", error);
+          setSearchResults([]);
+        } else {
+          setSearchResults((data ?? []) as ClientSearchResult[]);
+        }
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 300);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [open, searchQuery, step, accountId, alreadyLinkedClientIds]);
+
+  function handleSelectClient(c: ClientSearchResult) {
+    setSelectedClient(c);
+    setStep("define_role");
+  }
+
+  async function handleCreateNew() {
+    if (!newClient.name.trim() || !newClient.email.trim() || !newClient.phone.trim()) {
+      setCreateError("Nome, email e telefone são obrigatórios.");
+      return;
+    }
+    const cpfDigits = newClient.cpf.replace(/\D/g, "");
+    if (cpfDigits.length > 0 && cpfDigits.length !== 11) {
+      setCreateError("CPF inválido. Deixe em branco ou preencha 11 dígitos.");
+      return;
+    }
+    setCreating(true);
+    setCreateError(null);
+    try {
+      const created = await createClient({
+        accountId,
+        name: newClient.name.trim(),
+        email: newClient.email.trim(),
+        phone: newClient.phone.trim(),
+        cpf: cpfDigits || undefined,
+        createdBy: performedBy ?? undefined,
+      });
+      setSelectedClient({
+        id: created.id,
+        name: created.name,
+        full_name: created.fullName ?? null,
+        cpf: created.cpf ?? null,
+        phone: created.phone || null,
+        email: created.email || null,
+      });
+      setStep("define_role");
+    } catch (e) {
+      setCreateError(e instanceof Error ? e.message : "Falha ao cadastrar.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleAddParty() {
+    if (!selectedClient || !performedBy) {
+      setAddError("Sessão sem perfil autenticado. Entre novamente.");
+      return;
+    }
+    setAdding(true);
+    setAddError(null);
+    try {
+      await addPartyRepo(
+        {
+          negotiationId,
+          clientId: selectedClient.id,
+          role,
+          legalRegime: null,
+          signingCapacity,
+          notes: notes.trim() || null,
+        },
+        accountId,
+        performedBy,
+      );
+      onAdded();
+      onClose();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Erro ao adicionar.";
+      if (msg.includes("uniq_party_per_role") || msg.toLowerCase().includes("duplicate")) {
+        setAddError("Esta pessoa já está vinculada nesta função.");
+      } else {
+        setAddError(msg);
+      }
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  if (!open) return null;
+
+  const headerTitle =
+    step === "search"
+      ? "Adicionar parte"
+      : step === "create_new"
+        ? "Cadastrar nova pessoa"
+        : `Adicionar ${selectedClient?.full_name || selectedClient?.name || "parte"}`;
+
+  return createPortal(
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 9000,
+        background: "rgba(0,0,0,0.6)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 24,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "var(--surface-raised)",
+          border: "1px solid var(--color-stone)",
+          borderRadius: 16,
+          padding: 28,
+          width: "100%",
+          maxWidth: 480,
+          maxHeight: "90vh",
+          overflowY: "auto",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-bone)", margin: 0 }}>
+            {headerTitle}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Fechar"
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "var(--color-fog)",
+              cursor: "pointer",
+              fontSize: 22,
+              lineHeight: 1,
+              padding: 0,
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        {step === "search" && (
+          <>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Buscar por nome ou CPF..."
+              autoFocus
+              style={MODAL_INPUT_STYLE}
+            />
+
+            <div style={{ marginTop: 12, minHeight: 180 }}>
+              {searching ? (
+                <p style={{ color: "var(--color-fog)", fontSize: 13, fontStyle: "italic", margin: 0 }}>Buscando...</p>
+              ) : searchQuery && searchResults.length === 0 ? (
+                <p style={{ color: "var(--color-fog)", fontSize: 13, margin: 0 }}>
+                  Nenhuma pessoa encontrada com essa busca.
+                </p>
+              ) : !searchQuery ? (
+                <p style={{ color: "var(--color-fog)", fontSize: 12, fontStyle: "italic", margin: 0 }}>
+                  Digite ao menos 3 caracteres do nome ou CPF.
+                </p>
+              ) : (
+                searchResults.map((c) => (
+                  <div
+                    key={c.id}
+                    onClick={() => handleSelectClient(c)}
+                    style={{
+                      padding: "10px 12px",
+                      background: "var(--color-ink)",
+                      border: "1px solid var(--color-stone)",
+                      borderRadius: 6,
+                      marginBottom: 6,
+                      cursor: "pointer",
+                      transition: "border-color 150ms ease",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(74,222,128,0.5)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--color-stone)"; }}
+                  >
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "var(--color-bone)" }}>
+                      {c.full_name || c.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--color-fog)", fontFamily: "var(--font-mono)", marginTop: 2 }}>
+                      {c.cpf ? `CPF ${formatCPF(c.cpf)}` : "(sem CPF)"} · {c.email || "(sem email)"}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--color-stone)" }}>
+              <button
+                type="button"
+                onClick={() => setStep("create_new")}
+                style={{
+                  width: "100%",
+                  background: "transparent",
+                  color: "var(--color-sprout)",
+                  border: "1px dashed var(--color-sprout)",
+                  borderRadius: 8,
+                  padding: "10px 12px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                + Cadastrar nova pessoa
+              </button>
+            </div>
+          </>
+        )}
+
+        {step === "create_new" && (
+          <>
+            <div style={{ display: "grid", gap: 12 }}>
+              <FormField
+                label="Nome *"
+                value={newClient.name}
+                onChange={(v) => setNewClient({ ...newClient, name: v })}
+                placeholder="Nome completo"
+              />
+              <FormField
+                label="Email *"
+                value={newClient.email}
+                onChange={(v) => setNewClient({ ...newClient, email: v })}
+                placeholder="email@exemplo.com"
+                type="email"
+              />
+              <FormField
+                label="Telefone *"
+                value={newClient.phone}
+                onChange={(v) => setNewClient({ ...newClient, phone: v })}
+                placeholder="(45) 99999-0000"
+              />
+              <FormField
+                label="CPF (opcional)"
+                value={newClient.cpf}
+                onChange={(v) => setNewClient({ ...newClient, cpf: v })}
+                placeholder="000.000.000-00"
+              />
+            </div>
+
+            {createError ? (
+              <div style={{
+                marginTop: 12,
+                padding: "8px 12px",
+                background: "rgba(248,113,113,0.08)",
+                border: "1px solid rgba(248,113,113,0.2)",
+                borderRadius: 6,
+                fontSize: 12,
+                color: "#F87171",
+              }}>
+                {createError}
+              </div>
+            ) : null}
+
+            <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "space-between" }}>
+              <button type="button" onClick={() => setStep("search")} disabled={creating} style={MODAL_BTN_SECONDARY}>
+                ← Voltar
+              </button>
+              <button type="button" onClick={() => void handleCreateNew()} disabled={creating} style={{ ...MODAL_BTN_PRIMARY, opacity: creating ? 0.55 : 1, cursor: creating ? "not-allowed" : "pointer" }}>
+                {creating ? "Cadastrando..." : "Cadastrar e continuar"}
+              </button>
+            </div>
+          </>
+        )}
+
+        {step === "define_role" && selectedClient && (
+          <>
+            <div style={{
+              marginBottom: 16,
+              padding: 12,
+              background: "var(--color-ink)",
+              border: "1px solid var(--color-stone)",
+              borderRadius: 8,
+            }}>
+              <div style={{
+                fontSize: 10,
+                fontFamily: "var(--font-mono)",
+                color: "var(--color-fog)",
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                marginBottom: 4,
+                fontWeight: 600,
+              }}>
+                Pessoa selecionada
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "var(--color-bone)" }}>
+                {selectedClient.full_name || selectedClient.name}
+              </div>
+              {selectedClient.cpf ? (
+                <div style={{ fontSize: 11, color: "var(--color-fog)", fontFamily: "var(--font-mono)", marginTop: 2 }}>
+                  CPF {formatCPF(selectedClient.cpf)}
+                </div>
+              ) : null}
+            </div>
+
+            <div style={{ display: "grid", gap: 12 }}>
+              <div>
+                <label style={MODAL_LABEL_STYLE}>Função na negociação *</label>
+                <select
+                  value={role}
+                  onChange={(e) => setRole(e.target.value as typeof role)}
+                  style={MODAL_INPUT_STYLE}
+                >
+                  <option value="co_obligor">Coobrigado</option>
+                  <option value="attorney_in_fact">Procurador</option>
+                  <option value="beneficial_owner">Beneficiário final</option>
+                </select>
+              </div>
+              <div>
+                <label style={MODAL_LABEL_STYLE}>Capacidade de assinatura</label>
+                <select
+                  value={signingCapacity ?? ""}
+                  onChange={(e) => setSigningCapacity((e.target.value || null) as SigningCapacity | null)}
+                  style={MODAL_INPUT_STYLE}
+                >
+                  <option value="">— Não definido</option>
+                  <option value="signs_alone">Assina sozinho</option>
+                  <option value="signs_jointly">Assina em conjunto</option>
+                  <option value="no_sign">Não assina</option>
+                </select>
+              </div>
+              <div>
+                <label style={MODAL_LABEL_STYLE}>Observações</label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={2}
+                  placeholder="Ex: parente do comprador, autorizado pela diretoria..."
+                  style={{ ...MODAL_INPUT_STYLE, resize: "vertical", fontFamily: "inherit" }}
+                />
+              </div>
+            </div>
+
+            {addError ? (
+              <div style={{
+                marginTop: 12,
+                padding: "8px 12px",
+                background: "rgba(248,113,113,0.08)",
+                border: "1px solid rgba(248,113,113,0.2)",
+                borderRadius: 6,
+                fontSize: 12,
+                color: "#F87171",
+              }}>
+                {addError}
+              </div>
+            ) : null}
+
+            <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "space-between" }}>
+              <button type="button" onClick={() => setStep("search")} disabled={adding} style={MODAL_BTN_SECONDARY}>
+                ← Voltar
+              </button>
+              <button type="button" onClick={() => void handleAddParty()} disabled={adding} style={{ ...MODAL_BTN_PRIMARY, opacity: adding ? 0.55 : 1, cursor: adding ? "not-allowed" : "pointer" }}>
+                {adding ? "Adicionando..." : "Adicionar à negociação"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function FormField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  type,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  type?: string;
+}) {
+  return (
+    <div>
+      <label style={MODAL_LABEL_STYLE}>{label}</label>
+      <input
+        type={type ?? "text"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        style={MODAL_INPUT_STYLE}
+      />
     </div>
   );
 }
