@@ -32,7 +32,7 @@ import {
   PARTY_ROLE_LABELS,
   SIGNING_CAPACITY_LABELS,
 } from "../../../shared/types/negotiationParty";
-import type { NegotiationParty } from "../../../shared/types/negotiationParty";
+import type { LegalRegime, NegotiationParty, SigningCapacity, UpdatePartyInput } from "../../../shared/types/negotiationParty";
 
 type ThirdPartyPropertySummary = { id: string; titulo: string; tipo: string; status: string; valorVenda: number | null; endereco: string | null };
 
@@ -213,6 +213,7 @@ export default function NegotiationDetailPage() {
   } = useNegotiationParties(id ?? null);
   const {
     addParty,
+    updateParty,
     removeParty,
     isMutating: isMutatingParty,
     errorMessage: partyMutationError,
@@ -1114,6 +1115,8 @@ export default function NegotiationDetailPage() {
                   variant="primary"
                   isMutating={isMutatingParty}
                   onRemove={null}
+                  updateParty={updateParty}
+                  onSaved={() => void refreshParties()}
                 />
               )}
               {spouseLinkedParty && (
@@ -1129,6 +1132,8 @@ export default function NegotiationDetailPage() {
                     id: spouseLinkedParty.party.id,
                     name: spouseLinkedParty.client.fullName || spouseLinkedParty.client.name || "—",
                   })}
+                  updateParty={updateParty}
+                  onSaved={() => void refreshParties()}
                 />
               )}
               {spousePending && !spouseLinkedParty && (
@@ -1158,6 +1163,8 @@ export default function NegotiationDetailPage() {
                     id: party.id,
                     name: client.fullName || client.name || "—",
                   })}
+                  updateParty={updateParty}
+                  onSaved={() => void refreshParties()}
                 />
               ))}
             </div>
@@ -2167,6 +2174,41 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
+// Sprint B.2.1 — modo edição inline para regime/capacidade/notes.
+const SELECT_STYLE: React.CSSProperties = {
+  width: "100%",
+  background: "var(--color-ink)",
+  border: "1px solid var(--color-stone)",
+  color: "#E8E5DE",
+  borderRadius: 6,
+  padding: "8px 10px",
+  fontSize: 13,
+  outline: "none",
+};
+const TEXTAREA_STYLE: React.CSSProperties = {
+  width: "100%",
+  background: "var(--color-ink)",
+  border: "1px solid var(--color-stone)",
+  color: "#E8E5DE",
+  borderRadius: 6,
+  padding: "8px 10px",
+  fontSize: 13,
+  outline: "none",
+  resize: "vertical",
+  fontFamily: "inherit",
+  boxSizing: "border-box",
+};
+const EDIT_LABEL_STYLE: React.CSSProperties = {
+  display: "block",
+  fontFamily: "var(--font-mono)",
+  fontSize: 9,
+  letterSpacing: "0.12em",
+  textTransform: "uppercase",
+  color: "#5C5647",
+  marginBottom: 4,
+  fontWeight: 600,
+};
+
 function PartyCard({
   party,
   clientName,
@@ -2176,6 +2218,8 @@ function PartyCard({
   variant,
   isMutating,
   onRemove,
+  updateParty,
+  onSaved,
 }: {
   party: NegotiationParty;
   clientName: string;
@@ -2185,6 +2229,8 @@ function PartyCard({
   variant: "primary" | "spouse_linked" | "other";
   isMutating: boolean;
   onRemove: (() => void) | null;
+  updateParty?: (partyId: string, input: UpdatePartyInput) => Promise<NegotiationParty | null>;
+  onSaved?: () => void;
 }) {
   const pillStyle =
     variant === "primary" || variant === "spouse_linked"
@@ -2193,10 +2239,63 @@ function PartyCard({
 
   const pillLabel = PARTY_ROLE_LABELS[party.role] || party.role;
 
+  const [isEditing, setIsEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editRegime, setEditRegime] = useState<LegalRegime | null>(party.legalRegime);
+  const [editCapacity, setEditCapacity] = useState<SigningCapacity | null>(party.signingCapacity);
+  const [editNotes, setEditNotes] = useState<string>(party.notes ?? "");
+
+  // Reset form quando entra em modo edição (pega valores frescos do server)
+  useEffect(() => {
+    if (isEditing) {
+      setEditRegime(party.legalRegime);
+      setEditCapacity(party.signingCapacity);
+      setEditNotes(party.notes ?? "");
+      setEditError(null);
+    }
+  }, [isEditing, party.legalRegime, party.signingCapacity, party.notes]);
+
+  // Limpar feedback "justSaved" após 1s
+  useEffect(() => {
+    if (!justSaved) return;
+    const t = setTimeout(() => setJustSaved(false), 1000);
+    return () => clearTimeout(t);
+  }, [justSaved]);
+
+  async function handleSave() {
+    if (!updateParty) {
+      setEditError("Função de atualização indisponível.");
+      return;
+    }
+    setSaving(true);
+    setEditError(null);
+    try {
+      const result = await updateParty(party.id, {
+        legalRegime: editRegime,
+        signingCapacity: editCapacity,
+        notes: editNotes.trim() || null,
+      });
+      if (result) {
+        setIsEditing(false);
+        setJustSaved(true);
+        onSaved?.();
+      } else {
+        setEditError("Falha ao salvar. Tente novamente.");
+      }
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "Erro ao salvar");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div style={{
       background: "linear-gradient(168deg, rgba(34,33,28,0.5), rgba(18,17,14,0.15))",
-      border: "1px solid rgba(61,58,48,0.2)",
+      border: justSaved ? "1px solid #4ADE80" : "1px solid rgba(61,58,48,0.2)",
+      transition: "border-color 300ms ease",
       borderRadius: 10,
       padding: 18,
       display: "flex",
@@ -2228,55 +2327,168 @@ function PartyCard({
         <Field label="Email" value={clientEmail || "—"} />
       </div>
 
-      {variant === "spouse_linked" && (party.legalRegime || party.signingCapacity) ? (
-        <div style={{
-          fontSize: 12,
-          color: "#9C9686",
-          display: "flex",
-          gap: 12,
-          flexWrap: "wrap",
-          paddingTop: 8,
-          borderTop: "1px solid rgba(61,58,48,0.2)",
-        }}>
-          {party.legalRegime ? <span>Regime: {LEGAL_REGIME_LABELS[party.legalRegime]}</span> : null}
-          {party.signingCapacity ? <span>{SIGNING_CAPACITY_LABELS[party.signingCapacity]}</span> : null}
-        </div>
-      ) : null}
+      {/* Regime + Capacidade + Notes — leitura ou edição */}
+      <div style={{ paddingTop: 12, borderTop: "1px solid rgba(61,58,48,0.2)" }}>
+        {!isEditing ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <Field
+              label="Regime de bens"
+              value={party.legalRegime ? LEGAL_REGIME_LABELS[party.legalRegime] : "—"}
+            />
+            <Field
+              label="Capacidade de assinatura"
+              value={party.signingCapacity ? SIGNING_CAPACITY_LABELS[party.signingCapacity] : "—"}
+            />
+            {party.notes ? (
+              <Field label="Observações" value={party.notes} />
+            ) : null}
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>
+              <label style={EDIT_LABEL_STYLE}>Regime de bens</label>
+              <select
+                value={editRegime ?? ""}
+                onChange={(e) => setEditRegime((e.target.value || null) as LegalRegime | null)}
+                disabled={saving}
+                style={SELECT_STYLE}
+              >
+                <option value="">— Não definido</option>
+                <option value="comunhao_parcial">Comunhão parcial de bens</option>
+                <option value="comunhao_universal">Comunhão universal de bens</option>
+                <option value="separacao_total">Separação total de bens</option>
+                <option value="participacao_final_aquestos">Participação final nos aquestos</option>
+              </select>
+            </div>
+            <div>
+              <label style={EDIT_LABEL_STYLE}>Capacidade de assinatura</label>
+              <select
+                value={editCapacity ?? ""}
+                onChange={(e) => setEditCapacity((e.target.value || null) as SigningCapacity | null)}
+                disabled={saving}
+                style={SELECT_STYLE}
+              >
+                <option value="">— Não definido</option>
+                <option value="signs_alone">Assina sozinho</option>
+                <option value="signs_jointly">Assina em conjunto</option>
+                <option value="no_sign">Não assina</option>
+              </select>
+            </div>
+            <div>
+              <label style={EDIT_LABEL_STYLE}>Observações</label>
+              <textarea
+                value={editNotes}
+                onChange={(e) => setEditNotes(e.target.value)}
+                rows={3}
+                placeholder="Ex: cônjuge prefere assinatura digital..."
+                disabled={saving}
+                style={TEXTAREA_STYLE}
+              />
+            </div>
+            {editError ? (
+              <div style={{
+                fontSize: 12,
+                color: "#F87171",
+                padding: "6px 10px",
+                background: "rgba(248,113,113,0.08)",
+                border: "1px solid rgba(248,113,113,0.2)",
+                borderRadius: 6,
+              }}>
+                {editError}
+              </div>
+            ) : null}
+          </div>
+        )}
+      </div>
 
-      {party.notes ? (
-        <div style={{
-          fontSize: 12,
-          color: "#9C9686",
-          fontStyle: "italic",
-          paddingTop: 8,
-          borderTop: "1px solid rgba(61,58,48,0.2)",
-        }}>
-          {party.notes}
-        </div>
-      ) : null}
-
-      {onRemove ? (
-        <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 4 }}>
-          <button
-            type="button"
-            onClick={onRemove}
-            disabled={isMutating}
-            style={{
-              background: "transparent",
-              color: "#9C9686",
-              border: "1px solid var(--color-stone)",
-              borderRadius: 6,
-              padding: "6px 12px",
-              fontSize: 11,
-              fontWeight: 600,
-              cursor: isMutating ? "not-allowed" : "pointer",
-              opacity: isMutating ? 0.55 : 1,
-            }}
-          >
-            Remover
-          </button>
-        </div>
-      ) : null}
+      {/* Footer: ações */}
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, paddingTop: 4 }}>
+        {!isEditing ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setIsEditing(true)}
+              disabled={isMutating}
+              style={{
+                background: "transparent",
+                color: "#9C9686",
+                border: "1px solid var(--color-stone)",
+                borderRadius: 6,
+                padding: "6px 12px",
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: isMutating ? "not-allowed" : "pointer",
+                opacity: isMutating ? 0.55 : 1,
+              }}
+            >
+              Editar
+            </button>
+            {/* Defense in depth: primary nunca tem Remover, mesmo se onRemove vier não-null. */}
+            {onRemove && variant !== "primary" ? (
+              <button
+                type="button"
+                onClick={onRemove}
+                disabled={isMutating}
+                style={{
+                  background: "transparent",
+                  color: "#9C9686",
+                  border: "1px solid var(--color-stone)",
+                  borderRadius: 6,
+                  padding: "6px 12px",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: isMutating ? "not-allowed" : "pointer",
+                  opacity: isMutating ? 0.55 : 1,
+                }}
+              >
+                Remover
+              </button>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => setIsEditing(false)}
+              disabled={saving}
+              style={{
+                background: "transparent",
+                color: "#9C9686",
+                border: "1px solid var(--color-stone)",
+                borderRadius: 6,
+                padding: "6px 12px",
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: saving ? "not-allowed" : "pointer",
+                opacity: saving ? 0.55 : 1,
+              }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={saving}
+              style={{
+                background: "var(--color-sprout)",
+                color: "var(--color-ink)",
+                border: "none",
+                borderRadius: 6,
+                padding: "6px 12px",
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: saving ? "not-allowed" : "pointer",
+                opacity: saving ? 0.55 : 1,
+                fontFamily: "var(--font-mono)",
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+              }}
+            >
+              {saving ? "Salvando..." : "Salvar"}
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }
