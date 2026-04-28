@@ -2,11 +2,10 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-api-key",
 };
 
 Deno.serve(async (req) => {
-  // CORS preflight
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   // Facebook webhook verification (GET)
@@ -22,23 +21,57 @@ Deno.serve(async (req) => {
     return new Response("Forbidden", { status: 403 });
   }
 
+  const json = (data: unknown, status = 200) =>
+    new Response(JSON.stringify(data), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
   try {
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
+    // ── 1. Authenticate via x-api-key header or ?key= query param ──
+    const apiKey = req.headers.get("x-api-key") || new URL(req.url).searchParams.get("key");
+    if (!apiKey) {
+      return json({ error: "Missing x-api-key header or ?key= parameter" }, 401);
+    }
+
+    const { data: webhook, error: whErr } = await supabase
+      .from("webhook_endpoints")
+      .select("id, account_id, name, source, is_active, default_temperature, default_assigned_to, default_development_id, field_mapping")
+      .eq("api_key", apiKey)
+      .maybeSingle();
+
+    if (whErr || !webhook) {
+      return json({ error: "Invalid API key" }, 401);
+    }
+    if (!webhook.is_active) {
+      return json({ error: "Webhook endpoint is disabled" }, 403);
+    }
+
+    const accountId = webhook.account_id as string;
+    const fieldMapping = (webhook.field_mapping || {}) as Record<string, string>;
+
+    // ── 2. Parse body ──
     const body = await req.json();
 
-    // Extract lead data — flexible format
-    let leadData: { name: string; email: string; phone: string; origin: string; origin_detail: string; cpf: string } = {
-      name: "", email: "", phone: "", origin: "site", origin_detail: "", cpf: "",
-    };
+    // Apply field_mapping: rename keys from external names to NEXA names
+    const mapped: Record<string, string> = {};
+    for (const [extKey, nexaKey] of Object.entries(fieldMapping)) {
+      if (body[extKey] !== undefined) mapped[nexaKey] = String(body[extKey]);
+    }
+
+    // Extract lead data — check mapped first, then body directly
+    let name = mapped.name || body.name || body.nome || body.full_name || "";
+    let email = mapped.email || body.email || "";
+    let phone = mapped.phone || body.phone || body.telefone || body.whatsapp || body.phone_number || "";
+    const sourceDetail = mapped.source_detail || body.source_detail || body.campaign || body.campanha || body.form || "";
+    const observations = mapped.observations || body.observations || body.notes || body.observacoes || "";
 
     // Facebook Lead Ads format
     if (body.entry && body.entry[0]?.changes) {
-      const fbData = body.entry[0].changes[0].value;
-      const fields = fbData.field_data || [];
+      const fbData = body.entry[0].changes[0]?.value;
+      const fields = fbData?.field_data || [];
       const getField = (names: string[]) => {
         for (const n of names) {
           const f = fields.find((fd: { name: string; values: string[] }) => fd.name === n);
@@ -46,84 +79,90 @@ Deno.serve(async (req) => {
         }
         return "";
       };
-      leadData = {
-        name: getField(["full_name", "nome", "name"]),
-        email: getField(["email"]),
-        phone: getField(["phone_number", "telefone", "whatsapp"]),
-        origin: "facebook",
-        origin_detail: fbData.form_id ? `Form ${fbData.form_id}` : "Facebook Lead Ad",
-        cpf: "",
-      };
-    } else {
-      // Generic format
-      leadData = {
-        name: body.name || body.nome || "",
-        email: body.email || "",
-        phone: body.phone || body.telefone || body.whatsapp || "",
-        origin: body.origin || body.origem || "site",
-        origin_detail: body.campaign || body.campanha || body.form || "",
-        cpf: body.cpf || "",
-      };
+      name = name || getField(["full_name", "nome", "name"]);
+      email = email || getField(["email"]);
+      phone = phone || getField(["phone_number", "telefone", "whatsapp"]);
     }
 
-    // Validation
-    if (!leadData.name && !leadData.phone && !leadData.email) {
-      return new Response(JSON.stringify({ error: "Dados insuficientes: precisa de nome, telefone ou email" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    // Clean phone
+    phone = phone.replace(/\D/g, "");
+
+    // ── 3. Validate ──
+    if (!name && !phone && !email) {
+      return json({ error: "Dados insuficientes: precisa de nome, telefone ou email" }, 400);
     }
 
-    const accountId = body.account_id || "16d4b82f-880f-4818-bb07-93c3b606f982";
-
-    // Deduplication by email or phone
+    // ── 4. Deduplicate ──
     let existingClient = null;
-    if (leadData.email) {
-      const { data } = await supabase.from("clients").select("id, name, status").eq("account_id", accountId).eq("email", leadData.email).limit(1).maybeSingle();
+    if (phone && phone.length >= 10) {
+      const { data } = await supabase.from("clients").select("id, name, status")
+        .eq("account_id", accountId).eq("phone", phone).is("deleted_at", null).limit(1).maybeSingle();
       existingClient = data;
     }
-    if (!existingClient && leadData.phone) {
-      const cleanPhone = leadData.phone.replace(/\D/g, "");
-      if (cleanPhone.length >= 8) {
-        const { data } = await supabase.from("clients").select("id, name, status").eq("account_id", accountId).ilike("phone", `%${cleanPhone.slice(-8)}%`).limit(1).maybeSingle();
-        existingClient = data;
-      }
+    if (!existingClient && email) {
+      const { data } = await supabase.from("clients").select("id, name, status")
+        .eq("account_id", accountId).eq("email", email).is("deleted_at", null).limit(1).maybeSingle();
+      existingClient = data;
     }
 
     if (existingClient) {
-      if (["lead", "lost"].includes(existingClient.status || "")) {
-        await supabase.from("clients").update({ status: "lead", origin: leadData.origin, origin_detail: leadData.origin_detail }).eq("id", existingClient.id);
-      }
-      return new Response(JSON.stringify({ success: true, client_id: existingClient.id, duplicate: true, message: "Lead já existe" }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      // Update last_interaction_at + register interaction
+      await supabase.from("clients").update({ last_interaction_at: new Date().toISOString() }).eq("id", existingClient.id);
+      await supabase.from("contact_interactions").insert({
+        account_id: accountId, client_id: existingClient.id,
+        type: "system", title: `Lead recebido via ${webhook.source} (duplicado)`,
+        description: sourceDetail || null,
+        metadata: { webhook_id: webhook.id, source: webhook.source },
+      });
+      // Update webhook stats
+      await supabase.from("webhook_endpoints").update({
+        total_received: (webhook as Record<string, unknown>).total_received
+          ? ((webhook as Record<string, unknown>).total_received as number) + 1 : 1,
+        last_received_at: new Date().toISOString(),
+      }).eq("id", webhook.id);
+
+      return json({ success: true, contact_id: existingClient.id, is_new: false, message: "Contato já existe, interação registrada" });
     }
 
-    // Round-robin distribution
-    const { data: distributors } = await supabase.from("lead_distribution").select("id, consultant_id, current_count").eq("account_id", accountId).eq("active", true).order("current_count", { ascending: true }).order("last_assigned_at", { ascending: true, nullsFirst: true }).limit(1);
-
-    let assignedTo: string | null = null;
-    if (distributors && distributors.length > 0) {
-      const chosen = distributors[0];
-      assignedTo = chosen.consultant_id as string;
-      await supabase.from("lead_distribution").update({ current_count: (chosen.current_count as number) + 1, last_assigned_at: new Date().toISOString() }).eq("id", chosen.id);
-    }
-
-    // Create lead
-    const { data: newClient, error } = await supabase.from("clients").insert({
+    // ── 5. Create new contact ──
+    const { data: newClient, error: insertErr } = await supabase.from("clients").insert({
       account_id: accountId,
-      name: leadData.name || "Lead sem nome",
-      email: leadData.email || null,
-      phone: leadData.phone || null,
-      cpf: leadData.cpf || null,
-      status: "lead",
-      origin: leadData.origin,
-      origin_detail: leadData.origin_detail,
-      assigned_to: assignedTo,
-      assigned_at: assignedTo ? new Date().toISOString() : null,
+      name: name || "Lead sem nome",
+      email: email || null,
+      phone: phone || null,
+      status: "new",
+      temperature: webhook.default_temperature || "warm",
+      origin: webhook.source,
+      origin_detail: sourceDetail || webhook.name,
+      observations: observations || null,
+      assigned_to: webhook.default_assigned_to || null,
+      assigned_at: webhook.default_assigned_to ? new Date().toISOString() : null,
+      development_id: webhook.default_development_id || null,
     }).select("id").single();
 
-    if (error) {
-      return new Response(JSON.stringify({ error: "Erro ao criar lead", detail: error.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    if (insertErr) {
+      return json({ error: "Erro ao criar contato", detail: insertErr.message }, 500);
     }
 
-    return new Response(JSON.stringify({ success: true, client_id: newClient.id, assigned_to: assignedTo, duplicate: false }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    // Register interaction
+    await supabase.from("contact_interactions").insert({
+      account_id: accountId, client_id: newClient.id,
+      type: "system", title: `Lead recebido via ${webhook.source}`,
+      description: sourceDetail || null,
+      metadata: { webhook_id: webhook.id, source: webhook.source },
+    });
+
+    // Update webhook stats
+    await supabase.rpc("increment_webhook_received" as never, { webhook_id_param: webhook.id } as never).catch(() => {
+      // Fallback if rpc doesn't exist
+      supabase.from("webhook_endpoints").update({
+        total_received: ((webhook as Record<string, unknown>).total_received as number || 0) + 1,
+        last_received_at: new Date().toISOString(),
+      }).eq("id", webhook.id);
+    });
+
+    return json({ success: true, contact_id: newClient.id, is_new: true, assigned_to: webhook.default_assigned_to || null });
   } catch (err) {
-    return new Response(JSON.stringify({ error: "Erro interno", detail: err instanceof Error ? err.message : String(err) }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return json({ error: "Erro interno", detail: err instanceof Error ? err.message : String(err) }, 500);
   }
 });

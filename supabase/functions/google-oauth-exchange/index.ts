@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { checkRateLimit, rateLimited } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,6 +14,10 @@ serve(async (req) => {
   }
 
   try {
+    // Rate limit by IP to prevent brute-force (10 attempts per minute)
+    const ip = req.headers.get("x-forwarded-for") || req.headers.get("cf-connecting-ip") || "unknown";
+    if (!checkRateLimit(`oauth:${ip}`, 10, 60000)) return rateLimited();
+
     const { code, redirect_uri } = await req.json();
 
     if (!code) {

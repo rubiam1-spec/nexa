@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { validateAuth, unauthorized, checkRateLimit, rateLimited } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,6 +13,13 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    // Auth: any authenticated user can use AI import
+    const auth = await validateAuth(req);
+    if (!auth) return unauthorized("Autenticação necessária para importação AI");
+
+    // Rate limit: 5 AI calls per minute per user (costs money)
+    if (!checkRateLimit(`import-ai:${auth.userId}`, 5, 60000)) return rateLimited();
+
     const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
     if (!apiKey) {
       return new Response(
@@ -40,39 +48,63 @@ Deno.serve(async (req: Request) => {
 
     const prompt = `Analise esta tabela de vendas imobiliária e extraia os dados de cada lote/unidade.
 
-Retorne APENAS JSON puro, sem texto antes ou depois, sem markdown, sem backticks.
-
-Formato exato:
-{"unidades":[{"quadra":"1","lote":"2","area":1000,"valor":1035000,"status":"available","socio_permutante":false}]}
-
-Campos obrigatórios por unidade (APENAS estes, nenhum outro):
-- quadra: string
-- lote: string (remover * do valor)
-- area: número em m² sem unidade
-- valor: número em reais sem R$ ou pontos
-- status: "available" se Disponível/em branco, "sold" se Vendido, "reserved" se Reservado
-- socio_permutante: boolean (true se lote tinha *)
-
 Regras:
 - Se lote tinha *: socio_permutante = true
 - Ignorar linhas sem quadra E sem lote
 - Ignorar cabeçalhos, logos, totais, linhas vazias
 - NÃO incluir campos extras como entrada, balão, parcela ou observações
+- status: "available" se Disponível/em branco, "sold" se Vendido, "reserved" se Reservado
 
 Tabela:
 ${conteudo}`;
 
+    // ── Cookbook: Prompt Caching + Structured JSON via tool_use ──
     const resp = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-api-key": apiKey,
         "anthropic-version": "2023-06-01",
+        "anthropic-beta": "prompt-caching-2024-07-31",
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
         max_tokens: 10000,
-        system: "Você extrai dados de tabelas de vendas imobiliárias. Retorne APENAS JSON puro válido, sem texto adicional, sem markdown, sem backticks.",
+        system: [
+          {
+            type: "text",
+            text: "Você extrai dados de tabelas de vendas imobiliárias. Analise os dados e retorne usando a ferramenta import_data. Extraia quadra, lote, área em m², valor em reais (número puro), status e se é sócio permutante.",
+            cache_control: { type: "ephemeral" },
+          },
+        ],
+        tools: [
+          {
+            name: "import_data",
+            description: "Retorna os dados extraídos da tabela de vendas como JSON estruturado",
+            input_schema: {
+              type: "object",
+              properties: {
+                unidades: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      quadra: { type: "string", description: "Número da quadra" },
+                      lote: { type: "string", description: "Número do lote (sem asterisco)" },
+                      area: { type: "number", description: "Área em m² (número puro)" },
+                      valor: { type: "number", description: "Valor em reais (número puro sem R$ ou pontos)" },
+                      status: { type: "string", enum: ["available", "sold", "reserved"], description: "Status do lote" },
+                      socio_permutante: { type: "boolean", description: "true se lote tinha asterisco (*)" },
+                    },
+                    required: ["quadra", "lote"],
+                  },
+                },
+              },
+              required: ["unidades"],
+            },
+          },
+        ],
+        tool_choice: { type: "tool", name: "import_data" },
         messages: [{ role: "user", content: prompt }],
       }),
     });
@@ -86,20 +118,33 @@ ${conteudo}`;
     }
 
     const claudeJson = await resp.json();
-    const textContent = claudeJson.content?.[0]?.text ?? "";
-    const jsonMatch = textContent.match(/\{[\s\S]*\}/);
 
-    if (!jsonMatch) {
+    // Extract structured data from tool_use block (guaranteed JSON)
+    const toolUseBlock = claudeJson.content?.find((b: Record<string, unknown>) => b.type === "tool_use");
+    if (toolUseBlock?.input) {
+      // Log cache stats if available
+      const usage = claudeJson.usage;
+      if (usage?.cache_read_input_tokens) {
+        console.log(`Cache hit: ${usage.cache_read_input_tokens} tokens read from cache`);
+      }
       return new Response(
-        JSON.stringify({ error: "IA não retornou JSON válido.", raw: textContent.slice(0, 500) }),
+        JSON.stringify(toolUseBlock.input),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const parsed = JSON.parse(jsonMatch[0]);
+    // Fallback: try text extraction (shouldn't happen with tool_choice forced)
+    const textContent = claudeJson.content?.[0]?.text ?? "";
+    const jsonMatch = textContent.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return new Response(
+        JSON.stringify(JSON.parse(jsonMatch[0])),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     return new Response(
-      JSON.stringify(parsed),
+      JSON.stringify({ error: "IA não retornou dados estruturados.", raw: textContent.slice(0, 500) }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {

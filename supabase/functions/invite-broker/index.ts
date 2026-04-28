@@ -1,4 +1,5 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { checkRateLimit, rateLimited } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,6 +20,9 @@ Deno.serve(async (req) => {
     const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: authHeader } } });
     const { data: { user } } = await userClient.auth.getUser();
     if (!user) return json({ error: "Sessao invalida" }, 401);
+
+    // Rate limit: 10 invites per minute per user
+    if (!checkRateLimit(`invite-broker:${user.id}`, 10, 60000)) return rateLimited();
 
     // Permissão: owner, director ou manager
     const { data: callerAccess } = await userClient.from("user_account_access").select("role").eq("user_id", user.id).limit(1).single();
