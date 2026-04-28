@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { createPortal } from "react-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import * as XLSX from "xlsx";
 import { supabase } from "../../../infra/supabase/supabaseClient";
 import { useAccount } from "../../../app/contexts/AccountContext";
@@ -11,15 +12,20 @@ import NexaBadge from "../../../shared/components/NexaBadge";
 import { getDevelopmentById, updateDevelopment } from "../../../infra/repositories/developmentsSupabaseRepository";
 import { getUnits, createUnit, createUnitsInBulk, updateUnit, deleteUnit } from "../../../infra/repositories/unitsSupabaseRepository";
 import { getMaterials, createMaterial, uploadMaterialFile, type Material } from "../../../infra/repositories/materialsSupabaseRepository";
+import { deleteSalesByDevelopment } from "../../../infra/repositories/salesSupabaseRepository";
+import { useIsMobile } from "../../../shared/hooks/useIsMobile";
 import {
-  getGoogleAuthUrl,
-  isGoogleConnected,
   extractFolderIdFromUrl,
   listFolderFiles,
   detectMaterialType,
-  clearStoredToken,
   type DriveFile,
 } from "../../../shared/services/googleDriveService";
+import { useDocumentRequirements } from "../hooks/useDocumentRequirements";
+import {
+  PARTY_ROLE_LABEL,
+  type PartyRole,
+  type RequirementCellState,
+} from "../../../shared/types/documentRequirement";
 
 const btnP: React.CSSProperties = { background: "var(--color-sprout)", color: "var(--color-ink)", border: "none", borderRadius: 8, padding: "0 16px", height: 36, fontSize: 13, fontWeight: 700 };
 const btnS: React.CSSProperties = { background: "transparent", color: "var(--color-bone)", border: "1px solid var(--color-stone)", borderRadius: 8, padding: "0 14px", height: 32, fontSize: 12, fontWeight: 600 };
@@ -28,17 +34,88 @@ const sTitle: React.CSSProperties = { fontFamily: "var(--font-mono)", fontSize: 
 
 function fmt(v: number) { return v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
-type Tab = "unidades" | "materiais";
+// Sprint B.3.0a — papéis visíveis na matriz de documentos.
+// beneficial_owner fica oculto até a Sprint B.7 (PJ).
+const VISIBLE_PARTY_ROLES: PartyRole[] = [
+  "primary_buyer",
+  "spouse",
+  "co_obligor",
+  "attorney_in_fact",
+];
+
+function computeCellState(
+  requirements: { partyRole: PartyRole; documentTypeId: string; isRequired: boolean }[],
+  partyRole: PartyRole,
+  documentTypeId: string,
+): RequirementCellState {
+  const req = requirements.find(
+    (r) => r.partyRole === partyRole && r.documentTypeId === documentTypeId,
+  );
+  if (!req) return "missing";
+  return req.isRequired ? "required" : "optional";
+}
+
+function RequirementCell({
+  state,
+  loading,
+  onToggle,
+}: {
+  state: RequirementCellState;
+  loading: boolean;
+  onToggle: () => void;
+}) {
+  const config =
+    state === "required"
+      ? { icon: "✓", color: "var(--color-sprout)", bg: "rgba(74,222,128,0.12)", border: "rgba(74,222,128,0.3)" }
+      : state === "optional"
+        ? { icon: "○", color: "#FBBF24", bg: "rgba(251,191,36,0.12)", border: "rgba(251,191,36,0.3)" }
+        : { icon: "—", color: "#5C5647", bg: "transparent", border: "rgba(61,58,48,0.3)" };
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={loading}
+      aria-label={state === "required" ? "Obrigatório" : state === "optional" ? "Opcional" : "Não pedido"}
+      style={{
+        width: 36,
+        height: 36,
+        background: config.bg,
+        border: `1px solid ${config.border}`,
+        borderRadius: 6,
+        color: config.color,
+        fontSize: 16,
+        fontWeight: 700,
+        cursor: loading ? "wait" : "pointer",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        opacity: loading ? 0.5 : 1,
+        transition: "all 150ms ease",
+        padding: 0,
+      }}
+    >
+      {loading ? "…" : config.icon}
+    </button>
+  );
+}
+
+type Tab = "unidades" | "materiais" | "documentos-requeridos";
 
 export default function DevelopmentDetailPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { account } = useAccount();
+  const isMobile = useIsMobile();
   const accountId = account?.accountId ?? null;
 
-  const activeTab: Tab = searchParams.get("tab") === "materiais" ? "materiais" : "unidades";
+  const tabParam = searchParams.get("tab");
+  const activeTab: Tab =
+    tabParam === "materiais" ? "materiais" :
+    tabParam === "documentos-requeridos" ? "documentos-requeridos" :
+    "unidades";
   function switchTab(tab: Tab) {
-    setSearchParams(tab === "unidades" ? {} : { tab: "materiais" }, { replace: true });
+    setSearchParams(tab === "unidades" ? {} : { tab }, { replace: true });
   }
 
   const [dev, setDev] = useState<DevelopmentContextData | null>(null);
@@ -97,13 +174,20 @@ export default function DevelopmentDetailPage() {
   const [driveError, setDriveError] = useState<string | null>(null);
   const [importingDrive, setImportingDrive] = useState(false);
   const [showDriveTutorial, setShowDriveTutorial] = useState(false);
-  const googleConnected = isGoogleConnected();
+  const [driveFolderStack, setDriveFolderStack] = useState<{ id: string; name: string }[]>([]);
 
   // Success message
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // Inline delete confirmation
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmClearSales, setConfirmClearSales] = useState(false);
+  const [clearingSales, setClearingSales] = useState(false);
+
+  // Sprint B.3.0a — matriz de documentos requeridos do empreendimento
+  const docRequirements = useDocumentRequirements(id ?? null, accountId);
+  const [showRestoreDefaultsConfirm, setShowRestoreDefaultsConfirm] = useState(false);
+  const [restoringDefaults, setRestoringDefaults] = useState(false);
 
   // Unit form autoFocus
   const unitQuadraRef = useRef<HTMLInputElement>(null);
@@ -195,6 +279,22 @@ export default function DevelopmentDetailPage() {
     } catch (e: unknown) { setError(e instanceof Error ? e.message : "Falha ao excluir."); }
   }
 
+  async function handleClearSales() {
+    if (!id) return;
+    setClearingSales(true);
+    try {
+      await deleteSalesByDevelopment(id);
+      setUnits((prev) => prev.map((u) => u.status === UnidadeStatus.VENDIDO ? { ...u, status: UnidadeStatus.DISPONIVEL } : u));
+      setConfirmClearSales(false);
+      setSuccessMsg("Todas as vendas foram removidas.");
+      setTimeout(() => setSuccessMsg(null), 3000);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Falha ao limpar vendas.");
+    } finally {
+      setClearingSales(false);
+    }
+  }
+
   async function handleAddMaterial() {
     if (!accountId || !id || !mTitulo.trim()) return;
     setSavingMat(true);
@@ -223,32 +323,6 @@ export default function DevelopmentDetailPage() {
       setDriveSelected(new Set(files.filter((f) => f.mimeType !== "application/vnd.google-apps.folder").map((f) => f.id)));
     } catch (e: unknown) {
       setDriveError(e instanceof Error ? e.message : "Falha ao carregar pasta.");
-    } finally { setDriveLoading(false); }
-  }
-
-  async function handleDriveOAuthLoad() {
-    setDriveLoading(true); setDriveError(null);
-    try {
-      const files = await listFolderFiles("root");
-      setDriveFiles(files);
-      setDriveSelected(new Set());
-    } catch (e: unknown) {
-      if (String(e).includes("Token expirado")) {
-        setDriveError("Token expirado. Reconecte sua conta Google.");
-      } else {
-        setDriveError(e instanceof Error ? e.message : "Falha ao listar Drive.");
-      }
-    } finally { setDriveLoading(false); }
-  }
-
-  async function handleDriveNavigateFolder(folderId: string) {
-    setDriveLoading(true); setDriveError(null);
-    try {
-      const files = await listFolderFiles(folderId);
-      setDriveFiles(files);
-      setDriveSelected(new Set());
-    } catch (e: unknown) {
-      setDriveError(e instanceof Error ? e.message : "Falha ao navegar pasta.");
     } finally { setDriveLoading(false); }
   }
 
@@ -285,6 +359,35 @@ export default function DevelopmentDetailPage() {
       setDriveError(e instanceof Error ? e.message : "Falha na importação.");
     } finally { setImportingDrive(false); }
   }
+
+  async function handleDriveOAuthLoad(folderId = "root") {
+    setDriveLoading(true); setDriveError(null);
+    try {
+      const files = await listFolderFiles(folderId);
+      // Separate folders from files
+      const folders = files.filter((f) => f.mimeType === "application/vnd.google-apps.folder");
+      const nonFolders = files.filter((f) => f.mimeType !== "application/vnd.google-apps.folder");
+      setDriveFiles([...folders, ...nonFolders]);
+      setDriveSelected(new Set(nonFolders.map((f) => f.id)));
+    } catch (e: unknown) {
+      setDriveError(e instanceof Error ? e.message : "Falha ao carregar arquivos do Drive.");
+    } finally { setDriveLoading(false); }
+  }
+
+  function navigateDriveFolder(folderId: string, folderName: string) {
+    setDriveFolderStack((prev) => [...prev, { id: folderId, name: folderName }]);
+    void handleDriveOAuthLoad(folderId);
+  }
+
+  function navigateDriveBack() {
+    setDriveFolderStack((prev) => {
+      const next = prev.slice(0, -1);
+      const parentId = next.length > 0 ? next[next.length - 1].id : "root";
+      void handleDriveOAuthLoad(parentId);
+      return next;
+    });
+  }
+
 
   function handleCsvFile(file: File) {
     const reader = new FileReader();
@@ -473,7 +576,7 @@ export default function DevelopmentDetailPage() {
       {/* SEÇÃO 1 — Informações */}
       <div className="nexa-card" style={{ marginBottom: 16, padding: 20 }}>
         <div style={sTitle}>Informações gerais</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, maxWidth: 600, marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, maxWidth: 600, marginBottom: 16 }}>
           <label><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Nome</span><input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} /></label>
           <label><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Cidade</span><input type="text" value={editCity} onChange={(e) => setEditCity(e.target.value)} /></label>
           <label><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Estado</span><input type="text" value={editState} onChange={(e) => setEditState(e.target.value)} /></label>
@@ -483,12 +586,15 @@ export default function DevelopmentDetailPage() {
       </div>
 
       {/* TABS */}
-      <div style={{ display: "flex", gap: 0, borderBottom: "1px solid var(--color-stone)", marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 0, borderBottom: "1px solid var(--color-stone)", marginBottom: 16, flexWrap: "wrap" }}>
         <button type="button" onClick={() => switchTab("unidades")} style={tabStyle(activeTab === "unidades")}>
           Unidades ({units.length})
         </button>
-        <button type="button" onClick={() => switchTab("materiais")} style={tabStyle(activeTab === "materiais")}>
-          Materiais ({materials.length})
+        <button type="button" onClick={() => switchTab("documentos-requeridos")} style={tabStyle(activeTab === "documentos-requeridos")}>
+          Documentos requeridos
+        </button>
+        <button type="button" onClick={() => navigate("/materiais")} style={tabStyle(false)}>
+          Materiais →
         </button>
       </div>
 
@@ -496,7 +602,7 @@ export default function DevelopmentDetailPage() {
       {activeTab === "unidades" ? (
         <div className="nexa-card" style={{ padding: 20 }}>
           {/* KPIs */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 20 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, minmax(0, 1fr))" : "repeat(5, minmax(0, 1fr))", gap: 12, marginBottom: 20 }}>
             {[
               { label: "Total", value: units.length },
               { label: "Disponíveis", value: countBy(UnidadeStatus.DISPONIVEL) },
@@ -510,6 +616,32 @@ export default function DevelopmentDetailPage() {
               </div>
             ))}
           </div>
+
+          {/* Botão limpar vendas */}
+          {countBy(UnidadeStatus.VENDIDO) > 0 ? (
+            <div style={{ marginBottom: 16 }}>
+              {confirmClearSales ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", background: "var(--color-red-muted)", border: "1px solid var(--color-red)", borderRadius: 8 }}>
+                  <span style={{ fontSize: 13, color: "var(--color-red)", fontWeight: 600 }}>
+                    Apagar {countBy(UnidadeStatus.VENDIDO)} venda{countBy(UnidadeStatus.VENDIDO) !== 1 ? "s" : ""}? Esta ação não pode ser desfeita.
+                  </span>
+                  <button type="button" onClick={() => void handleClearSales()} disabled={clearingSales}
+                    style={{ background: "var(--color-red)", color: "#fff", border: "none", borderRadius: 6, padding: "0 12px", height: 28, fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+                    {clearingSales ? "Apagando..." : "Confirmar"}
+                  </button>
+                  <button type="button" onClick={() => setConfirmClearSales(false)}
+                    style={{ background: "transparent", color: "var(--color-fog)", border: "1px solid var(--color-stone)", borderRadius: 6, padding: "0 12px", height: 28, fontSize: 12 }}>
+                    Cancelar
+                  </button>
+                </div>
+              ) : (
+                <button type="button" onClick={() => setConfirmClearSales(true)}
+                  style={{ background: "transparent", color: "var(--color-red)", border: "1px solid var(--color-red-muted)", borderRadius: 8, padding: "0 14px", height: 32, fontSize: 12, fontWeight: 600 }}>
+                  Limpar todas as vendas ({countBy(UnidadeStatus.VENDIDO)})
+                </button>
+              )}
+            </div>
+          ) : null}
 
           {/* Header + Dropdown */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
@@ -698,6 +830,146 @@ export default function DevelopmentDetailPage() {
         </div>
       ) : null}
 
+      {/* ═══ ABA DOCUMENTOS REQUERIDOS (Sprint B.3.0a) ═══ */}
+      {activeTab === "documentos-requeridos" ? (
+        <div className="nexa-card" style={{ padding: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={sTitle}>Documentos requeridos</div>
+              <div style={{ fontSize: 13, color: "var(--color-fog)", lineHeight: 1.5, maxWidth: 600 }}>
+                Configure quais documentos são exigidos para cada papel da parte na negociação. Cada célula tem 3 estados — clique para alternar.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowRestoreDefaultsConfirm(true)}
+              disabled={docRequirements.isLoading}
+              style={{ ...btnD, height: 32 }}
+            >
+              Restaurar defaults NEXA
+            </button>
+          </div>
+
+          {/* Legenda */}
+          <div style={{ display: "flex", gap: 18, alignItems: "center", marginBottom: 16, fontSize: 11, color: "var(--color-fog)", flexWrap: "wrap" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, background: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.3)", borderRadius: 4, color: "var(--color-sprout)", fontSize: 13, fontWeight: 700 }}>✓</span>
+              Obrigatório
+            </span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 4, color: "#FBBF24", fontSize: 13, fontWeight: 700 }}>○</span>
+              Opcional
+            </span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, background: "transparent", border: "1px solid rgba(61,58,48,0.3)", borderRadius: 4, color: "#5C5647", fontSize: 13, fontWeight: 700 }}>—</span>
+              Não pedido
+            </span>
+          </div>
+
+          {docRequirements.errorMessage ? (
+            <div style={{ marginBottom: 12, padding: "8px 12px", background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)", borderRadius: 6, fontSize: 12, color: "#F87171" }}>
+              {docRequirements.errorMessage}
+            </div>
+          ) : null}
+
+          {docRequirements.isLoading && docRequirements.catalog.length === 0 ? (
+            <p style={{ color: "var(--color-fog)", fontSize: 13, fontStyle: "italic", margin: 0 }}>Carregando matriz de documentos...</p>
+          ) : docRequirements.catalog.length === 0 ? (
+            <p style={{ color: "var(--color-fog)", fontSize: 13 }}>Nenhum tipo de documento ativo no catálogo.</p>
+          ) : (
+            <div style={{ overflowX: "auto", border: "1px solid var(--color-stone)", borderRadius: 8 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 640 }}>
+                <thead>
+                  <tr style={{ background: "rgba(34,33,28,0.3)" }}>
+                    <th style={{ textAlign: "left", padding: "10px 14px", fontSize: 10, fontFamily: "var(--font-mono)", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--color-fog)", fontWeight: 600, borderBottom: "1px solid var(--color-stone)", minWidth: 220 }}>
+                      Tipo de documento
+                    </th>
+                    {VISIBLE_PARTY_ROLES.map((role) => (
+                      <th key={role} style={{ textAlign: "center", padding: "10px 14px", fontSize: 10, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--color-fog)", fontWeight: 600, borderBottom: "1px solid var(--color-stone)", minWidth: 100 }}>
+                        {PARTY_ROLE_LABEL[role]}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {docRequirements.catalog.map((type, idx) => (
+                    <tr key={type.id} style={{ borderBottom: idx < docRequirements.catalog.length - 1 ? "1px solid rgba(61,58,48,0.3)" : "none" }}>
+                      <td style={{ padding: "10px 14px", verticalAlign: "top" }}>
+                        <div style={{ fontSize: 13, color: "var(--color-bone)", fontWeight: 500 }}>{type.label}</div>
+                        {type.description ? (
+                          <div style={{ fontSize: 11, color: "var(--color-fog)", marginTop: 2, lineHeight: 1.4 }}>{type.description}</div>
+                        ) : null}
+                      </td>
+                      {VISIBLE_PARTY_ROLES.map((role) => {
+                        const state = computeCellState(docRequirements.requirements, role, type.id);
+                        const cellKey = `${role}:${type.id}`;
+                        const isMutating = docRequirements.mutatingCell === cellKey;
+                        return (
+                          <td key={role} style={{ padding: "10px 14px", textAlign: "center" }}>
+                            <RequirementCell
+                              state={state}
+                              loading={isMutating}
+                              onToggle={() => void docRequirements.toggleRequirement(role, type.id, state)}
+                            />
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {/* Modal de confirmação Restaurar defaults (Sprint B.3.0a) */}
+      {showRestoreDefaultsConfirm ? createPortal(
+        <div
+          onClick={() => { if (!restoringDefaults) setShowRestoreDefaultsConfirm(false); }}
+          style={{ position: "fixed", inset: 0, zIndex: 9000, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: "var(--surface-raised, #1C1B18)", border: "1px solid var(--color-stone)", borderRadius: 16, padding: 24, maxWidth: 460, width: "100%" }}
+          >
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: "var(--color-bone)", margin: "0 0 8px" }}>
+              Restaurar defaults NEXA?
+            </h3>
+            <p style={{ fontSize: 13, color: "var(--color-fog)", margin: "0 0 20px", lineHeight: 1.5 }}>
+              Isso vai apagar todas as suas customizações nesta matriz e restaurar os 19 requirements padrão. Não pode ser desfeito.
+            </p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={() => setShowRestoreDefaultsConfirm(false)}
+                disabled={restoringDefaults}
+                style={btnS}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={restoringDefaults}
+                onClick={async () => {
+                  setRestoringDefaults(true);
+                  try {
+                    await docRequirements.restoreDefaults();
+                    setShowRestoreDefaultsConfirm(false);
+                  } finally {
+                    setRestoringDefaults(false);
+                  }
+                }}
+                style={{ ...btnD, height: 36, padding: "0 16px", fontSize: 13 }}
+              >
+                {restoringDefaults ? "Restaurando..." : "Restaurar mesmo assim"}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      ) : null}
+
       {/* ═══ ABA MATERIAIS ═══ */}
       {activeTab === "materiais" ? (
         <div className="nexa-card" style={{ padding: 20 }}>
@@ -717,19 +989,11 @@ export default function DevelopmentDetailPage() {
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-terracotta)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
                       Importar do Drive
                     </button>
-                    {googleConnected ? (
-                      <button type="button" onClick={() => { setMatAction("drive-oauth"); setDriveMode("oauth"); void handleDriveOAuthLoad(); setShowMatDropdown(false); }} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "8px 12px", background: "transparent", border: "none", borderRadius: 6, fontSize: 12, color: "var(--color-bone)", cursor: "pointer", textAlign: "left" }}
-                        onMouseEnter={(e) => { e.currentTarget.style.background = "var(--color-stone)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-                        Meu Google Drive
-                      </button>
-                    ) : (
-                      <button type="button" onClick={() => { localStorage.setItem("nexa_oauth_return_url", window.location.pathname + window.location.search); window.location.href = getGoogleAuthUrl(); }} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "8px 12px", background: "transparent", border: "none", borderRadius: 6, fontSize: 12, color: "var(--color-bone)", cursor: "pointer", textAlign: "left" }}
-                        onMouseEnter={(e) => { e.currentTarget.style.background = "var(--color-stone)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-                        Conectar Google Drive
-                      </button>
-                    )}
+                    <button type="button" onClick={() => { const returnUrl = window.location.pathname + window.location.search; window.location.href = `/api/google-auth?return_url=${encodeURIComponent(returnUrl)}`; }} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "8px 12px", background: "transparent", border: "none", borderRadius: 6, fontSize: 12, color: "var(--color-bone)", cursor: "pointer", textAlign: "left" }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = "var(--color-stone)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                      Conectar Google Drive
+                    </button>
                     <div style={{ height: 1, background: "var(--color-stone)", margin: "4px 0" }} />
                     <label style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "8px 12px", background: "transparent", border: "none", borderRadius: 6, fontSize: 12, color: "var(--color-bone)", cursor: "pointer" }}
                       onMouseEnter={(e) => { e.currentTarget.style.background = "var(--color-stone)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
@@ -820,61 +1084,71 @@ export default function DevelopmentDetailPage() {
             </div>
           ) : null}
 
-          {/* Google Drive - OAuth mode */}
+
+          {/* Google Drive - OAuth mode (folder navigation) */}
           {driveMode === "oauth" ? (
             <div style={{ background: "var(--color-ink)", border: "1px solid var(--color-stone)", borderRadius: 8, padding: 16, marginBottom: 16, animation: "fadeIn 200ms ease" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                <div className="nexa-label">Navegando seu Google Drive</div>
-                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                  <button type="button" onClick={() => { clearStoredToken(); setDriveMode("none"); setMatAction("none"); setDriveFiles([]); }} style={{ fontSize: 11, color: "var(--color-fog)", background: "transparent", border: "none", cursor: "pointer", textDecoration: "underline" }}>Desconectar</button>
-                  <button type="button" onClick={() => { setDriveMode("none"); setMatAction("none"); setDriveFiles([]); }} style={{ background: "transparent", border: "none", color: "var(--color-fog)", fontSize: 14, cursor: "pointer" }}>×</button>
-                </div>
+                <div className="nexa-label">Google Drive — Selecione uma pasta</div>
+                <button type="button" onClick={() => { setDriveMode("none"); setMatAction("none"); setDriveFiles([]); setDriveFolderStack([]); }} style={{ background: "transparent", border: "none", color: "var(--color-fog)", fontSize: 14, cursor: "pointer" }}>×</button>
               </div>
-              {driveError ? <p style={{ color: "var(--color-red)", fontSize: 12, marginBottom: 8 }}>{driveError}</p> : null}
-              {driveLoading ? <p style={{ color: "var(--color-fog)", fontSize: 12 }}>Carregando...</p> : (
+              {/* Breadcrumb */}
+              <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 10, flexWrap: "wrap" }}>
+                <button type="button" onClick={() => { setDriveFolderStack([]); void handleDriveOAuthLoad("root"); }} style={{ background: "transparent", border: "none", color: driveFolderStack.length > 0 ? "var(--color-sprout)" : "var(--color-bone)", fontSize: 12, cursor: "pointer", textDecoration: driveFolderStack.length > 0 ? "underline" : "none", padding: 0 }}>Meu Drive</button>
+                {driveFolderStack.map((folder, idx) => (
+                  <span key={folder.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <span style={{ color: "var(--color-fog)", fontSize: 11 }}>/</span>
+                    <button type="button" onClick={() => { const next = driveFolderStack.slice(0, idx + 1); setDriveFolderStack(next); void handleDriveOAuthLoad(folder.id); }} style={{ background: "transparent", border: "none", color: idx === driveFolderStack.length - 1 ? "var(--color-bone)" : "var(--color-sprout)", fontSize: 12, cursor: "pointer", textDecoration: idx < driveFolderStack.length - 1 ? "underline" : "none", padding: 0, maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{folder.name}</button>
+                  </span>
+                ))}
+                {driveFolderStack.length > 0 ? (
+                  <button type="button" onClick={navigateDriveBack} style={{ ...btnS, height: 24, fontSize: 11, marginLeft: 8, padding: "0 8px" }}>← Voltar</button>
+                ) : null}
+              </div>
+              {driveLoading ? <p style={{ color: "var(--color-fog)", fontSize: 12 }}>Carregando...</p> : null}
+              {driveError ? <p style={{ color: "var(--color-red)", fontSize: 12 }}>{driveError}</p> : null}
+              {!driveLoading && driveFiles.length > 0 ? (
                 <div>
-                  {driveFiles.length === 0 ? (
-                    <p style={{ color: "var(--color-fog)", fontSize: 12 }}>Nenhum arquivo encontrado nesta pasta.</p>
-                  ) : (
-                    <>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                        <span style={{ fontSize: 12, color: "var(--color-fog)" }}>{driveFiles.length} itens · {driveSelected.size} selecionados</span>
-                        <button type="button" onClick={() => { const nonFolders = driveFiles.filter((f) => f.mimeType !== "application/vnd.google-apps.folder"); setDriveSelected(driveSelected.size === nonFolders.length ? new Set() : new Set(nonFolders.map((f) => f.id))); }} style={{ fontSize: 11, color: "var(--color-sprout)", background: "transparent", border: "none", cursor: "pointer", textDecoration: "underline" }}>
-                          {driveSelected.size > 0 ? "Desmarcar todos" : "Selecionar todos"}
-                        </button>
-                      </div>
-                      <div style={{ maxHeight: 300, overflowY: "auto", display: "grid", gap: 4 }}>
-                        {driveFiles.map((file) => {
-                          const isFolder = file.mimeType === "application/vnd.google-apps.folder";
-                          const tipo = detectMaterialType(file.mimeType);
-                          const tc = tipoColors[tipo] ?? tipoColors.link;
-                          if (isFolder) {
-                            return (
-                              <button key={file.id} type="button" onClick={() => void handleDriveNavigateFolder(file.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, background: "transparent", border: "1px solid var(--color-stone)", cursor: "pointer", textAlign: "left" }}
-                                onMouseEnter={(e) => { e.currentTarget.style.background = "var(--color-stone)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--color-terracotta)" stroke="none"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
-                                <span style={{ fontSize: 12, color: "var(--color-bone)", fontWeight: 600 }}>{file.name}</span>
-                              </button>
-                            );
-                          }
-                          return (
-                            <label key={file.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", borderRadius: 6, background: driveSelected.has(file.id) ? "var(--color-sprout-glow)" : "transparent", cursor: "pointer" }}>
-                              <input type="checkbox" checked={driveSelected.has(file.id)} onChange={() => toggleDriveFile(file.id)} />
-                              <span className="nexa-badge" style={{ color: tc.color, background: tc.bg, fontSize: 9 }}>{tipoLabels[tipo] ?? tipo}</span>
-                              <span style={{ fontSize: 12, color: "var(--color-bone)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                      {driveSelected.size > 0 ? (
-                        <button type="button" disabled={importingDrive} onClick={() => void handleDriveImport()} style={{ ...btnP, height: 32, fontSize: 12, marginTop: 12 }}>
-                          {importingDrive ? "Importando..." : `Importar ${driveSelected.size} arquivo${driveSelected.size !== 1 ? "s" : ""}`}
-                        </button>
-                      ) : null}
-                    </>
-                  )}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <span style={{ fontSize: 12, color: "var(--color-fog)" }}>{driveFiles.length} itens · {driveSelected.size} selecionados</span>
+                    <button type="button" onClick={() => { const nonFolders = driveFiles.filter((f) => f.mimeType !== "application/vnd.google-apps.folder"); setDriveSelected(driveSelected.size === nonFolders.length ? new Set() : new Set(nonFolders.map((f) => f.id))); }} style={{ fontSize: 11, color: "var(--color-sprout)", background: "transparent", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+                      {driveSelected.size === driveFiles.filter((f) => f.mimeType !== "application/vnd.google-apps.folder").length ? "Desmarcar todos" : "Selecionar todos"}
+                    </button>
+                  </div>
+                  <div style={{ maxHeight: 300, overflowY: "auto", display: "grid", gap: 4 }}>
+                    {driveFiles.map((file) => {
+                      const isFolder = file.mimeType === "application/vnd.google-apps.folder";
+                      const tipo = detectMaterialType(file.mimeType);
+                      const tc = tipoColors[tipo] ?? tipoColors.link;
+                      if (isFolder) {
+                        return (
+                          <button key={file.id} type="button" onClick={() => navigateDriveFolder(file.id, file.name)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, background: "transparent", border: "1px solid var(--color-stone)", cursor: "pointer", textAlign: "left" }}
+                            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--color-sprout)"; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--color-stone)"; }}>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--color-terracotta)" stroke="var(--color-terracotta)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+                            <span style={{ fontSize: 12, color: "var(--color-bone)", fontWeight: 600 }}>{file.name}</span>
+                            <span style={{ fontSize: 10, color: "var(--color-fog)", marginLeft: "auto" }}>→</span>
+                          </button>
+                        );
+                      }
+                      return (
+                        <label key={file.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", borderRadius: 6, background: driveSelected.has(file.id) ? "var(--color-sprout-glow)" : "transparent", cursor: "pointer" }}>
+                          <input type="checkbox" checked={driveSelected.has(file.id)} onChange={() => toggleDriveFile(file.id)} />
+                          <span className="nexa-badge" style={{ color: tc.color, background: tc.bg, fontSize: 9 }}>{tipoLabels[tipo] ?? tipo}</span>
+                          <span style={{ fontSize: 12, color: "var(--color-bone)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {driveFiles.some((f) => f.mimeType !== "application/vnd.google-apps.folder") ? (
+                    <button type="button" disabled={driveSelected.size === 0 || importingDrive} onClick={() => void handleDriveImport()} style={{ ...btnP, height: 32, fontSize: 12, marginTop: 12 }}>
+                      {importingDrive ? "Importando..." : `Importar ${driveSelected.size} arquivo${driveSelected.size !== 1 ? "s" : ""}`}
+                    </button>
+                  ) : null}
                 </div>
-              )}
+              ) : null}
+              {!driveLoading && driveFiles.length === 0 && !driveError ? (
+                <p style={{ color: "var(--color-fog)", fontSize: 12 }}>Nenhum arquivo encontrado nesta pasta.</p>
+              ) : null}
             </div>
           ) : null}
 
@@ -905,7 +1179,7 @@ export default function DevelopmentDetailPage() {
 
           {/* Materials grid */}
           {materials.length > 0 ? (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(auto-fill, minmax(140px, 1fr))" : "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
               {materials.map((mat) => {
                 const tc = tipoColors[mat.tipo] ?? tipoColors.link;
                 const iconByType: Record<string, React.ReactNode> = {
