@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;0,9..40,900;1,9..40,300;1,9..40,400;1,9..40,500;1,9..40,600;1,9..40,700;1,9..40,800;1,9..40,900&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+/* Outfit loaded via Google Fonts in index.html */
 
 :root {
   /* Theme-aware aliases — these change with data-theme */
@@ -32,7 +33,7 @@
 
   /* Fonts */
   --font-display: 'Instrument Serif', Georgia, serif;
-  --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
 
   /* Spacing (8px grid) */
@@ -54,6 +55,27 @@
   /* Layout */
   --sidebar-width: 240px;
   --topbar-height: 56px;
+
+  /* v7: Card gradients */
+  --card-gradient: linear-gradient(168deg, rgba(34,33,28,0.5) 0%, rgba(18,17,14,0.15) 100%);
+  --card-gradient-elevated: linear-gradient(168deg, rgba(34,33,28,0.7) 0%, rgba(18,17,14,0.35) 100%);
+  --card-border: rgba(61,58,48,0.1);
+  --card-border-hover: rgba(61,58,48,0.3);
+
+  /* v7: Transitions */
+  --transition-micro: 100ms ease;
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+
+  /* v7: Radius */
+  --radius-card: 12px;
+  --radius-pill: 20px;
+
+  /* v7: Glow (KPIs) */
+  --glow-sprout: radial-gradient(circle at top right, rgba(74,222,128,0.06), transparent 70%);
+  --glow-blue: radial-gradient(circle at top right, rgba(96,165,250,0.06), transparent 70%);
+  --glow-terracotta: radial-gradient(circle at top right, rgba(217,119,6,0.06), transparent 70%);
+  --glow-purple: radial-gradient(circle at top right, rgba(167,139,250,0.06), transparent 70%);
 }
 
 /* Reset */
@@ -114,8 +136,8 @@ a:hover {
 
 /* Form elements */
 input, select, textarea {
-  background: var(--color-ink);
-  border: 1px solid var(--color-stone);
+  background: linear-gradient(168deg, rgba(34,33,28,0.5), rgba(18,17,14,0.15));
+  border: 1px solid rgba(61,58,48,0.15);
   border-radius: 8px;
   padding: 10px 14px;
   color: var(--color-chalk);
@@ -127,8 +149,8 @@ input, select, textarea {
 }
 
 input:focus, select:focus, textarea:focus {
-  border-color: var(--color-sprout);
-  box-shadow: 0 0 0 2px var(--color-sprout-muted);
+  border-color: rgba(74,222,128,0.3);
+  box-shadow: 0 0 0 2px rgba(74,222,128,0.08);
 }
 
 input::placeholder, textarea::placeholder {
@@ -153,10 +175,15 @@ button:disabled {
 
 /* Utility classes */
 .nexa-card {
-  background: var(--color-carbon);
-  border: 1px solid var(--color-stone);
-  border-radius: 12px;
+  background: var(--card-gradient);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-card);
   padding: 24px;
+  transition: border-color var(--transition-fast), transform var(--transition-fast);
+}
+.nexa-card:hover {
+  border-color: var(--card-border-hover);
+  transform: translateY(-1px);
 }
 
 .nexa-badge {
@@ -350,10 +377,247 @@ button:disabled {
 
 /* Page transition */
 @keyframes pageFade {
-  from { opacity: 0; transform: translateY(6px); }
+  from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
 .nexa-page-enter {
-  animation: pageFade 0.25s ease-out;
+  animation: pageFade 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ══════════════════════════════════════════════════════════
+   NEXA MOTION SYSTEM v1.0 — Brand Book v6.1 Section 08
+   ══════════════════════════════════════════════════════════ */
+
+:root {
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast: 150ms;
+  --dur-normal: 200ms;
+  --dur-slow: 300ms;
+}
+
+@keyframes fadeInUp { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: translateY(0) } }
+@keyframes fadeInScale { from { opacity: 0; transform: scale(0.96) } to { opacity: 1; transform: scale(1) } }
+@keyframes slideInRight { from { opacity: 0; transform: translateX(12px) } to { opacity: 1; transform: translateX(0) } }
+@keyframes slideUpSheet { from { transform: translateY(100%) } to { transform: translateY(0) } }
+@keyframes slideDownSheet { from { transform: translateY(0) } to { transform: translateY(100%) } }
+@keyframes toastIn { from { opacity: 0; transform: translateY(-12px) scale(0.96) } to { opacity: 1; transform: translateY(0) scale(1) } }
+@keyframes toastOut { from { opacity: 1 } to { opacity: 0; transform: translateY(-12px) scale(0.96) } }
+@keyframes badgePop { 0% { transform: scale(1) } 50% { transform: scale(1.2) } 100% { transform: scale(1) } }
+@keyframes shake { 0%,100% { transform: translateX(0) } 25% { transform: translateX(-4px) } 75% { transform: translateX(4px) } }
+@keyframes spin { to { transform: rotate(360deg) } }
+@keyframes shimmerSkeleton { 0% { background-position: -400px 0 } 100% { background-position: 400px 0 } }
+
+/* Utility classes */
+.nexa-animate-fade-in-up { animation: fadeInUp var(--dur-slow) var(--ease-out) both }
+.nexa-animate-fade-in-scale { animation: fadeInScale var(--dur-slow) var(--ease-out) both }
+.nexa-animate-slide-in-right { animation: slideInRight var(--dur-slow) var(--ease-out) both }
+
+/* Skeleton loading */
+.nexa-skeleton {
+  background: linear-gradient(90deg, var(--surface-overlay, #2A2822) 25%, var(--surface-hover, #3D3A30) 50%, var(--surface-overlay, #2A2822) 75%);
+  background-size: 400px 100%;
+  animation: shimmerSkeleton 1.5s ease-in-out infinite;
+  border-radius: 6px;
+}
+.nexa-skeleton-text { height: 14px; width: 60%; margin-bottom: 8px }
+.nexa-skeleton-title { height: 22px; width: 40%; margin-bottom: 12px }
+.nexa-skeleton-card { height: 120px; width: 100%; border-radius: 12px; margin-bottom: 12px }
+.nexa-skeleton-kpi { height: 80px; width: 100%; border-radius: 12px }
+.nexa-skeleton-row { height: 44px; width: 100%; margin-bottom: 4px; border-radius: 6px }
+
+/* Input focus */
+input:focus, textarea:focus, select:focus {
+  border-color: rgba(74,222,128,0.3) !important;
+  box-shadow: 0 0 0 2px rgba(74,222,128,0.08);
+  transition: border-color var(--dur-fast) ease, box-shadow var(--dur-fast) ease;
+}
+.nexa-input-error {
+  border-color: #F87171 !important;
+  animation: shake 300ms ease;
+}
+
+/* Touch feedback */
+.nexa-touch-feedback {
+  -webkit-tap-highlight-color: transparent;
+}
+.nexa-touch-feedback:active {
+  transform: scale(0.98);
+  transition: transform 50ms ease;
+}
+
+/* Bottom sheet */
+.nexa-bottom-sheet-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  z-index: 9998;
+  animation: fadeIn var(--dur-normal) ease both;
+}
+.nexa-bottom-sheet {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  max-height: 92vh;
+  background: var(--surface-raised, #1C1B18);
+  border-radius: 16px 16px 0 0;
+  z-index: 9999;
+  animation: slideUpSheet var(--dur-slow) var(--ease-out) both;
+  overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.nexa-bottom-sheet.closing {
+  animation: slideDownSheet var(--dur-normal) var(--ease-in-out) both;
+}
+.nexa-bottom-sheet-handle {
+  width: 36px; height: 4px;
+  background: var(--text-disabled, #706B5F);
+  border-radius: 2px;
+  margin: 12px auto 8px;
+}
+
+/* Dropdown animation */
+.nexa-dropdown-enter {
+  animation: fadeInScale var(--dur-normal) var(--ease-out) both;
+  transform-origin: top right;
+}
+
+/* Button motion — global */
+button, a[style*="cursor: pointer"], a[style*="cursor:pointer"], [role="button"] {
+  transition: all 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  -webkit-tap-highlight-color: transparent;
+}
+button:active, a[style*="cursor: pointer"]:active, [role="button"]:active {
+  transform: translateY(0) scale(0.98) !important;
+  transition-duration: 50ms;
+}
+
+/* Table row hover — global */
+table.nexa-table tbody tr {
+  transition: background 150ms ease;
+}
+table.nexa-table tbody tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* Modal overlay animation */
+[style*="position: fixed"][style*="inset: 0"][style*="background: rgba(0,0,0"] {
+  animation: fadeIn var(--dur-normal) ease both;
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+}
+
+/* Modal content animation */
+[style*="position: fixed"][style*="top: 50%"][style*="left: 50%"] {
+  animation: fadeInScale var(--dur-slow) var(--ease-out) both;
+}
+
+/* Mobile: ALL modals/dialogs become bottom sheets */
+@media (max-width: 767px) {
+  [style*="position: fixed"][style*="top: 50%"][style*="left: 50%"],
+  [style*="position:fixed"][style*="top:50%"][style*="left:50%"] {
+    top: auto !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 85vh !important;
+    border-radius: 16px 16px 0 0 !important;
+    transform: none !important;
+    animation: slideUpSheet 300ms cubic-bezier(0.16, 1, 0.3, 1) both !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: env(safe-area-inset-bottom, 16px) !important;
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .nexa-skeleton { animation: none; background: var(--surface-overlay, #2A2822) }
+}
+
+/* ═══════════════════════════════════════════════
+   LIGHT MODE OVERRIDES
+   Fix hardcoded dark-mode colors in inline styles
+   ═══════════════════════════════════════════════ */
+[data-theme="light"] {
+  /* Override legacy sprout-glow for light */
+  --color-sprout-glow: rgba(22,163,74,0.06);
+}
+
+/* Cards with dark gradient backgrounds → white in light */
+[data-theme="light"] .nexa-card {
+  background: #FFFFFF !important;
+  border-color: var(--border-default) !important;
+}
+
+/* Badges: ensure text readable on light bg */
+[data-theme="light"] .nexa-badge {
+  font-weight: 600;
+}
+
+/* Table rows: subtle striping in light */
+[data-theme="light"] .nexa-table tbody tr:nth-child(even) {
+  background: rgba(0,0,0,0.02);
+}
+
+/* Skeleton in light */
+[data-theme="light"] .nexa-skeleton {
+  background: #E8E5DE;
+}
+
+/* Links in light mode: use darker green */
+[data-theme="light"] a {
+  color: #16A34A;
+}
+[data-theme="light"] a:hover {
+  color: #15803D;
+}
+
+/* Scrollbar in light mode */
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: #C4BFB3;
+}
+[data-theme="light"] ::-webkit-scrollbar-track {
+  background: #F0EDE6;
+}
+
+/* Selection in light mode */
+[data-theme="light"] ::selection {
+  background: rgba(22,163,74,0.15);
+  color: #12110F;
+}
+
+/* Inputs in light mode */
+[data-theme="light"] input,
+[data-theme="light"] select,
+[data-theme="light"] textarea {
+  background: #FFFFFF;
+  border-color: #D4D1CA;
+  color: #12110F;
+}
+[data-theme="light"] input::placeholder,
+[data-theme="light"] textarea::placeholder {
+  color: #9C9686;
+}
+[data-theme="light"] input:focus,
+[data-theme="light"] select:focus,
+[data-theme="light"] textarea:focus {
+  border-color: #16A34A;
+  box-shadow: 0 0 0 2px rgba(22,163,74,0.12);
+}
+
+/* Hide scrollbar on horizontal tab bars (mobile) */
+.nexa-settings-tabs {
+  scrollbar-width: none;
+}
+.nexa-settings-tabs::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
