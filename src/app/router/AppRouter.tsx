@@ -5,7 +5,6 @@ import ProtectedRoute from "./ProtectedRoute";
 import RequireDevelopment from "./RequireDevelopment";
 import LoginPage from "../../modules/auth/pages/LoginPage";
 import SelectDevelopmentPage from "../../modules/developments/pages/SelectDevelopmentPage";
-// Dashboard merged into Central (MeuDiaPage)
 import NegotiationsPage from "../../modules/negociacoes/pages/NegotiationsPage";
 import NegotiationDetailPage from "../../modules/negociacoes/pages/NegotiationDetailPage";
 import ClientsPage from "../../modules/clientes/pages/ClientsPage";
@@ -30,7 +29,6 @@ import ProfilePage from "../../modules/perfil/pages/ProfilePage";
 import MateriaisPage from "../../modules/materiais/pages/MateriaisPage";
 import AtividadesPage from "../../modules/atividades/pages/AtividadesPage";
 import RelatoriosPage from "../../modules/relatorios/pages/RelatoriosPage";
-import MeuDiaPage from "../../modules/meudia/pages/MeuDiaPage";
 import FeedPage from "../../modules/feed/pages/FeedPage";
 import LandingPage from "../../pages/LandingPage";
 
@@ -64,14 +62,7 @@ export default function AppRouter() {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/"
-          element={
-            <ProtectedAppPage>
-              <MeuDiaPage />
-            </ProtectedAppPage>
-          }
-        />
+        <Route path="/" element={<Navigate to="/negociacoes" replace />} />
         <Route path="/dashboard" element={<Navigate to="/" replace />} />
         <Route path="/meu-dia" element={<Navigate to="/" replace />} />
         <Route path="/central" element={<Navigate to="/" replace />} />
