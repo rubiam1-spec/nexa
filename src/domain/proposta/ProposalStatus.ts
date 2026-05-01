@@ -5,6 +5,7 @@ export const ProposalStatus = {
   ACCEPTED: "ACCEPTED",
   REJECTED: "REJECTED",
   EXPIRED: "EXPIRED",
+  COUNTER_PROPOSAL: "COUNTER_PROPOSAL",
 } as const;
 
 export type ProposalStatus =

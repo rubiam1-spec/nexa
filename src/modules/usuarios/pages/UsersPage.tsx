@@ -44,7 +44,7 @@ function UserActionMenu({ target, onClose, onAction }: {
   return (
     <>
       <div style={{ position: "fixed", inset: 0, zIndex: 900 }} onClick={onClose} />
-      <div style={{ position: "fixed", top: rect.bottom + 4, right: Math.max(8, window.innerWidth - rect.right), zIndex: 901, background: "var(--color-carbon)", border: "1px solid var(--color-stone)", borderRadius: 10, padding: 4, minWidth: 180, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+      <div className="nexa-dropdown-enter" style={{ position: "fixed", top: rect.bottom + 4, right: Math.max(8, window.innerWidth - rect.right), zIndex: 901, background: "var(--color-carbon)", border: "1px solid var(--color-stone)", borderRadius: 10, padding: 4, minWidth: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", transformOrigin: "top right" }}>
         <button type="button" onClick={() => { onAction("changeRole", user); onClose(); }} style={{ ...s, color: "var(--color-bone)" }}>Alterar perfil</button>
         <button type="button" onClick={() => { onAction("resend", user); onClose(); }} style={{ ...s, color: "var(--color-bone)" }}>Reenviar acesso</button>
         {isActive ? (
@@ -364,8 +364,8 @@ export default function UsersPage() {
                     {perms.canManageUsers ? (
                       <td>
                         {!isSelf ? (
-                          <button type="button" onClick={(e) => { const rect = (e.target as HTMLElement).getBoundingClientRect(); setMenuTarget({ user: u, rect }); }}
-                            style={{ background: "transparent", border: "none", color: "var(--color-fog)", fontSize: 18, cursor: "pointer", padding: "4px 8px", lineHeight: 1, borderRadius: 6 }}>
+                          <button type="button" onClick={(e) => { e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); setMenuTarget(menuTarget?.user.id === u.id ? null : { user: u, rect }); }}
+                            style={{ background: "transparent", border: "none", color: "var(--color-fog)", fontSize: 18, cursor: "pointer", padding: "4px 8px", lineHeight: 1, borderRadius: 6, minWidth: 32, minHeight: 32 }}>
                             &#8942;
                           </button>
                         ) : null}

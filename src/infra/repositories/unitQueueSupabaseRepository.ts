@@ -15,15 +15,17 @@ type UnitQueueRow = {
   updated_at: string;
 };
 
+const dbStatusToEnum: Record<string, UnitQueueStatusType> = {
+  active: UnitQueueStatus.ACTIVE, ACTIVE: UnitQueueStatus.ACTIVE,
+  promoted: UnitQueueStatus.PROMOTED, PROMOTED: UnitQueueStatus.PROMOTED,
+  cancelled: UnitQueueStatus.CANCELLED, CANCELLED: UnitQueueStatus.CANCELLED,
+  waiting: UnitQueueStatus.WAITING, WAITING: UnitQueueStatus.WAITING,
+  removed: UnitQueueStatus.REMOVED, REMOVED: UnitQueueStatus.REMOVED,
+  expired: UnitQueueStatus.EXPIRED, EXPIRED: UnitQueueStatus.EXPIRED,
+};
+
 function normalizeUnitQueueStatus(status: string): UnitQueueStatusType {
-  switch (status) {
-    case UnitQueueStatus.ACTIVE:
-    case UnitQueueStatus.PROMOTED:
-    case UnitQueueStatus.CANCELLED:
-      return status;
-    default:
-      throw new Error(`Unsupported unit queue status: ${status}`);
-  }
+  return dbStatusToEnum[status] ?? UnitQueueStatus.ACTIVE; // Graceful fallback, never throw
 }
 
 function mapUnitQueueRow(row: UnitQueueRow): UnitQueueEntry {

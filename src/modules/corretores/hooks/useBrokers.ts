@@ -5,11 +5,12 @@ import type { Broker } from "../../../shared/types/broker";
 
 type BrokersStatus = "idle" | "loading" | "mock" | "ready" | "empty" | "error";
 
-export function useBrokers(accountId: string | null, useMockFallback: boolean) {
+export function useBrokers(accountId: string | null, useMockFallback: boolean, consultantFilter?: { userId: string; brokerIdsFromNegs: string[] }) {
   const [brokers, setBrokers] = useState<Broker[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState<BrokersStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -49,7 +50,7 @@ export function useBrokers(accountId: string | null, useMockFallback: boolean) {
           return;
         }
 
-        const realBrokers = await getSupabaseBrokers(accountId);
+        const realBrokers = await getSupabaseBrokers(accountId, consultantFilter);
 
         if (!isMounted) {
           return;
@@ -81,7 +82,7 @@ export function useBrokers(accountId: string | null, useMockFallback: boolean) {
     return () => {
       isMounted = false;
     };
-  }, [accountId, useMockFallback]);
+  }, [accountId, useMockFallback, refreshKey, consultantFilter?.userId, consultantFilter?.brokerIdsFromNegs?.length]);
 
   return {
     brokers,
@@ -89,5 +90,6 @@ export function useBrokers(accountId: string | null, useMockFallback: boolean) {
     isUsingMock: status === "mock",
     status,
     errorMessage,
+    refetch: () => setRefreshKey((k) => k + 1),
   };
 }

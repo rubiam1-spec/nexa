@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useAccount } from "../../app/contexts/AccountContext";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { useDevelopment } from "../../app/contexts/DevelopmentContext";
 import { useAuth } from "../../app/contexts/AuthContext";
 import { supabase } from "../../infra/supabase/supabaseClient";
@@ -28,6 +29,7 @@ export default function QueueEntryModal({ isOpen, onClose, unit, queuePosition, 
   const { account } = useAccount();
   const { development } = useDevelopment();
   const { authenticatedProfile } = useAuth();
+  const mobile = useIsMobile();
   const accountId = account?.accountId ?? null;
   const developmentId = development?.developmentId ?? null;
   const userId = authenticatedProfile?.id ?? null;
@@ -80,8 +82,10 @@ export default function QueueEntryModal({ isOpen, onClose, unit, queuePosition, 
   const filteredClients = clientSearch ? clients.filter((c) => c.name.toLowerCase().includes(clientSearch.toLowerCase())) : clients;
 
   function maskCpf(cpf: string | null) {
-    if (!cpf || cpf.length < 6) return cpf || "";
-    return `•••.${cpf.slice(3, 6)}.•••-••`;
+    if (!cpf) return "";
+    const clean = cpf.replace(/\D/g, "");
+    if (clean.length < 2) return "***";
+    return `***.***.***-${clean.slice(-2)}`;
   }
 
   async function handleQuickCreate() {
@@ -118,7 +122,7 @@ export default function QueueEntryModal({ isOpen, onClose, unit, queuePosition, 
   return createPortal(
     <>
       <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 9000 }} onClick={onClose} />
-      <div style={typeof window !== "undefined" && window.innerWidth < 768 ? { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: T.carbon, overflowY: "auto", zIndex: 9001, padding: 24 } : { position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 12, width: 460, maxWidth: "95vw", maxHeight: "90vh", overflowY: "auto", zIndex: 9001, padding: 24 }}>
+      <div style={mobile ? { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: T.carbon, overflowY: "auto", zIndex: 9001, padding: 24 } : { position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 12, width: 460, maxWidth: "95vw", maxHeight: "90vh", overflowY: "auto", zIndex: 9001, padding: 24 }}>
         {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <h2 style={{ color: T.chalk, fontSize: 17, fontWeight: 700, margin: 0 }}>Entrar na Fila de Espera</h2>

@@ -1,198 +1,491 @@
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { EmptyState } from "../../../shared/components/EmptyState";
 import { useAccount } from "../../../app/contexts/AccountContext";
 import { useDevelopment } from "../../../app/contexts/DevelopmentContext";
+import { useAuth } from "../../../app/contexts/AuthContext";
 import { UnidadeStatus } from "../../../domain/unidade/UnidadeStatus";
 import { getUnidadeStatusLabel } from "../../../domain/unidade/UnidadeStatusLabel";
 import NexaBadge from "../../../shared/components/NexaBadge";
+import { formatDateBRT } from "../../../shared/utils/dateUtils";
 import { useNegotiations } from "../../negociacoes/hooks/useNegotiations";
 import { useUnits } from "../hooks/useUnits";
+import { useUnitQueue, fetchQueueSummary, type QueueSummary } from "../hooks/useUnitQueue";
+import { useCommercialSettings } from "../../configuracoes/hooks/useCommercialSettings";
+import { useScreen } from "../../../shared/hooks/useIsMobile";
+import { useMapaPins } from "../hooks/useMapaPins";
+import MapaInterativo from "../components/MapaInterativo";
+import QueueEntryModal from "../../../shared/components/QueueEntryModal";
+import type { Unidade } from "../../../domain/unidade/Unidade";
 
-const statusStyle: Record<string, { bg: string; border: string; color: string }> = {
-  [UnidadeStatus.DISPONIVEL]: { bg: "var(--color-sprout-muted)", border: "var(--color-sprout)", color: "var(--color-sprout)" },
-  [UnidadeStatus.EM_NEGOCIACAO]: { bg: "var(--color-blue-muted)", border: "var(--color-blue)", color: "var(--color-blue)" },
-  [UnidadeStatus.RESERVADO]: { bg: "var(--color-terracotta-muted)", border: "var(--color-terracotta)", color: "var(--color-terracotta)" },
-  [UnidadeStatus.VENDIDO]: { bg: "var(--color-purple-muted)", border: "var(--color-purple)", color: "var(--color-purple)" },
+// ── v7 constants ──
+const CARD_BG = "linear-gradient(168deg, rgba(34,33,28,0.5) 0%, rgba(18,17,14,0.15) 100%)";
+const CARD_BORDER = "1px solid rgba(61,58,48,0.1)";
+const MONO = "var(--font-mono)";
+
+const STATUS_CFG: Record<string, { bg: string; border: string; color: string; label: string; hoverBg: string; hoverBorder: string }> = {
+  [UnidadeStatus.DISPONIVEL]: { bg: "linear-gradient(145deg, rgba(74,222,128,0.18), rgba(22,21,15,0.95))", border: "rgba(74,222,128,0.25)", color: "#4ADE80", label: "Disponível", hoverBg: "linear-gradient(145deg, rgba(74,222,128,0.28), rgba(22,21,15,0.9))", hoverBorder: "rgba(74,222,128,0.5)" },
+  [UnidadeStatus.EM_NEGOCIACAO]: { bg: "linear-gradient(145deg, rgba(96,165,250,0.16), rgba(22,21,15,0.95))", border: "rgba(96,165,250,0.25)", color: "#60A5FA", label: "Em negociação", hoverBg: "linear-gradient(145deg, rgba(96,165,250,0.26), rgba(22,21,15,0.9))", hoverBorder: "rgba(96,165,250,0.5)" },
+  [UnidadeStatus.RESERVADO]: { bg: "linear-gradient(145deg, rgba(217,119,6,0.18), rgba(22,21,15,0.95))", border: "rgba(217,119,6,0.25)", color: "#D97706", label: "Reservada", hoverBg: "linear-gradient(145deg, rgba(217,119,6,0.28), rgba(22,21,15,0.9))", hoverBorder: "rgba(217,119,6,0.5)" },
+  [UnidadeStatus.VENDIDO]: { bg: "linear-gradient(145deg, rgba(248,113,113,0.15), rgba(22,21,15,0.95))", border: "rgba(248,113,113,0.22)", color: "#F87171", label: "Vendida", hoverBg: "linear-gradient(145deg, rgba(248,113,113,0.25), rgba(22,21,15,0.9))", hoverBorder: "rgba(248,113,113,0.45)" },
 };
+const FALLBACK = { bg: "linear-gradient(145deg, rgba(92,86,71,0.1), rgba(22,21,15,0.95))", border: "rgba(92,86,71,0.2)", color: "#5C5647", label: "—", hoverBg: "linear-gradient(145deg, rgba(92,86,71,0.2), rgba(22,21,15,0.9))", hoverBorder: "rgba(92,86,71,0.35)" };
 
-const fallbackStyle = { bg: "var(--color-stone)", border: "var(--color-fog)", color: "var(--color-fog)" };
+function fmtValor(v: number) {
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1_000) return `${(v / 1_000).toFixed(0)}K`;
+  return v.toString();
+}
+
+function KpiBar({ availableCount, soldCount, reservedCount, totalUnits, soldPct, reservedPct }: { availableCount: number; soldCount: number; reservedCount: number; totalUnits: number; soldPct: number; reservedPct: number }) {
+  const availPct = totalUnits > 0 ? Math.round((availableCount / totalUnits) * 100) : 0;
+  const kpis = [
+    { key: "available", label: "DISPONIVEIS", value: availableCount, color: "#4ADE80", pct: availPct, icon: "D" },
+    { key: "sold", label: "VENDIDAS", value: soldCount, color: "#F87171", pct: soldPct, icon: "V" },
+    { key: "reserved", label: "RESERVADAS", value: reservedCount, color: "#D97706", pct: reservedPct, icon: "R" },
+  ];
+  return (
+    <>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 12 }}>
+        {kpis.map((item) => (
+          <div key={item.key} style={{
+            padding: "14px 16px", borderRadius: 10,
+            background: "linear-gradient(145deg, #1F1E1A, #16150F)",
+            border: "1px solid rgba(42,40,34,0.5)",
+            position: "relative", overflow: "hidden",
+          }}>
+            <div aria-hidden style={{
+              position: "absolute", top: -15, right: -15, width: 60, height: 60,
+              borderRadius: "50%", background: item.color + "15", filter: "blur(15px)",
+              pointerEvents: "none",
+            }} />
+            <div style={{ position: "relative", zIndex: 1 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontFamily: MONO, fontSize: 9, color: "#706B5F", letterSpacing: "0.1em", textTransform: "uppercase" }}>{item.label}</span>
+                <span style={{
+                  width: 22, height: 22, borderRadius: 5, background: item.color + "18",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontFamily: MONO, fontSize: 10, fontWeight: 700, color: item.color,
+                }}>{item.icon}</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 6 }}>
+                <span style={{ fontFamily: MONO, fontSize: 28, fontWeight: 700, color: "#FAF9F6", lineHeight: 1 }}>{item.value}</span>
+                <span style={{ fontFamily: MONO, fontSize: 12, color: item.color, fontWeight: 600 }}>{item.pct}%</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {/* Stock bar — 3 segments */}
+      <div style={{ height: 6, borderRadius: 3, overflow: "hidden", display: "flex", background: "rgba(42,40,34,0.3)", marginBottom: 20 }}>
+        {availPct > 0 && <div style={{ width: `${availPct}%`, background: "linear-gradient(90deg, #22C55E, #4ADE80)", transition: "width 0.5s" }} />}
+        {reservedPct > 0 && <div style={{ width: `${reservedPct}%`, background: "#D97706", transition: "width 0.5s" }} />}
+        {soldPct > 0 && <div style={{ width: `${soldPct}%`, background: "linear-gradient(90deg, #EF4444, #F87171)", transition: "width 0.5s" }} />}
+      </div>
+    </>
+  );
+}
 
 export default function UnitsPage() {
   const navigate = useNavigate();
-  const { account, isUsingMock: isUsingMockAccount } = useAccount();
-  const { development, isUsingMock: isUsingMockDev } = useDevelopment();
-  const useMock = isUsingMockAccount || isUsingMockDev;
-  const unitsState = useUnits(account?.accountId ?? null, development?.developmentId ?? null, useMock);
+  const [searchParams] = useSearchParams();
+  const screen = useScreen();
+  const isMobile = screen.isMobile;
+  const { account, isUsingMock: mockA } = useAccount();
+  const { development, isUsingMock: mockD } = useDevelopment();
+  const useMock = mockA || mockD;
+  const accountId = account?.accountId ?? null;
+  const developmentId = development?.developmentId ?? null;
+  const role = account?.role ?? null;
+
+  const unitsState = useUnits(accountId, developmentId, useMock);
   const { units, isLoading } = unitsState;
-  const negotiationsState = useNegotiations(account?.accountId ?? null, development?.developmentId ?? null, useMock, account?.role ?? null, unitsState);
+  const negState = useNegotiations(accountId, developmentId, useMock, role, unitsState);
+  const { developmentSettings: ds } = useCommercialSettings(accountId, developmentId, useMock, role);
 
-  const [quadraFilter, setQuadraFilter] = useState<string | null>(null);
-  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
+  const { authenticatedProfile } = useAuth();
+  const userId = authenticatedProfile?.id ?? null;
+  const isBroker = account?.role === "broker";
+  const lblGrupo = ds?.labelAgrupamento ?? "Quadra";
+  const lblUnidade = ds?.labelUnidade ?? "Lote";
+  const { pins } = useMapaPins(developmentId);
+  const temMapaInterativo = !!ds?.mapaUrl;
+  const queueEnabled = ds?.queueEnabled === true;
 
-  const quadras = useMemo(() => {
+  // Queue summary for badges
+  const [queueSummary, setQueueSummary] = useState<Record<string, QueueSummary>>({});
+  const refetchSummary = useCallback(() => { if (accountId && queueEnabled) fetchQueueSummary(accountId, userId).then(setQueueSummary); }, [accountId, queueEnabled, userId]);
+  useEffect(() => { refetchSummary(); }, [refetchSummary]);
+
+  const urlView = searchParams.get("view");
+  const [vis, setVis] = useState<"mapa" | "interativo" | "tabela">(urlView === "mapa" && temMapaInterativo ? "interativo" : "mapa");
+  const [grupoFiltro, setGrupoFiltro] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showQueueModal, setShowQueueModal] = useState(false);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [leavingQueue, setLeavingQueue] = useState(false);
+  const [queueToast, setQueueToast] = useState<string | null>(null);
+
+  // Pre-select from URL
+  const urlUnitId = searchParams.get("unitId");
+  useEffect(() => { if (urlUnitId && units.length > 0) setSelectedId(urlUnitId); }, [urlUnitId, units.length]);
+  useEffect(() => { if (urlView === "mapa" && temMapaInterativo) setVis("interativo"); }, [urlView, temMapaInterativo]);
+
+  const grupos = useMemo(() => {
     const set = new Set(units.map((u) => u.quadra));
-    return Array.from(set).sort();
+    return Array.from(set).sort((a, b) => {
+      const na = parseInt(a), nb = parseInt(b);
+      if (!isNaN(na) && !isNaN(nb)) return na - nb;
+      return a.localeCompare(b);
+    });
   }, [units]);
 
-  const filteredUnits = quadraFilter ? units.filter((u) => u.quadra === quadraFilter) : units;
+  const filtered = grupoFiltro ? units.filter((u) => u.quadra === grupoFiltro) : units;
+  const byGrupo = useMemo(() => {
+    const m = new Map<string, Unidade[]>();
+    for (const u of filtered) { const a = m.get(u.quadra) ?? []; a.push(u); m.set(u.quadra, a); }
+    return m;
+  }, [filtered]);
 
-  const unitsByQuadra = useMemo(() => {
-    const map = new Map<string, typeof units>();
-    for (const u of filteredUnits) {
-      const arr = map.get(u.quadra) ?? [];
-      arr.push(u);
-      map.set(u.quadra, arr);
-    }
-    return map;
-  }, [filteredUnits]);
+  const sel = units.find((u) => u.id === selectedId) ?? null;
+  const selNeg = sel ? negState.negotiations.find((n) => n.unitId === sel.id) ?? null : null;
+  const selQueue = useUnitQueue(queueEnabled ? selectedId : null, accountId, developmentId);
+  useEffect(() => { if (userId && selQueue.queue.length > 0) selQueue.checkMyPosition(userId); }, [userId, selQueue.queue.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const selectedUnit = units.find((u) => u.id === selectedUnitId) ?? null;
-  const selectedNeg = selectedUnit ? negotiationsState.negotiations.find((n) => n.unitId === selectedUnit.id) ?? null : null;
+  // Stock counts
+  const totalUnits = units.length;
+  const availableCount = units.filter((u) => u.status === UnidadeStatus.DISPONIVEL).length;
+  const soldCount = units.filter((u) => u.status === UnidadeStatus.VENDIDO).length;
+  const reservedCount = units.filter((u) => u.status === UnidadeStatus.RESERVADO).length;
+  const soldPct = totalUnits > 0 ? Math.round((soldCount / totalUnits) * 100) : 0;
+  const reservedPct = totalUnits > 0 ? Math.round((reservedCount / totalUnits) * 100) : 0;
 
-  function handleCellClick(unitId: string) {
-    setSelectedUnitId(unitId === selectedUnitId ? null : unitId);
-  }
-
-  function handleNavigate() {
-    if (!selectedUnit) return;
-    if (selectedUnit.status === UnidadeStatus.DISPONIVEL) {
-      navigate(`/negociacoes?unitId=${selectedUnit.id}`);
-    } else if (selectedNeg) {
-      navigate(`/negociacoes/${selectedNeg.id}`);
-    }
-  }
-
-  if (isLoading || negotiationsState.isLoading) {
-    return <p style={{ color: "var(--color-fog)" }}>Carregando mapa de unidades...</p>;
-  }
+  if (isLoading || negState.isLoading) return <p style={{ color: "var(--color-fog)" }}>Carregando mapa de unidades...</p>;
 
   return (
     <div>
-      {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 700, color: "var(--color-bone)", margin: 0 }}>Mapa de unidades</h1>
-        <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-fog)", marginTop: 4 }}>
-          {development?.developmentName} · {units.length} unidades
-        </div>
-      </div>
-
-      {/* Legend */}
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
-        {[
-          { status: UnidadeStatus.DISPONIVEL, label: "Disponível" },
-          { status: UnidadeStatus.EM_NEGOCIACAO, label: "Em negociação" },
-          { status: UnidadeStatus.RESERVADO, label: "Reservado" },
-          { status: UnidadeStatus.VENDIDO, label: "Vendido" },
-        ].map((item) => {
-          const s = statusStyle[item.status] ?? fallbackStyle;
-          return (
-            <div key={item.status} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <div style={{ width: 12, height: 12, borderRadius: 3, background: s.bg, border: `1px solid ${s.border}` }} />
-              <span style={{ fontSize: 12, color: "var(--color-dust)" }}>{item.label}</span>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Quadra filter */}
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 20 }}>
-        <button type="button" onClick={() => setQuadraFilter(null)} style={{
-          padding: "4px 12px", borderRadius: 6, fontSize: 12, fontWeight: quadraFilter === null ? 600 : 400,
-          border: "1px solid var(--color-stone)",
-          background: quadraFilter === null ? "var(--color-sprout-muted)" : "transparent",
-          color: quadraFilter === null ? "var(--color-sprout)" : "var(--color-dust)",
-        }}>Todas</button>
-        {quadras.map((q) => (
-          <button key={q} type="button" onClick={() => setQuadraFilter(q)} style={{
-            padding: "4px 12px", borderRadius: 6, fontSize: 12, fontWeight: quadraFilter === q ? 600 : 400,
-            border: "1px solid var(--color-stone)",
-            background: quadraFilter === q ? "var(--color-sprout-muted)" : "transparent",
-            color: quadraFilter === q ? "var(--color-sprout)" : "var(--color-dust)",
-          }}>Quadra {q}</button>
-        ))}
-      </div>
-
-      {/* Map + Panel */}
-      <div style={{ display: "grid", gridTemplateColumns: selectedUnit ? "1fr 300px" : "1fr", gap: 16 }}>
-        {/* Grid */}
+      {/* === HEADER FIXO (always visible) === */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
         <div>
-          {Array.from(unitsByQuadra.entries()).map(([quadra, qUnits]) => (
-            <div key={quadra} style={{ marginBottom: 24 }}>
-              <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--color-sprout)", letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 600, marginBottom: 10 }}>
-                Quadra {quadra}
-              </div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {qUnits.map((u) => {
-                  const s = statusStyle[u.status] ?? fallbackStyle;
-                  const isSelected = u.id === selectedUnitId;
-                  return (
-                    <button
-                      key={u.id}
-                      type="button"
-                      onClick={() => handleCellClick(u.id)}
-                      style={{
-                        width: 56, height: 56, borderRadius: 8,
-                        background: s.bg,
-                        border: isSelected ? `2px solid ${s.color}` : `1px solid ${s.border}`,
-                        color: s.color,
-                        fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        boxShadow: isSelected ? `0 0 0 3px ${s.bg}` : "none",
-                        transition: "box-shadow 150ms ease",
-                      }}
-                    >
-                      L{u.lote}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-          {units.length === 0 ? (
-            <div className="nexa-card"><p style={{ color: "var(--color-fog)" }}>Nenhuma unidade cadastrada.</p></div>
-          ) : null}
+          <h1 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontStyle: "italic", fontSize: 28, fontWeight: 400, color: "#FAF9F6", margin: 0, lineHeight: 1.1 }}>Unidades</h1>
+          <div style={{ fontFamily: MONO, fontSize: 11, color: "#9C9686", marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {totalUnits} {lblUnidade.toLowerCase()}s · {grupos.length} {lblGrupo.toLowerCase()}s{isMobile ? "" : ` · ${development?.developmentName ?? ""}`}
+          </div>
         </div>
+        {/* Tab toggle v7 — always visible */}
+        <div style={{ display: "flex", gap: 0, border: "1px solid rgba(61,58,48,0.15)", borderRadius: 8, overflow: "hidden" }}>
+          {([
+            { k: "mapa" as const, l: "Mapa" },
+            ...(temMapaInterativo ? [{ k: "interativo" as const, l: "Planta" }] : []),
+            { k: "tabela" as const, l: "Tabela" },
+          ]).map((v, i, arr) => (
+            <button key={v.k} type="button" onClick={() => setVis(v.k)}
+              style={{
+                padding: isMobile ? "7px 12px" : "7px 18px", fontSize: 11, fontWeight: 600, cursor: "pointer",
+                border: "none",
+                borderRight: i < arr.length - 1 ? "1px solid rgba(61,58,48,0.1)" : "none",
+                color: vis === v.k ? "#4ADE80" : "#5C5647",
+                background: vis === v.k ? "rgba(74,222,128,0.06)" : "transparent",
+                transition: "all 100ms ease",
+              }}>
+              {v.l}
+            </button>
+          ))}
+        </div>
+      </div>
 
-        {/* Side panel */}
-        {selectedUnit ? (
-          <div className="nexa-card" style={{ padding: 20, height: "fit-content", position: "sticky", top: 24 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <span style={{ fontSize: 16, fontWeight: 700, color: "var(--color-bone)" }}>
-                Q{selectedUnit.quadra} L{selectedUnit.lote}
-              </span>
-              <NexaBadge entity="unit" status={selectedUnit.status} label={getUnidadeStatusLabel(selectedUnit.status)} />
-            </div>
-            <div style={{ display: "grid", gap: 12, fontSize: 13 }}>
-              <div>
-                <div className="nexa-label" style={{ marginBottom: 4 }}>Valor</div>
-                <div style={{ color: "var(--color-bone)", fontWeight: 600 }}>R$ {selectedUnit.valor.toLocaleString("pt-BR")}</div>
-              </div>
-              <div>
-                <div className="nexa-label" style={{ marginBottom: 4 }}>Status</div>
-                <div style={{ color: "var(--color-dust)" }}>{getUnidadeStatusLabel(selectedUnit.status)}</div>
-              </div>
-              {selectedNeg ? (
-                <div>
-                  <div className="nexa-label" style={{ marginBottom: 4 }}>Negociação vinculada</div>
-                  <div style={{ color: "var(--color-dust)", fontSize: 12 }}>{selectedNeg.id.slice(0, 8)}...</div>
+      {/* === KPIs + Stock bar + Filters (hidden only on Planta) === */}
+      {vis !== "interativo" && (
+        <>
+        {/* KPI Summary */}
+        <KpiBar availableCount={availableCount} soldCount={soldCount} reservedCount={reservedCount} totalUnits={totalUnits} soldPct={soldPct} reservedPct={reservedPct} />
+
+        {/* Grupo filter */}
+        <div
+          className="nexa-settings-tabs"
+          style={
+            isMobile
+              ? { display: "flex", gap: 6, flexWrap: "nowrap", marginBottom: 20, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 4 }
+              : { display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 20 }
+          }
+        >
+          <button type="button" onClick={() => setGrupoFiltro(null)}
+            style={{ flexShrink: 0, padding: "6px 12px", borderRadius: 8, fontFamily: MONO, fontSize: 10, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", border: grupoFiltro === null ? "1px solid rgba(74,222,128,0.3)" : "1px solid rgba(42,40,34,0.5)", color: grupoFiltro === null ? "#4ADE80" : "#9C9686", background: grupoFiltro === null ? "rgba(74,222,128,0.08)" : "transparent" }}>
+            Todas
+          </button>
+          {grupos.map((q) => (
+            <button key={q} type="button" onClick={() => setGrupoFiltro(q)}
+              style={{ flexShrink: 0, padding: "6px 12px", borderRadius: 8, fontFamily: MONO, fontSize: 10, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", border: grupoFiltro === q ? "1px solid rgba(74,222,128,0.3)" : "1px solid rgba(42,40,34,0.5)", color: grupoFiltro === q ? "#4ADE80" : "#9C9686", background: grupoFiltro === q ? "rgba(74,222,128,0.08)" : "transparent" }}>
+              {lblGrupo} {q}
+            </button>
+          ))}
+        </div>
+        </>
+      )}
+
+      {/* Content */}
+      <div style={{ display: "grid", gridTemplateColumns: sel && screen.isDesktop && vis !== "interativo" ? "1fr 320px" : "1fr", gap: 16 }}>
+        {vis === "interativo" && ds?.mapaUrl ? (
+          <MapaInterativo
+            mapaUrl={ds.mapaUrl} units={units} pins={pins}
+            labelAgrupamento={lblGrupo} labelUnidade={lblUnidade}
+            quadras={grupos} selectedQuadra={grupoFiltro} onQuadraChange={setGrupoFiltro}
+            logoUrl={ds?.logoEmpreendimentoUrl ?? null} developmentName={development?.developmentName ?? ""}
+            activeView={vis} onViewChange={setVis} hasPlanta={temMapaInterativo}
+            onSelectUnit={(unitId) => setSelectedId(unitId)}
+          />
+        ) : vis === "mapa" ? (
+          /* ═══ MAPA GRID ═══ */
+          <div style={{ display: "grid", gridTemplateColumns: isMobile || (grupoFiltro !== null) ? "1fr" : "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
+            {Array.from(byGrupo.entries()).map(([grupo, gUnits]) => {
+              const disp = gUnits.filter((u) => u.status === UnidadeStatus.DISPONIVEL).length;
+              return (
+                <div key={grupo} style={{ background: CARD_BG, border: CARD_BORDER, borderRadius: 12, padding: 16 }}>
+                  <div style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    padding: "8px 12px", marginBottom: 10,
+                    background: "linear-gradient(145deg, #1F1E1A, #16150F)",
+                    border: "1px solid rgba(42,40,34,0.5)",
+                    borderRadius: 8,
+                  }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                      <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, color: "#FAF9F6", letterSpacing: "0.08em", textTransform: "uppercase" }}>{lblGrupo} {grupo}</span>
+                      <span style={{ fontFamily: MONO, fontSize: 9, color: "#706B5F" }}>{gUnits.length} {lblUnidade.toLowerCase()}{gUnits.length !== 1 ? "s" : ""}</span>
+                    </div>
+                    <span style={{ fontFamily: MONO, fontSize: 9, fontWeight: 600, padding: "2px 8px", borderRadius: 4, color: disp > 0 ? "#4ADE80" : "#5C5647", background: disp > 0 ? "rgba(74,222,128,0.08)" : "rgba(61,58,48,0.15)", border: `1px solid ${disp > 0 ? "rgba(74,222,128,0.15)" : "rgba(61,58,48,0.15)"}` }}>
+                      {disp} disponíve{disp !== 1 ? "is" : "l"}
+                    </span>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(56px, 1fr))", gap: 5 }}>
+                    {gUnits.sort((a, b) => { const na = parseInt(a.lote), nb = parseInt(b.lote); return !isNaN(na) && !isNaN(nb) ? na - nb : a.lote.localeCompare(b.lote); }).map((u) => {
+                      const cfg = STATUS_CFG[u.status] ?? FALLBACK;
+                      const isSel = u.id === selectedId;
+                      const qs = queueEnabled ? queueSummary[u.id] : undefined;
+                      const hasFila = qs && qs.totalWaiting > 0;
+                      const isMyQueue = qs?.myPosition !== null && qs?.myPosition !== undefined;
+                      const isSold = u.status === UnidadeStatus.VENDIDO;
+                      return (
+                        <button key={u.id} type="button" onClick={() => setSelectedId(u.id === selectedId ? null : u.id)}
+                          title={`${lblUnidade} ${u.lote}\n${lblGrupo} ${u.quadra}\nValor: R$ ${u.valor.toLocaleString("pt-BR")}\nStatus: ${cfg.label}${(u as unknown as { area?: number }).area ? `\nÁrea: ${(u as unknown as { area: number }).area} m²` : ""}${hasFila ? `\n${qs!.totalWaiting} na fila` : ""}`}
+                          style={{ width: "100%", minHeight: 52, borderRadius: 8, background: cfg.bg, border: isSel ? `2px solid ${cfg.color}` : `1px solid ${cfg.border}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, cursor: "pointer", transition: "transform 0.15s, border-color 0.15s, box-shadow 0.15s", boxShadow: isSel ? `0 0 0 3px ${cfg.color}40` : "none", padding: "6px 4px", position: "relative", opacity: isSold ? 0.55 : 1, zIndex: 1 }}
+                          onMouseEnter={(e) => { const el = e.currentTarget; el.style.transform = "translateY(-2px)"; el.style.background = cfg.hoverBg; el.style.borderColor = "rgba(74,222,128,0.4)"; el.style.boxShadow = "0 4px 12px rgba(0,0,0,0.3)"; el.style.zIndex = "10"; }}
+                          onMouseLeave={(e) => { const el = e.currentTarget; el.style.transform = "none"; el.style.background = cfg.bg; el.style.borderColor = isSel ? cfg.color : cfg.border; el.style.boxShadow = isSel ? `0 0 0 3px ${cfg.color}40` : "none"; el.style.zIndex = "1"; }}>
+                          {hasFila && (
+                            <div style={{ position: "absolute", top: -4, right: -4, width: isMyQueue ? 22 : 18, height: isMyQueue ? 22 : 18, borderRadius: "50%", background: isMyQueue ? "rgba(74,222,128,0.9)" : "rgba(167,139,250,0.9)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontFamily: MONO, fontWeight: 700, color: isMyQueue ? "var(--interactive-on-primary)" : "#FFFFFF", zIndex: 2, border: "2px solid var(--surface-base)" }}>
+                              {isMyQueue ? `#${qs!.myPosition}` : qs!.totalWaiting}
+                            </div>
+                          )}
+                          <span style={{ fontSize: 13, fontWeight: 700, color: "#C4BFB3", fontFamily: MONO, lineHeight: 1 }}>{u.lote}</span>
+                          {u.status === UnidadeStatus.DISPONIVEL && u.valor > 0 ? <span style={{ fontSize: 8, color: cfg.color, fontFamily: MONO, lineHeight: 1, marginTop: 1, opacity: 0.85 }}>{fmtValor(u.valor)}</span> : null}
+                          {u.status === UnidadeStatus.EM_NEGOCIACAO ? <span style={{ fontSize: 7, color: cfg.color, fontFamily: MONO, fontWeight: 700, lineHeight: 1, marginTop: 1, letterSpacing: "0.05em" }}>NEG</span> : null}
+                          {u.status === UnidadeStatus.RESERVADO ? <span style={{ fontSize: 7, color: cfg.color, fontFamily: MONO, fontWeight: 700, lineHeight: 1, marginTop: 1, letterSpacing: "0.05em" }}>RES</span> : null}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
+              );
+            })}
+          </div>
+        ) : (
+          /* ═══ TABELA ═══ */
+          <div style={{ background: "linear-gradient(168deg, rgba(34,33,28,0.3), rgba(18,17,14,0.1))", borderRadius: 12, border: "1px solid rgba(42,40,34,0.3)", overflow: "hidden" }}>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr>
+                    {[lblGrupo, lblUnidade, "Área", "Valor", "Status"].map((h) => (
+                      <th key={h} style={{ textAlign: "left", padding: "10px 12px", fontFamily: MONO, fontSize: 9, color: "#706B5F", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600, borderBottom: "1px solid rgba(42,40,34,0.3)" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.sort((a, b) => { const qa = a.quadra.localeCompare(b.quadra); if (qa !== 0) return qa; const na = parseInt(a.lote), nb = parseInt(b.lote); return !isNaN(na) && !isNaN(nb) ? na - nb : a.lote.localeCompare(b.lote); }).map((u) => {
+                    const cfg = STATUS_CFG[u.status] ?? FALLBACK;
+                    const rowBg = u.id === selectedId ? "linear-gradient(145deg, rgba(74,222,128,0.06), #16150F)" : "linear-gradient(145deg, #1F1E1A, #16150F)";
+                    const hoverBg = "linear-gradient(145deg, rgba(74,222,128,0.03), #16150F)";
+                    return (
+                      <tr key={u.id} onClick={() => setSelectedId(u.id === selectedId ? null : u.id)}
+                        style={{ borderBottom: "1px solid rgba(42,40,34,0.15)", cursor: "pointer", background: rowBg, transition: "background 0.15s, transform 0.1s" }}
+                        onMouseEnter={(e) => { if (u.id !== selectedId) { e.currentTarget.style.background = hoverBg; e.currentTarget.style.transform = "translateX(2px)"; } }}
+                        onMouseLeave={(e) => { if (u.id !== selectedId) { e.currentTarget.style.background = rowBg; e.currentTarget.style.transform = "none"; } }}>
+                        <td style={{ padding: "10px 12px", color: "#FAF9F6", fontWeight: 700, fontFamily: MONO, fontSize: 13 }}>{u.quadra}</td>
+                        <td style={{ padding: "10px 12px", color: "#FAF9F6", fontWeight: 700, fontFamily: MONO, fontSize: 13 }}>{u.lote}</td>
+                        <td style={{ padding: "10px 12px", color: "#9C9686", fontFamily: MONO, fontSize: 12 }}>{(u as Record<string, unknown>).area ? `${(u as Record<string, unknown>).area} m²` : "—"}</td>
+                        <td style={{ padding: "10px 12px", fontFamily: MONO, fontSize: 13, fontWeight: 700, color: u.valor > 0 ? "#4ADE80" : "#5C5647" }}>{u.valor > 0 ? `R$ ${u.valor.toLocaleString("pt-BR")}` : "—"}</td>
+                        <td style={{ padding: "10px 12px" }}>
+                          <span style={{ fontFamily: MONO, fontSize: 8, fontWeight: 600, padding: "3px 8px", borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.06em", color: cfg.color, background: `${cfg.color}1A`, border: `1px solid ${cfg.color}33` }}>{cfg.label}</span>
+                          {queueEnabled && queueSummary[u.id]?.totalWaiting > 0 && <span style={{ fontFamily: MONO, fontSize: 10, color: queueSummary[u.id]?.myPosition ? "#4ADE80" : "#A78BFA", marginLeft: 8 }}>{queueSummary[u.id]?.myPosition ? `#${queueSummary[u.id].myPosition}` : `${queueSummary[u.id].totalWaiting} na fila`}</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ═══ SIDE PANEL ═══ */}
+        {sel ? (
+          <div style={screen.isDesktop ? { background: CARD_BG, border: CARD_BORDER, borderRadius: 12, padding: 20, height: "fit-content", position: "sticky", top: 24 } : { position: "fixed", bottom: 0, left: 0, right: 0, maxHeight: "75vh", background: "var(--surface-raised)", borderRadius: "16px 16px 0 0", zIndex: 100, overflowY: "auto", padding: "16px 16px 24px", border: "1px solid var(--border-default)", borderBottom: "none" }}>
+            {!screen.isDesktop && <div style={{ width: 40, height: 4, borderRadius: 2, background: "var(--surface-hover)", margin: "0 auto 16px" }} />}
+            {/* Status badge */}
+            <div style={{ marginBottom: 10 }}>
+              <NexaBadge entity="unit" status={sel.status} label={getUnidadeStatusLabel(sel.status)} />
+            </div>
+            {/* Title */}
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#E8E5DE", marginBottom: 16 }}>{lblGrupo} {sel.quadra} · {lblUnidade} {sel.lote}</div>
+            {/* Data grid 2×2 — sempre 4 cards, '—' quando ausente */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              {(() => {
+                const areaRaw = (sel as Record<string, unknown>).area;
+                const areaNum = typeof areaRaw === "number" ? areaRaw : areaRaw != null && areaRaw !== "" ? Number(areaRaw) : null;
+                const areaVal = areaNum && !isNaN(areaNum) && areaNum > 0 ? `${areaNum.toLocaleString("pt-BR")} m²` : "—";
+                const valorVal = sel.valor > 0 ? `R$ ${sel.valor.toLocaleString("pt-BR")}` : "—";
+                const negVal = selNeg ? `NEG-${selNeg.id.slice(0, 4).toUpperCase()}` : "—";
+                const cells = [
+                  { label: "ÁREA", value: areaVal, highlight: false },
+                  { label: "VALOR", value: valorVal, highlight: sel.valor > 0 },
+                  { label: "STATUS", value: getUnidadeStatusLabel(sel.status), highlight: false },
+                  { label: "NEGOCIAÇÃO", value: negVal, highlight: false },
+                ];
+                return cells.map((item) => (
+                  <div key={item.label}>
+                    <div style={{ fontFamily: MONO, fontSize: 8, color: "#5C5647", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 3 }}>{item.label}</div>
+                    <div style={{ fontFamily: MONO, fontSize: item.highlight ? 16 : 13, fontWeight: item.highlight ? 700 : 500, color: item.highlight ? "#4ADE80" : item.value === "—" ? "#5C5647" : "#E8E5DE" }}>{item.value}</div>
+                  </div>
+                ));
+              })()}
+            </div>
+
+            {/* Queue section */}
+            {queueEnabled && sel.status !== UnidadeStatus.DISPONIVEL && sel.status !== UnidadeStatus.VENDIDO && (
+              <div style={{ marginTop: 16 }}>
+                {selQueue.myPosition && (
+                  <div style={{ padding: "10px 14px", borderRadius: 8, background: "rgba(74,222,128,0.08)", border: "1px solid rgba(74,222,128,0.25)", marginBottom: 10 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#4ADE80" }}>Você está na posição #{selQueue.myPosition}</div>
+                    {(() => { const myEntry = selQueue.queue.find((q) => q.requested_by === userId); return myEntry?.clients?.name ? <div style={{ fontSize: 12, color: "#706B5F", marginTop: 2 }}>Cliente: {myEntry.clients.name}</div> : null; })()}
+                  </div>
+                )}
+                {selQueue.queue.length > 0 && (
+                  <>
+                    <div style={{ fontFamily: MONO, fontSize: 8.5, fontWeight: 600, color: "#5C5647", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10 }}>
+                      Fila de espera ({selQueue.queueCount} {selQueue.queueCount === 1 ? "interessado" : "interessados"})
+                    </div>
+                    {(isBroker ? selQueue.queue.filter((q) => q.requested_by === userId) : selQueue.queue).map((entry) => {
+                      const isMe = entry.requested_by === userId;
+                      return (
+                        <div key={entry.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, border: isMe ? "1px solid rgba(74,222,128,0.3)" : CARD_BORDER, marginBottom: 6, background: isMe ? "rgba(74,222,128,0.04)" : "rgba(18,17,14,0.3)" }}>
+                          <div style={{ fontSize: 14, fontWeight: 500, color: isMe ? "#4ADE80" : "#5C5647", minWidth: 20, textAlign: "center", fontFamily: MONO }}>#{entry.position}</div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12, fontWeight: 500, color: "#E8E5DE" }}>{entry.clients?.name || entry.brokers?.name || entry.profiles?.name || "Interesse registrado"}{isMe ? <span style={{ fontSize: 10, color: "#4ADE80", marginLeft: 6 }}>VOCÊ</span> : ""}</div>
+                            <div style={{ fontSize: 10, color: "#706B5F" }}>Corretor: {entry.brokers?.name || entry.profiles?.name || "—"} · {formatDateBRT(entry.created_at)}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+                {selQueue.queue.length === 0 && <div style={{ fontSize: 12, color: "#5C5647", marginBottom: 8 }}>Nenhum interessado na fila.</div>}
+                {!selQueue.myPosition ? (
+                  <button type="button" onClick={() => setShowQueueModal(true)} style={{ width: "100%", height: 36, borderRadius: 8, fontSize: 13, fontWeight: 600, background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.2)", color: "#4ADE80", cursor: "pointer", marginTop: 8 }}>Entrar na fila</button>
+                ) : null}
+              </div>
+            )}
+
+            {queueToast && <div style={{ fontSize: 12, color: "#4ADE80", background: "rgba(74,222,128,0.08)", borderRadius: 8, padding: "8px 12px", marginTop: 8 }}>{queueToast}</div>}
+
+            {/* Action buttons — matriz por status */}
+            <div style={{ display: "grid", gap: 8, marginTop: 20 }}>
+              {sel.status === UnidadeStatus.DISPONIVEL ? (
+                <>
+                  <button type="button" onClick={() => navigate(`/simulador?unitId=${sel.id}`)} style={{ width: "100%", height: 36, borderRadius: 8, fontSize: 13, fontWeight: 700, background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.2)", color: "#4ADE80", cursor: "pointer", transition: "all 150ms ease" }}>Simular</button>
+                  <button type="button" onClick={() => navigate(`/negociacoes?unitId=${sel.id}`)} style={{ width: "100%", height: 36, borderRadius: 8, fontSize: 13, fontWeight: 600, background: "transparent", color: "#C4BFB3", border: "1px solid rgba(61,58,48,0.2)", cursor: "pointer" }}>Iniciar negociação</button>
+                </>
+              ) : sel.status === UnidadeStatus.RESERVADO ? (
+                selNeg ? (
+                  <button type="button" onClick={() => navigate(`/negociacoes/${selNeg.id}`)} style={{ width: "100%", height: 36, borderRadius: 8, fontSize: 13, fontWeight: 600, background: "transparent", color: "#C4BFB3", border: "1px solid rgba(61,58,48,0.2)", cursor: "pointer" }}>Ver reserva</button>
+                ) : null
+              ) : sel.status === UnidadeStatus.EM_NEGOCIACAO ? (
+                selNeg ? (
+                  <button type="button" onClick={() => navigate(`/negociacoes/${selNeg.id}`)} style={{ width: "100%", height: 36, borderRadius: 8, fontSize: 13, fontWeight: 600, background: "transparent", color: "#C4BFB3", border: "1px solid rgba(61,58,48,0.2)", cursor: "pointer" }}>Ver negociação</button>
+                ) : null
+              ) : sel.status === UnidadeStatus.VENDIDO ? (
+                selNeg ? (
+                  <button type="button" onClick={() => navigate(`/negociacoes/${selNeg.id}`)} style={{ width: "100%", height: 36, borderRadius: 8, fontSize: 13, fontWeight: 600, background: "transparent", color: "#C4BFB3", border: "1px solid rgba(61,58,48,0.2)", cursor: "pointer" }}>Ver venda</button>
+                ) : null
               ) : null}
             </div>
-            <button
-              type="button"
-              onClick={handleNavigate}
-              style={{
-                width: "100%", marginTop: 20, height: 36, borderRadius: 8, fontSize: 13, fontWeight: 700,
-                background: selectedUnit.status === UnidadeStatus.DISPONIVEL ? "var(--color-sprout)" : "transparent",
-                color: selectedUnit.status === UnidadeStatus.DISPONIVEL ? "var(--color-ink)" : "var(--color-bone)",
-                border: selectedUnit.status === UnidadeStatus.DISPONIVEL ? "none" : "1px solid var(--color-stone)",
-              }}
-            >
-              {selectedUnit.status === UnidadeStatus.DISPONIVEL ? "Iniciar negociação" : "Ver negociação"}
-            </button>
+
+            {queueEnabled && selQueue.myPosition && (
+              <button type="button" onClick={() => setShowLeaveConfirm(true)} style={{ width: "100%", marginTop: 10, background: "transparent", border: "none", color: "#706B5F", fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>Sair da fila</button>
+            )}
+            <button type="button" onClick={() => setSelectedId(null)} style={{ width: "100%", marginTop: 8, background: "transparent", border: "none", color: "#5C5647", fontSize: 11, cursor: "pointer" }}>Fechar</button>
           </div>
         ) : null}
+        {sel && !screen.isDesktop ? <div onClick={() => setSelectedId(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 99 }} /> : null}
       </div>
+
+      {/* Legend (below map/grid) */}
+      {vis === "mapa" && (
+        <div style={{ display: "flex", gap: 16, marginTop: 16, flexWrap: "wrap" }}>
+          {Object.entries(STATUS_CFG).map(([st, cfg]) => {
+            const count = units.filter((u) => u.status === st).length;
+            if (count === 0) return null;
+            return (
+              <div key={st} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ width: 8, height: 8, borderRadius: 3, background: cfg.color, opacity: 0.7 }} />
+                <span style={{ fontSize: 10.5, color: "#706B5F" }}>{cfg.label} ({count})</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {units.length === 0 ? <EmptyState icone={"\uD83C\uDFE0"} titulo="Nenhuma unidade cadastrada" descricao="Cadastre as unidades do empreendimento para começar a negociar." ctaLabel="Ir para empreendimento" onCta={() => navigate("/empreendimentos")} /> : null}
+
+      {showQueueModal && sel && (
+        <QueueEntryModal
+          isOpen={showQueueModal} onClose={() => setShowQueueModal(false)}
+          unit={{ id: sel.id, quadra: sel.quadra, lote: sel.lote, valor: sel.valor, status: sel.status }}
+          queuePosition={selQueue.getEstimatedPosition()}
+          onSuccess={() => { setShowQueueModal(false); selQueue.fetchQueue(); refetchSummary(); setQueueToast("Entrada na fila confirmada!"); setTimeout(() => setQueueToast(null), 3000); }}
+        />
+      )}
+
+      {showLeaveConfirm && sel && selQueue.myPosition && (
+        (() => {
+          const myEntry = selQueue.queue.find((q) => q.requested_by === userId);
+          return (
+            <>
+              <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 9000 }} onClick={() => setShowLeaveConfirm(false)} />
+              <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 12, padding: 24, width: 380, maxWidth: "90vw", zIndex: 9001 }}>
+                <div style={{ fontSize: 16, fontWeight: 600, color: "#E8E5DE", marginBottom: 8 }}>Sair da fila</div>
+                <div style={{ fontSize: 13, color: "#706B5F", marginBottom: 6 }}>Tem certeza que deseja sair da fila do {lblUnidade} {sel.lote}?</div>
+                <div style={{ fontSize: 13, color: "#F87171", marginBottom: 20 }}>Sua posição #{selQueue.myPosition} será perdida. Esta ação não pode ser desfeita.</div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button type="button" onClick={() => setShowLeaveConfirm(false)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid rgba(61,58,48,0.2)", background: "transparent", color: "#706B5F", fontSize: 13, cursor: "pointer" }}>Cancelar</button>
+                  <button type="button" disabled={leavingQueue} onClick={async () => {
+                    if (!userId || !myEntry) return;
+                    setLeavingQueue(true);
+                    try {
+                      await selQueue.leaveQueue(userId);
+                      refetchSummary();
+                      setShowLeaveConfirm(false);
+                      setQueueToast(`Você saiu da fila do ${lblUnidade} ${sel.lote}.`);
+                      setTimeout(() => setQueueToast(null), 3000);
+                    } catch (err) { console.error("Erro ao sair da fila:", err); }
+                    finally { setLeavingQueue(false); }
+                  }} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: "#F87171", color: "#FFFFFF", fontSize: 13, fontWeight: 600, cursor: leavingQueue ? "not-allowed" : "pointer", opacity: leavingQueue ? 0.6 : 1 }}>
+                    {leavingQueue ? "Saindo..." : "Sim, sair da fila"}
+                  </button>
+                </div>
+              </div>
+            </>
+          );
+        })()
+      )}
     </div>
   );
 }

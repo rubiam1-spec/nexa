@@ -3,6 +3,7 @@ import { getUsers as getMockUsers } from "../repositories/usersRepository";
 import {
   getUsers as getSupabaseUsers,
   inviteUser as inviteSupabaseUser,
+  type InviteUserResult,
 } from "../../../infra/repositories/usersSupabaseRepository";
 import type { AccountUser } from "../../../shared/types/accountUser";
 
@@ -14,6 +15,7 @@ export function useUsers(accountId: string | null, useMockFallback: boolean) {
   const [isInviting, setIsInviting] = useState(false);
   const [status, setStatus] = useState<UsersStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -85,13 +87,13 @@ export function useUsers(accountId: string | null, useMockFallback: boolean) {
     return () => {
       isMounted = false;
     };
-  }, [accountId, useMockFallback]);
+  }, [accountId, useMockFallback, refreshKey]);
 
   async function inviteUser(input: {
     email: string;
     fullName: string;
     role: import("../../../shared/types/auth").UserRole;
-  }): Promise<AccountUser | null> {
+  }): Promise<InviteUserResult | null> {
     if (!accountId) {
       setErrorMessage("Conta ativa necessária para convidar usuário.");
       return null;
@@ -101,16 +103,16 @@ export function useUsers(accountId: string | null, useMockFallback: boolean) {
       setIsInviting(true);
       setErrorMessage(null);
 
-      const newUser = await inviteSupabaseUser({
+      const result = await inviteSupabaseUser({
         email: input.email,
         fullName: input.fullName,
         role: input.role,
         accountId,
       });
 
-      setUsers((current) => [newUser, ...current]);
+      setUsers((current) => [result.user, ...current]);
       setStatus("ready");
-      return newUser;
+      return result;
     } catch (error) {
       setErrorMessage(
         error instanceof Error
@@ -131,5 +133,6 @@ export function useUsers(accountId: string | null, useMockFallback: boolean) {
     status,
     errorMessage,
     inviteUser,
+    refetch: () => setRefreshKey((k) => k + 1),
   };
 }

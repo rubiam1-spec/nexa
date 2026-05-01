@@ -72,9 +72,11 @@ export function getPermissions(role: string | null) {
     canAlterQueuePriority: is(r, ADMIN_ROLES),
 
     // Corretores
-    canManageBrokers: is(r, MANAGER_ROLES),
-    canCreateBroker: is(r, [...MANAGER_ROLES, "commercial_consultant"]),
-    canViewBrokers: is(r, [...MANAGER_ROLES, "commercial_consultant"]),
+    canManageBrokers: is(r, [...MANAGER_ROLES, "concierge"]),
+    canCreateBroker: is(r, [...MANAGER_ROLES, "commercial_consultant", "concierge"]),
+    canViewBrokers: is(r, [...MANAGER_ROLES, "commercial_consultant", "concierge"]),
+    canInviteBroker: is(r, MANAGER_ROLES),
+    canDeactivateBroker: is(r, MANAGER_ROLES),
 
     // Dados estratégicos
     canViewUnitStatus: is(r, MANAGER_ROLES),
@@ -89,20 +91,20 @@ export function getPermissions(role: string | null) {
 export function podeVerItem(key: string, role: string | null): boolean {
   if (!role) return false;
   if (role === "broker") {
-    const brokerAllowed = ["meudia", "simulador", "negociacoes", "pipeline", "clientes", "unidades", "materiais"];
+    const brokerAllowed = ["meudia", "notificacoes", "simulador", "contatos", "negociacoes", "pipeline", "unidades", "imoveis", "atividades", "feed", "materiais"];
     return brokerAllowed.includes(key);
   }
   if (role === "commercial_consultant") {
-    const consultantAllowed = ["meudia", "simulador", "negociacoes", "pipeline", "clientes", "unidades", "corretores", "atividades", "materiais", "feed"];
+    const consultantAllowed = ["meudia", "notificacoes", "simulador", "contatos", "negociacoes", "pipeline", "unidades", "imoveis", "corretores", "imobiliarias", "atividades", "materiais", "feed", "relatorios"];
     return consultantAllowed.includes(key);
   }
   if (role === "concierge") {
-    const conciergeAllowed = ["meudia", "clientes", "corretores", "imobiliarias", "atividades", "configuracoes"];
+    const conciergeAllowed = ["meudia", "notificacoes", "simulador", "contatos", "pipeline", "unidades", "imoveis", "negociacoes", "corretores", "imobiliarias", "atividades", "feed", "relatorios", "materiais", "configuracoes"];
     return conciergeAllowed.includes(key);
   }
   if (role === "administrative") {
-    // Administrative tem acesso a tudo EXCETO gerenciamento de usuários
-    if (key === "usuarios") return false;
+    const adminBlocked = ["pipeline", "empreendimentos", "usuarios"];
+    if (adminBlocked.includes(key)) return false;
     return true;
   }
   switch (key) {
@@ -110,6 +112,7 @@ export function podeVerItem(key: string, role: string | null): boolean {
     case "empreendimentos": return podeGerenciarEmpreendimentos(role);
     case "usuarios": return podeGerenciarUsuarios(role);
     case "imobiliarias": return is(role, MANAGER_ADMIN_ROLES);
+    case "relacionamento": return is(role, [...MANAGER_ADMIN_ROLES, "commercial_consultant"]);
     default: return true;
   }
 }

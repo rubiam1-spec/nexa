@@ -30,6 +30,7 @@ type NegotiationRow = {
   unit_id: string;
   client_id: string | null;
   broker_id: string | null;
+  third_party_property_id: string | null;
   status: string;
   score: number | null;
   temperature: string | null;
@@ -56,6 +57,7 @@ function mapNegotiationRowToNegotiation(row: NegotiationRow): Negotiation {
     unitId: row.unit_id,
     clientId: row.client_id,
     brokerId: row.broker_id,
+    thirdPartyPropertyId: row.third_party_property_id ?? null,
     status: normalizeNegotiationStatus(row.status),
     score,
     temperature: (row.temperature as Negotiation["temperature"]) ?? (score > 70 ? "hot" : score >= 40 ? "warm" : "cold"),
@@ -70,7 +72,7 @@ export async function getNegotiations(accountId: string, developmentId: string, 
   let query = supabase
     .from("negotiations")
     .select(
-      "id, account_id, development_id, unit_id, client_id, broker_id, status, score, temperature, created_at, updated_at",
+      "id, account_id, development_id, unit_id, client_id, broker_id, third_party_property_id, status, score, temperature, created_at, updated_at",
     )
     .eq("account_id", accountId)
     .eq("development_id", developmentId);
@@ -114,7 +116,7 @@ export async function createNegotiation(input: {
     .from("negotiations")
     .insert(insertPayload)
     .select(
-      "id, account_id, development_id, unit_id, client_id, broker_id, status, score, temperature, created_at, updated_at",
+      "id, account_id, development_id, unit_id, client_id, broker_id, third_party_property_id, status, score, temperature, created_at, updated_at",
     )
     .maybeSingle();
 
@@ -145,7 +147,7 @@ export async function updateNegotiationStatus(
     })
     .eq("id", negotiationId)
     .select(
-      "id, account_id, development_id, unit_id, client_id, broker_id, status, score, temperature, created_at, updated_at",
+      "id, account_id, development_id, unit_id, client_id, broker_id, third_party_property_id, status, score, temperature, created_at, updated_at",
     )
     .maybeSingle();
 

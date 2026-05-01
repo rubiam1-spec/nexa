@@ -5,11 +5,30 @@ import { useAccount } from "../../../app/contexts/AccountContext";
 import { useBrokerages } from "../hooks/useBrokerages";
 import { createBrokerage } from "../../../infra/repositories/brokeragesSupabaseRepository";
 import { supabase } from "../../../infra/supabase/supabaseClient";
+import { useScreen } from "../../../shared/hooks/useIsMobile";
+import { usePermissions } from "../../../shared/hooks/usePermissions";
 const btnP: React.CSSProperties = { background: "var(--color-sprout)", color: "var(--color-ink)", border: "none", borderRadius: 8, padding: "0 16px", height: 36, fontSize: 13, fontWeight: 700, cursor: "pointer" };
 const btnS: React.CSSProperties = { background: "transparent", color: "var(--color-bone)", border: "1px solid var(--color-stone)", borderRadius: 8, padding: "0 16px", height: 36, fontSize: 13, fontWeight: 700, cursor: "pointer" };
 
 function maskCNPJ(v: string) { return v.replace(/\D/g, "").replace(/(\d{2})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1/$2").replace(/(\d{4})(\d)/, "$1-$2").slice(0, 18); }
 function maskPhone(v: string) { return v.replace(/\D/g, "").replace(/(\d{2})(\d)/, "($1) $2").replace(/(\d{4,5})(\d{4})$/, "$1-$2").slice(0, 15); }
+
+const SMALL_WORDS = new Set(["de", "do", "da", "dos", "das", "e", "em", "a", "o"]);
+const ACRONYMS = new Set(["ltda", "me", "epp", "sa", "s.a", "eireli"]);
+function capitalizeCompanyName(str: string): string {
+  if (!str) return "";
+  return str.toLowerCase().split(/\s+/).filter(Boolean).map((w, i) => {
+    if (ACRONYMS.has(w.replace(/[.,]/g, ""))) return w.toUpperCase();
+    if (i > 0 && SMALL_WORDS.has(w)) return w;
+    if (w.length <= 2 && /^[a-z]+$/.test(w)) return w.toUpperCase();
+    return w.charAt(0).toUpperCase() + w.slice(1);
+  }).join(" ");
+}
+function getBrokerageInitials(name: string): string {
+  const clean = (name ?? "").trim();
+  if (!clean) return "??";
+  return clean.substring(0, 2).toUpperCase();
+}
 
 export default function BrokeragesPage() {
   const navigate = useNavigate();
@@ -20,6 +39,9 @@ export default function BrokeragesPage() {
   useEffect(() => { if (brokeragesFromHook.length > 0 && !localInit) { setBrokerages_local(brokeragesFromHook); setLocalInit(true); } }, [brokeragesFromHook, localInit]);
   const brokerages = localInit ? brokerages_local : brokeragesFromHook;
   const accountId = account?.accountId ?? null;
+  const isMobile = useScreen().isMobile;
+  const { can } = usePermissions();
+  const canManageBrokerages = can("can_manage_brokerages");
 
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState(""); const [cnpj, setCnpj] = useState(""); const [creci, setCreci] = useState("");
@@ -129,10 +151,14 @@ export default function BrokeragesPage() {
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
         <div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: "var(--color-bone)", margin: 0 }}>Imobiliárias</h1>
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-fog)", marginTop: 4 }}>{brokerages.length} registros</div>
+          <h1 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontStyle: "italic", fontSize: 28, fontWeight: 400, color: "var(--color-bone)", margin: 0, lineHeight: 1.1 }}>Imobiliárias</h1>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-fog)", marginTop: 6, letterSpacing: "0.03em" }}>
+            {brokerages.length} registros · {brokerages.filter((b) => b.status === "active").length} ativas · {brokerages.filter((b) => (brokerCounts[b.id] || 0) > 0).length} com corretores vinculados
+          </div>
         </div>
-        <button type="button" onClick={() => setShowForm((p) => !p)} style={showForm ? btnS : btnP}>{showForm ? "Cancelar" : "Nova imobiliária"}</button>
+        {canManageBrokerages ? (
+          <button type="button" onClick={() => setShowForm((p) => !p)} style={showForm ? btnS : btnP}>{showForm ? "Cancelar" : "Nova imobiliária"}</button>
+        ) : null}
       </div>
 
       {/* Quick create form */}
@@ -164,32 +190,85 @@ export default function BrokeragesPage() {
       {filtered.length === 0 ? (
         <div className="nexa-card" style={{ textAlign: "center", padding: 24 }}><p style={{ color: "var(--color-fog)", fontSize: 13 }}>Nenhuma imobiliária encontrada.</p></div>
       ) : (
-        <div style={{ overflowX: "auto" }}>
-          <table className="nexa-table">
-            <thead><tr><th>Nome</th><th>CNPJ</th><th>CRECI-J</th><th>Responsável</th><th>Telefone</th><th>Cidade</th><th>Corretores</th><th>Status</th><th></th></tr></thead>
-            <tbody>{filtered.map((b) => (
-              <tr key={b.id} style={{ cursor: "pointer" }} onClick={() => navigate(`/imobiliarias/${b.id}`)}>
-                <td style={{ color: "var(--color-bone)", fontWeight: 600 }}>{b.name}</td>
-                <td style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{b.cnpj ? maskCNPJ(b.cnpj) : "—"}</td>
-                <td>{(b as Record<string, unknown>).creci as string || "—"}</td>
-                <td>{(b as Record<string, unknown>).responsavel as string || "—"}</td>
-                <td>{b.phone ? maskPhone(b.phone) : "—"}</td>
-                <td>{b.city || "—"}</td>
-                <td style={{ textAlign: "center" }}>{brokerCounts[b.id] || 0}</td>
-                <td><span className="nexa-badge" style={{ color: b.status === "active" ? "var(--color-sprout)" : "var(--color-fog)", background: b.status === "active" ? "var(--color-sprout-muted)" : "rgba(156,150,134,0.12)" }}>{b.status === "active" ? "Ativa" : "Inativa"}</span></td>
-                <td onClick={(e) => e.stopPropagation()} style={{ position: "relative" }}>
-                  <button type="button" onClick={() => setMenuOpen(menuOpen === b.id ? null : b.id)} style={{ background: "none", border: "none", color: "var(--color-fog)", fontSize: 16, cursor: "pointer", padding: "2px 6px" }}>⋮</button>
-                  {menuOpen === b.id && (<>
-                    <div style={{ position: "fixed", inset: 0, zIndex: 49 }} onClick={() => setMenuOpen(null)} />
-                    <div style={{ position: "absolute", right: 0, top: 28, background: "var(--color-carbon)", border: "1px solid var(--color-stone)", borderRadius: 8, zIndex: 50, minWidth: 140, boxShadow: "0 4px 12px rgba(0,0,0,0.3)" }}>
-                      <button type="button" onClick={() => { setMenuOpen(null); navigate(`/imobiliarias/${b.id}`); }} onMouseEnter={(e) => { e.currentTarget.style.background = "var(--color-stone)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }} style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", color: "var(--color-bone)", fontSize: 13, padding: "8px 16px", cursor: "pointer", borderRadius: "8px 8px 0 0" }}>✎ Editar</button>
-                      <button type="button" onClick={() => { setMenuOpen(null); setDeleteTarget({ id: b.id, name: b.name, brokerCount: brokerCounts[b.id] || 0 }); }} onMouseEnter={(e) => { e.currentTarget.style.background = "var(--color-stone)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }} style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", color: "#F87171", fontSize: 13, padding: "8px 16px", cursor: "pointer", borderRadius: "0 0 8px 8px" }}>🗑 Excluir</button>
-                    </div>
-                  </>)}
-                </td>
-              </tr>
-            ))}</tbody>
-          </table>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {filtered.map((b) => {
+            const isInactive = b.status !== "active";
+            const brokerCount = brokerCounts[b.id] || 0;
+            const displayName = capitalizeCompanyName(b.name);
+            return (
+              <div
+                key={b.id}
+                onClick={() => navigate(`/imobiliarias/${b.id}`)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 12,
+                  padding: "10px 14px", cursor: "pointer",
+                  background: "linear-gradient(145deg, var(--surface-raised), var(--surface-base))",
+                  border: "1px solid var(--border-default)",
+                  borderRadius: 10, position: "relative",
+                  opacity: isInactive ? 0.55 : 1,
+                  transition: "border-color 0.15s, transform 0.1s",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(74,222,128,0.25)"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border-default)"; e.currentTarget.style.transform = "none"; }}
+              >
+                <div style={{
+                  width: 36, height: 36, borderRadius: 8, flexShrink: 0,
+                  background: "rgba(74,222,128,0.08)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 700, color: "#4ADE80",
+                }}>
+                  {getBrokerageInitials(b.name)}
+                </div>
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {displayName}
+                  </div>
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {b.city || "—"}
+                    {(b as Record<string, unknown>).creci ? ` · CRECI ${(b as Record<string, unknown>).creci as string}` : ""}
+                    {b.cnpj ? ` · ${maskCNPJ(b.cnpj)}` : ""}
+                  </div>
+                </div>
+
+                {!isMobile && (
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-secondary)", minWidth: 110, textAlign: "right" }}>
+                    {b.phone ? maskPhone(b.phone) : "—"}
+                  </div>
+                )}
+
+                <div style={{ textAlign: "center", minWidth: 60, flexShrink: 0 }}>
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 16, fontWeight: 700, color: brokerCount > 0 ? "var(--text-primary)" : "var(--text-muted)", lineHeight: 1 }}>
+                    {brokerCount}
+                  </div>
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 8, color: "var(--text-muted)", marginTop: 2, letterSpacing: "0.05em" }}>
+                    corretor{brokerCount !== 1 ? "es" : ""}
+                  </div>
+                </div>
+
+                {isInactive && (
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 8, fontWeight: 700, color: "#F87171", background: "rgba(248,113,113,0.12)", padding: "2px 8px", borderRadius: 4, letterSpacing: "0.08em", flexShrink: 0 }}>
+                    INATIVA
+                  </span>
+                )}
+
+                {canManageBrokerages ? (
+                  <div onClick={(e) => e.stopPropagation()} style={{ position: "relative", flexShrink: 0 }}>
+                    <button type="button" onClick={() => setMenuOpen(menuOpen === b.id ? null : b.id)} style={{ background: "none", border: "none", color: "var(--color-fog)", fontSize: 18, cursor: "pointer", padding: "4px 8px", lineHeight: 1, borderRadius: 6 }}>⋮</button>
+                    {menuOpen === b.id && (
+                      <>
+                        <div style={{ position: "fixed", inset: 0, zIndex: 9998 }} onClick={() => setMenuOpen(null)} />
+                        <div style={{ position: "absolute", right: 0, top: 32, background: "var(--color-carbon)", border: "1px solid var(--color-stone)", borderRadius: 8, zIndex: 9999, minWidth: 140, boxShadow: "0 4px 12px rgba(0,0,0,0.3)" }}>
+                          <button type="button" onClick={() => { setMenuOpen(null); navigate(`/imobiliarias/${b.id}`); }} style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", color: "var(--color-bone)", fontSize: 13, padding: "8px 16px", cursor: "pointer", borderRadius: "8px 8px 0 0" }}>Editar</button>
+                          <button type="button" onClick={() => { setMenuOpen(null); setDeleteTarget({ id: b.id, name: b.name, brokerCount }); }} style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", color: "#F87171", fontSize: 13, padding: "8px 16px", cursor: "pointer", borderRadius: "0 0 8px 8px" }}>Excluir</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       )}
       {/* Delete modal */}

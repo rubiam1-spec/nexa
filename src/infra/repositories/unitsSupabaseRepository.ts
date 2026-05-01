@@ -52,7 +52,7 @@ function mapUnitRowToUnit(row: UnitRow): Unidade {
     accountId: row.account_id,
     quadra: row.quadra,
     lote: row.lote,
-    valor: row.valor,
+    valor: Number(row.valor) || 0,
     empreendimentoId: row.development_id,
     status: normalizeUnitStatus(row.status),
     createdAt: new Date(row.created_at),

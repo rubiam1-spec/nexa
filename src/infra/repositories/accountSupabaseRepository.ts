@@ -1,10 +1,12 @@
 import type { AccountContextData } from "../../shared/types/account";
 import type { UserRole } from "../../shared/types/auth";
 import { normalizeUserRole } from "../../shared/types/role";
+import { sanitizeOverrides } from "../../shared/constants/permissionPresets";
 import { getSupabaseClientOrThrow } from "./baseRepository";
 
 type UserAccountAccessRow = {
   role: UserRole | null;
+  permission_overrides: unknown;
   accounts:
     | {
         id: string;
@@ -31,6 +33,7 @@ function mapAccountAccessRowToAccount(
     accountName: account.name,
     slug: account.name.toLowerCase().replace(/\s+/g, "-"),
     role: normalizeUserRole(row.role),
+    permissionOverrides: sanitizeOverrides(row.permission_overrides),
   };
 }
 
@@ -39,7 +42,7 @@ export async function getAccessibleAccounts(userId: string) {
 
   const { data, error } = await supabase
     .from("user_account_access")
-    .select("role, accounts(id, name)")
+    .select("role, permission_overrides, accounts(id, name)")
     .eq("user_id", userId);
 
   if (error) {

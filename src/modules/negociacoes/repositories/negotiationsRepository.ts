@@ -17,6 +17,7 @@ export function createNegotiation(input: {
     unitId: input.unitId,
     clientId: input.clientId,
     brokerId: input.brokerId,
+    thirdPartyPropertyId: null,
     status: NegotiationStatus.OPEN,
     score: 50,
     temperature: "warm",

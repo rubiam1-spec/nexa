@@ -8,6 +8,7 @@ import NexaBadge from "../../../shared/components/NexaBadge";
 import { useNegotiations } from "../../negociacoes/hooks/useNegotiations";
 import { useUnitHistory } from "../hooks/useUnitHistory";
 import { useUnits } from "../hooks/useUnits";
+import { formatDateTimeBRT } from "../../../shared/utils/dateUtils";
 
 export default function UnitsPanel() {
   const { account, isUsingMock: isUsingMockAccount, status: accountStatus, errorMessage: accountErrorMessage } = useAccount();
@@ -120,7 +121,7 @@ export default function UnitsPanel() {
                 </div>
                 {lastEvent ? (
                   <div style={{ fontSize: 11, color: "var(--color-fog)" }}>
-                    Ultimo evento: {getUnitHistoryActionLabel(lastEvent.action)} — {getUnidadeStatusLabel(lastEvent.toStatus)} em {lastEvent.createdAt.toLocaleString("pt-BR")}
+                    Ultimo evento: {getUnitHistoryActionLabel(lastEvent.action)} — {getUnidadeStatusLabel(lastEvent.toStatus)} em {formatDateTimeBRT(lastEvent.createdAt)}
                   </div>
                 ) : null}
               </div>

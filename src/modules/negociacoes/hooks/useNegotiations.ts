@@ -44,6 +44,7 @@ export function useNegotiations(
     units: Unidade[];
     persistUnitStatus: (unitId: string, status: Unidade["status"]) => Promise<Unidade>;
   },
+  filters?: { brokerId?: string | null; ownerProfileId?: string | null },
 ) {
   const [negotiations, setNegotiations] = useState<Negotiation[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -92,6 +93,7 @@ export function useNegotiations(
         const realNegotiations = await getSupabaseNegotiations(
           accountId,
           developmentId,
+          filters,
         );
 
         if (!isMounted) {
@@ -124,7 +126,7 @@ export function useNegotiations(
     return () => {
       isMounted = false;
     };
-  }, [accountId, developmentId, useMockFallback]);
+  }, [accountId, developmentId, useMockFallback, filters?.brokerId, filters?.ownerProfileId]);
 
   async function updateStatus(
     negotiationId: string,
@@ -264,6 +266,7 @@ export function useNegotiations(
             unitId: input.unitId,
             clientId: input.clientId,
             brokerId: input.brokerId,
+            ownerProfileId: input.performedBy,
           });
 
       const historyInput = {

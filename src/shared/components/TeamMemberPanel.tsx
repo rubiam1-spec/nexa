@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { supabase } from "../../infra/supabase/supabaseClient";
 import Avatar from "./Avatar";
 
@@ -20,7 +21,7 @@ export default function TeamMemberPanel({ member, open, onClose, onRequestUpdate
   const [activities, setActivities] = useState<Activity[]>([]);
   const [negCount, setNegCount] = useState(0);
   const [loading, setLoading] = useState(false);
-  const mobile = typeof window !== "undefined" && window.innerWidth < 768;
+  const mobile = useIsMobile();
 
   useEffect(() => {
     if (!open || !member || !supabase) return;

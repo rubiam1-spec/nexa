@@ -139,9 +139,12 @@ export default function FeedPage() {
     } else {
       supabase.from("feed_reactions").upsert({ activity_id: postId, user_id: userId, reaction_type: type }, { onConflict: "activity_id,user_id" }).then(({ error }) => {
         if (error) setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, reactions: p.reactions.filter((r) => r.user_id !== userId) } : p));
+        // Notify activity author (only for new reactions, not removes)
+        if (!error && post?.profile_id && post.profile_id !== userId && accountId) {
+          supabase!.from("notifications").insert({ account_id: accountId, recipient_id: post.profile_id, sender_id: userId, type: "feed_reaction", title: `${userName} reagiu à sua atividade`, message: `${type === "like" ? "👍" : type === "celebrate" ? "🎉" : type === "fire" ? "🔥" : "❤️"} em "${post.title?.slice(0, 60) || "atividade"}"`, read: false, action_url: "/feed" }).then(() => {}, () => {});
+        }
       });
     }
-    void userName; // used for future notifications
   }
 
   function addComment(postId: string) {
@@ -159,9 +162,14 @@ export default function FeedPage() {
     setCommentText((prev) => ({ ...prev, [postId]: "" }));
 
     // Background save
+    const commentPost = posts.find((p) => p.id === postId);
     supabase.from("feed_comments").insert({ activity_id: postId, user_id: userId, content: text }).select("id").single().then(({ data, error }) => {
       if (data) {
         setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, comments: p.comments.map((c) => c.id === tempId ? { ...c, id: data.id } : c) } : p));
+        // Notify activity author
+        if (commentPost?.profile_id && commentPost.profile_id !== userId && accountId) {
+          supabase!.from("notifications").insert({ account_id: accountId, recipient_id: commentPost.profile_id, sender_id: userId, type: "feed_comment", title: `${userName} comentou na sua atividade`, message: `"${text.slice(0, 80)}${text.length > 80 ? "..." : ""}"`, read: false, action_url: "/feed" }).then(() => {}, () => {});
+        }
       }
       if (error) console.error("Comment save error:", error);
     });

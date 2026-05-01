@@ -13,10 +13,13 @@ export function useNotifications(userId: string | null, accountId: string | null
 
   const fetch_ = useCallback(async () => {
     if (!supabase || !userId) return;
-    const { data } = await supabase.from("notifications").select("*").eq("recipient_id", userId).eq("read", false).order("created_at", { ascending: false }).limit(10);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return; // Wait for auth session before querying
+    const { data, error } = await supabase.from("notifications").select("*").eq("recipient_id", userId).order("created_at", { ascending: false }).limit(50);
+    if (error) { console.error("Notifications fetch error:", error.message); return; }
     const n = (data ?? []) as Notification[];
     setNotifications(n);
-    setUnreadCount(n.length);
+    setUnreadCount(n.filter((x) => !x.read).length);
   }, [userId]);
 
   useEffect(() => {
@@ -26,11 +29,23 @@ export function useNotifications(userId: string | null, accountId: string | null
   }, [fetch_]);
 
   const markAsRead = useCallback(async (id: string) => {
-    if (!supabase) return;
-    await supabase.from("notifications").update({ read: true }).eq("id", id);
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    if (!supabase || !userId) return;
+    // Optimistic update first for instant UI feedback
+    setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
     setUnreadCount((prev) => Math.max(0, prev - 1));
-  }, []);
+    // Then persist — include recipient_id for RLS compatibility
+    const { error } = await supabase.from("notifications").update({ read: true }).eq("id", id).eq("recipient_id", userId);
+    if (error) { console.error("markAsRead error:", error.message); void fetch_(); }
+  }, [userId, fetch_]);
+
+  const markAllAsRead = useCallback(async () => {
+    if (!supabase || !userId) return;
+    // Optimistic update first
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    setUnreadCount(0);
+    const { error } = await supabase.from("notifications").update({ read: true }).eq("recipient_id", userId).eq("read", false);
+    if (error) { console.error("markAllAsRead error:", error.message); void fetch_(); }
+  }, [userId, fetch_]);
 
   const sendUpdateRequest = useCallback(async (recipientId: string, _recipientName: string, senderName: string) => {
     if (!supabase || !userId || !accountId) return false;
@@ -46,5 +61,5 @@ export function useNotifications(userId: string | null, accountId: string | null
     return !error;
   }, [userId, accountId]);
 
-  return { notifications, unreadCount, markAsRead, sendUpdateRequest, refetch: fetch_ };
+  return { notifications, unreadCount, markAsRead, markAllAsRead, sendUpdateRequest, refetch: fetch_ };
 }

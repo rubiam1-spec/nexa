@@ -7,111 +7,88 @@ import { supabase } from "../supabase/supabaseClient";
 type UserAccountAccessRow = {
   role: UserRole | null;
   profiles:
-    | {
-        id: string;
-        full_name: string;
-        email: string;
-        status: "active" | "inactive";
-      }
-    | {
-        id: string;
-        full_name: string;
-        email: string;
-        status: "active" | "inactive";
-      }[]
+    | { id: string; name: string | null; full_name: string | null; email: string; status: "active" | "inactive" }
+    | { id: string; name: string | null; full_name: string | null; email: string; status: "active" | "inactive" }[]
     | null;
 };
 
-function mapUserAccessRowToUser(
-  row: UserAccountAccessRow,
-): AccountUser | null {
+function mapUserAccessRowToUser(row: UserAccountAccessRow): AccountUser | null {
   const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
-
-  if (!profile) {
-    return null;
-  }
-
-  return {
-    id: profile.id,
-    fullName: profile.full_name,
-    email: profile.email,
-    role: normalizeUserRole(row.role),
-    status: profile.status,
-  };
+  if (!profile) return null;
+  return { id: profile.id, fullName: profile.name || profile.full_name || profile.email, email: profile.email, role: normalizeUserRole(row.role), status: profile.status };
 }
+
+export type InviteUserResult = { user: AccountUser; link?: string };
 
 export async function inviteUser(input: {
   email: string;
   fullName: string;
   role: UserRole;
   accountId: string;
-}): Promise<AccountUser> {
-  if (!supabase) {
-    throw new Error("Supabase não configurado.");
-  }
+}): Promise<InviteUserResult> {
+  if (!supabase) throw new Error("Supabase não configurado.");
 
-  // 1. Create auth user via signUp with a temporary password
-  const tempPassword = `Nexa_${crypto.randomUUID().slice(0, 12)}!`;
-  const { data: authData, error: authError } = await supabase.auth.signUp({
-    email: input.email,
-    password: tempPassword,
-    options: {
-      data: {
-        full_name: input.fullName,
-      },
+  // Refresh da sessão para garantir token válido antes de chamar a Edge Function
+  const { error: refreshError } = await supabase.auth.refreshSession();
+  if (refreshError) throw new Error("Sessão expirada. Faça login novamente.");
+
+  const { data, error } = await supabase.functions.invoke("invite-user", {
+    body: {
+      email: input.email.trim().toLowerCase(),
+      name: input.fullName.trim(),
+      role: input.role,
+      account_id: input.accountId,
     },
   });
 
-  if (authError) {
-    throw new Error(`Falha ao criar usuário: ${authError.message}`);
-  }
-
-  const userId = authData.user?.id;
-  if (!userId) {
-    throw new Error("Usuário criado mas ID não retornado.");
-  }
-
-  // 2. Re-authenticate as the current admin (signUp may have switched session)
-  // We need to restore the admin session — the signUp with anon key does NOT
-  // switch sessions if email confirmation is required (which is the default).
-  // If it does switch, the admin will need to log in again.
-
-  // 3. Insert profile record
-  const { error: profileError } = await supabase
-    .from("profiles")
-    .insert({
-      id: userId,
-      full_name: input.fullName,
-      email: input.email,
-      name: input.fullName,
-      role: input.role,
-      status: "active",
-    });
-
-  if (profileError) {
-    throw new Error(`Perfil criado no auth mas falha ao inserir em profiles: ${profileError.message}`);
-  }
-
-  // 4. Insert user_account_access
-  const { error: accessError } = await supabase
-    .from("user_account_access")
-    .insert({
-      user_id: userId,
-      account_id: input.accountId,
-      role: input.role,
-    });
-
-  if (accessError) {
-    throw new Error(`Perfil criado mas falha ao vincular à conta: ${accessError.message}`);
-  }
+  if (error) throw new Error(error.message || "Falha ao enviar convite.");
+  if (data?.error) throw new Error(data.error);
 
   return {
-    id: userId,
-    fullName: input.fullName,
-    email: input.email,
-    role: input.role,
-    status: "active",
+    user: {
+      id: data?.userId ?? crypto.randomUUID(),
+      fullName: input.fullName,
+      email: input.email,
+      role: input.role,
+      status: "active",
+    },
+    link: data?.link ?? undefined,
   };
+}
+
+export async function updateUserRole(userId: string, accountId: string, newRole: UserRole): Promise<void> {
+  const supabase = getSupabaseClientOrThrow("users repository");
+  const { error: e1 } = await supabase.from("profiles").update({ role: newRole }).eq("id", userId);
+  if (e1) throw new Error(`Falha ao atualizar perfil: ${e1.message}`);
+  const { error: e2 } = await supabase.from("user_account_access").update({ role: newRole }).eq("user_id", userId).eq("account_id", accountId);
+  if (e2) throw new Error(`Falha ao atualizar acesso: ${e2.message}`);
+}
+
+export async function deactivateUser(userId: string): Promise<void> {
+  const supabase = getSupabaseClientOrThrow("users repository");
+  const { error } = await supabase.from("profiles").update({ status: "inactive" }).eq("id", userId);
+  if (error) throw new Error(`Falha ao desativar: ${error.message}`);
+}
+
+export async function reactivateUser(userId: string): Promise<void> {
+  const supabase = getSupabaseClientOrThrow("users repository");
+  const { error } = await supabase.from("profiles").update({ status: "active" }).eq("id", userId);
+  if (error) throw new Error(`Falha ao reativar: ${error.message}`);
+}
+
+export async function countUserNegotiations(userId: string): Promise<number> {
+  const supabase = getSupabaseClientOrThrow("users repository");
+  const { count, error } = await supabase.from("negotiations").select("id", { count: "exact", head: true }).eq("owner_profile_id", userId);
+  if (error) throw new Error(`Falha ao verificar: ${error.message}`);
+  return count ?? 0;
+}
+
+export async function deleteUser(userId: string, accountId: string): Promise<void> {
+  const supabase = getSupabaseClientOrThrow("users repository");
+  const { error: e1 } = await supabase.from("user_account_access").delete().eq("user_id", userId).eq("account_id", accountId);
+  if (e1) throw new Error(`Falha ao remover acesso: ${e1.message}`);
+  const { error: e2 } = await supabase.from("profiles").delete().eq("id", userId);
+  if (e2) throw new Error(`Falha ao excluir perfil: ${e2.message}`);
 }
 
 export async function getUsers(accountId: string) {
@@ -119,13 +96,14 @@ export async function getUsers(accountId: string) {
 
   const { data, error } = await supabase
     .from("user_account_access")
-    .select("role, profiles(id, full_name, email, status)")
+    .select("role, profiles(id, name, full_name, email, status)")
     .eq("account_id", accountId)
+    .neq("role", "broker")
     .order("created_at", { ascending: false });
 
   const users = (data ?? [])
     .map((row) => mapUserAccessRowToUser(row as UserAccountAccessRow))
-    .filter((user): user is AccountUser => user !== null);
+    .filter((user): user is AccountUser => user !== null && user.role !== "broker");
 
   return unwrapSupabaseListResult<AccountUser>(users, error, "users");
 }

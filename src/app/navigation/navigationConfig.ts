@@ -1,12 +1,14 @@
 export type NavigationItem = {
   key:
     | "meudia"
+    | "notificacoes"
     | "simulador"
+    | "contatos"
     | "negociacoes"
     | "pipeline"
     | "unidades"
+    | "imoveis"
     | "empreendimentos"
-    | "clientes"
     | "corretores"
     | "imobiliarias"
     | "atividades"
@@ -14,7 +16,8 @@ export type NavigationItem = {
     | "relatorios"
     | "materiais"
     | "usuarios"
-    | "configuracoes";
+    | "configuracoes"
+    | "relacionamento";
   label: string;
   path: string;
 };
@@ -26,9 +29,19 @@ export const navigationConfig: NavigationItem[] = [
     path: "/",
   },
   {
+    key: "notificacoes",
+    label: "Notificações",
+    path: "/notificacoes",
+  },
+  {
     key: "simulador",
     label: "Simulador",
     path: "/simulador",
+  },
+  {
+    key: "contatos",
+    label: "Contatos",
+    path: "/contatos",
   },
   {
     key: "negociacoes",
@@ -49,11 +62,6 @@ export const navigationConfig: NavigationItem[] = [
     key: "empreendimentos",
     label: "Empreendimentos",
     path: "/empreendimentos",
-  },
-  {
-    key: "clientes",
-    label: "Clientes",
-    path: "/clientes",
   },
   {
     key: "corretores",
@@ -94,5 +102,10 @@ export const navigationConfig: NavigationItem[] = [
     key: "configuracoes",
     label: "Configurações",
     path: "/configuracoes",
+  },
+  {
+    key: "relacionamento",
+    label: "Relacionamento",
+    path: "/relacionamento",
   },
 ];

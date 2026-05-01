@@ -75,9 +75,13 @@ function normalizeNegotiationStatus(
     case UnitQueueStatus.ACTIVE:
     case UnitQueueStatus.PROMOTED:
     case UnitQueueStatus.CANCELLED:
+    case UnitQueueStatus.WAITING:
+    case UnitQueueStatus.REMOVED:
+    case UnitQueueStatus.EXPIRED:
       return status;
     default:
-      throw new Error(`Unsupported negotiation history status: ${status}`);
+      console.warn(`[NEXA] Unknown negotiation history status: "${status}", using as-is`);
+      return status as UnitQueueStatusType;
   }
 }
 

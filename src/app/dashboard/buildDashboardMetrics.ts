@@ -17,6 +17,7 @@ export type DashboardMetrics = {
   activeReservations: number;
   completedSales: number;
   unitsByStatus: Record<Unidade["status"], number>;
+  vgvTotal: number;
   vgv: {
     emNegociacao: number;
     reservado: number;
@@ -63,6 +64,7 @@ export function buildDashboardMetrics(input: {
     [ProposalStatus.ACCEPTED]: 0,
     [ProposalStatus.REJECTED]: 0,
     [ProposalStatus.EXPIRED]: 0,
+    [ProposalStatus.COUNTER_PROPOSAL]: 0,
   };
 
   input.proposals.forEach((proposal) => {
@@ -82,9 +84,13 @@ export function buildDashboardMetrics(input: {
     salesByStatus[sale.status] += 1;
   });
 
-  const activeReservations = input.reservations.filter(
+  const activeReservationsFromTable = input.reservations.filter(
     (reservation) => reservation.status === ReservationStatus.ACTIVE,
   ).length;
+  const reservedUnitsCount = input.units.filter(
+    (unit) => unit.status === UnidadeStatus.RESERVADO,
+  ).length;
+  const activeReservations = activeReservationsFromTable > 0 ? activeReservationsFromTable : reservedUnitsCount;
 
   const completedSales = input.sales.filter(
     (sale) => sale.status === SaleStatus.COMPLETED,
@@ -101,18 +107,21 @@ export function buildDashboardMetrics(input: {
     unitsByStatus[unit.status] += 1;
   });
 
+  const vgvTotal = input.units.reduce((acc, unit) => acc + (Number(unit.valor) || 0), 0);
+
   const vgv = input.units.reduce(
     (accumulator, unit) => {
+      const v = Number(unit.valor) || 0;
       if (unit.status === UnidadeStatus.EM_NEGOCIACAO) {
-        accumulator.emNegociacao += unit.valor;
+        accumulator.emNegociacao += v;
       }
 
       if (unit.status === UnidadeStatus.RESERVADO) {
-        accumulator.reservado += unit.valor;
+        accumulator.reservado += v;
       }
 
       if (unit.status === UnidadeStatus.VENDIDO) {
-        accumulator.vendido += unit.valor;
+        accumulator.vendido += v;
       }
 
       return accumulator;
@@ -169,6 +178,7 @@ export function buildDashboardMetrics(input: {
     activeReservations,
     completedSales,
     unitsByStatus,
+    vgvTotal,
     vgv,
     funnel,
     alerts,

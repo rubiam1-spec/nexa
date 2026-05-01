@@ -170,3 +170,12 @@ export async function updateSaleStatus(
 
   return mapSaleRow(data as SaleRow);
 }
+
+export async function deleteSalesByDevelopment(developmentId: string): Promise<void> {
+  const sb = getSupabaseClientOrThrow("sales repository");
+  const { error } = await sb
+    .from("sales")
+    .delete()
+    .eq("development_id", developmentId);
+  if (error) throw new Error(error.message);
+}

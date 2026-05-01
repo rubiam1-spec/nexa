@@ -120,7 +120,7 @@ export default function DevelopmentProvider({
         setErrorMessage(
           accountDevelopments.length > 0
             ? null
-            : "Nenhum empreendimento disponivel para a conta ativa.",
+            : "Nenhum empreendimento disponível para a conta ativa.",
         );
         return;
       }

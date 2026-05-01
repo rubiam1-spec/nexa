@@ -23,7 +23,18 @@ export default function SelectDevelopmentPage() {
   } = useAvailableDevelopments();
 
   function handleSelectDevelopment(developmentId: string) {
+    const postSelectUrl = localStorage.getItem("nexa_oauth_post_select_url");
+
     selectDevelopment(developmentId);
+
+    if (postSelectUrl) {
+      localStorage.removeItem("nexa_oauth_post_select_url");
+      setTimeout(() => {
+        window.location.href = postSelectUrl;
+      }, 300);
+      return;
+    }
+
     navigate("/");
   }
 

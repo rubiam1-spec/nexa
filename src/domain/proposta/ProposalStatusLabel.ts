@@ -14,6 +14,8 @@ export function getProposalStatusLabel(status: ProposalStatusType) {
       return "Recusada";
     case ProposalStatus.EXPIRED:
       return "Expirada";
+    case ProposalStatus.COUNTER_PROPOSAL:
+      return "Contraproposta";
     default:
       return status;
   }

@@ -23,7 +23,7 @@ export function converterNegociacaoEmVenda(input: {
 
   if (!activeReservation) {
     throw new InvalidSaleCreationError(
-      "A venda exige uma reserva ativa vinculada a negociacao.",
+      "A venda exige uma reserva ativa vinculada à negociação.",
     );
   }
 
@@ -34,7 +34,7 @@ export function converterNegociacaoEmVenda(input: {
 
   if (!reservationRequest) {
     throw new InvalidSaleCreationError(
-      "A reserva ativa nao possui solicitacao de origem valida.",
+      "A reserva ativa não possui solicitação de origem válida.",
     );
   }
 
@@ -53,7 +53,7 @@ export function converterNegociacaoEmVenda(input: {
 
   if (hasSale) {
     throw new InvalidSaleCreationError(
-      "Ja existe uma venda registrada para esta negociacao.",
+      "Já existe uma venda registrada para esta negociação.",
     );
   }
 

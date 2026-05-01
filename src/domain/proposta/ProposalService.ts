@@ -25,6 +25,11 @@ export class ProposalService {
     );
   }
 
+  static isActionable(proposal: Proposal) {
+    const nonActionable: string[] = [ProposalStatus.ACCEPTED, ProposalStatus.REJECTED, ProposalStatus.COUNTER_PROPOSAL, ProposalStatus.EXPIRED];
+    return !nonActionable.includes(proposal.status);
+  }
+
   static alterarStatus(
     proposal: Proposal,
     status: Proposal["status"],

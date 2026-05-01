@@ -25,6 +25,7 @@ export function useDashboardMetrics() {
     overview.developmentContext.development?.developmentId ?? null;
   const useMockFallback =
     overview.accountContext.isUsingMock || overview.developmentContext.isUsingMock;
+  const isBroker = overview.accountContext.isBroker;
 
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -79,12 +80,30 @@ export function useDashboardMetrics() {
           return;
         }
 
+        // For brokers, filter proposals/reservations/sales to only their negotiations
+        const brokerNegotiationIds = isBroker
+          ? new Set(overview.negotiationsState.negotiations.map((n) => n.id))
+          : null;
+
+        const filteredProposals = brokerNegotiationIds
+          ? proposals.filter((p) => brokerNegotiationIds.has(p.negotiationId))
+          : proposals;
+        const filteredReservations = brokerNegotiationIds
+          ? reservations.filter((r) => brokerNegotiationIds.has(r.negotiationId))
+          : reservations;
+        const filteredSales = brokerNegotiationIds
+          ? sales.filter((s) => brokerNegotiationIds.has(s.negotiationId))
+          : sales;
+        const filteredReservationRequests = brokerNegotiationIds
+          ? reservationRequests.filter((rr) => brokerNegotiationIds.has(rr.negotiationId))
+          : reservationRequests;
+
         const nextMetrics = buildDashboardMetrics({
           negotiations: overview.negotiationsState.negotiations,
-          proposals,
-          reservationRequests,
-          reservations,
-          sales,
+          proposals: filteredProposals,
+          reservationRequests: filteredReservationRequests,
+          reservations: filteredReservations,
+          sales: filteredSales,
           units: overview.unitsState.units,
         });
 

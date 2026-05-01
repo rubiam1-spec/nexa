@@ -5,11 +5,12 @@ import type { Client } from "../../../shared/types/client";
 
 type ClientsStatus = "idle" | "loading" | "mock" | "ready" | "empty" | "error";
 
-export function useClients(accountId: string | null, useMockFallback: boolean) {
+export function useClients(accountId: string | null, useMockFallback: boolean, ownerFilter?: { userId: string; clientIdsFromNegs: string[] }) {
   const [clients, setClients] = useState<Client[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState<ClientsStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -49,7 +50,7 @@ export function useClients(accountId: string | null, useMockFallback: boolean) {
           return;
         }
 
-        const realClients = await getSupabaseClients(accountId);
+        const realClients = await getSupabaseClients(accountId, ownerFilter);
 
         if (!isMounted) {
           return;
@@ -81,7 +82,7 @@ export function useClients(accountId: string | null, useMockFallback: boolean) {
     return () => {
       isMounted = false;
     };
-  }, [accountId, useMockFallback]);
+  }, [accountId, useMockFallback, ownerFilter?.userId, ownerFilter?.clientIdsFromNegs?.length, refreshKey]);
 
   return {
     clients,
@@ -89,5 +90,6 @@ export function useClients(accountId: string | null, useMockFallback: boolean) {
     isUsingMock: status === "mock",
     status,
     errorMessage,
+    refetch: () => setRefreshKey((k) => k + 1),
   };
 }

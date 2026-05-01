@@ -1,6 +1,6 @@
 const GOOGLE_CLIENT_ID =
   import.meta.env.VITE_GOOGLE_CLIENT_ID ||
-  "14133904198-e0qprhckppfl667op8s7gvm1i22vslpb.apps.googleusercontent.com";
+  "14133904198-5b9st81el02ovg4mc7ai9sramf581v7m.apps.googleusercontent.com";
 const GOOGLE_REDIRECT_URI =
   import.meta.env.VITE_GOOGLE_REDIRECT_URI ||
   "https://nexa-taupe-two.vercel.app/auth/google/callback";
@@ -20,7 +20,7 @@ export function getGoogleAuthUrl(): string {
     client_id: GOOGLE_CLIENT_ID,
     redirect_uri: GOOGLE_REDIRECT_URI,
     response_type: "code",
-    scope: "https://www.googleapis.com/auth/drive.readonly",
+    scope: "https://www.googleapis.com/auth/drive.file",
     access_type: "offline",
     prompt: "consent",
   });
@@ -113,4 +113,9 @@ export function detectMaterialType(mimeType: string): string {
   if (mimeType.startsWith("video/")) return "video";
   if (mimeType === "application/vnd.google-apps.folder") return "folder";
   return "link";
+}
+
+export function openGoogleAuthPopup(): void {
+  const url = getGoogleAuthUrl();
+  window.open(url, "_self");
 }

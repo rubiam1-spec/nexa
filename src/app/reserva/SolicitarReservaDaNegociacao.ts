@@ -33,14 +33,9 @@ export function solicitarReservaDaNegociacao(input: {
       (left, right) => right.createdAt.getTime() - left.createdAt.getTime(),
     )[0] ?? null;
 
-  if (
-    input.settings.requireAcceptedProposalForReservationRequest &&
-    !acceptedProposal
-  ) {
-    throw new InvalidReservationRequestError(
-      "A solicitacao de reserva exige uma proposta aceita.",
-    );
-  }
+  // requireAcceptedProposal is now advisory only — reservation can be requested
+  // with any active proposal (accepted or not). The flag controls whether
+  // auto-reservation happens on proposal acceptance.
 
   if (
     input.settings.requireCompleteClientDataForReservationRequest &&

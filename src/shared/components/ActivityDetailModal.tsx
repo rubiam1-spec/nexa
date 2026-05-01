@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
+import { formatDateBRT, formatWeekdayDateLongBRT } from "../utils/dateUtils";
+import { useIsMobile } from "../hooks/useIsMobile";
 
 interface Activity {
   id: string; type: string; title: string; status: string;
@@ -39,7 +41,7 @@ export default function ActivityDetailModal({ activity, participants, onClose, o
 }) {
   const [lightbox, setLightbox] = useState<{ urls: string[]; idx: number } | null>(null);
   const photos = activity.activity_photos ?? [];
-  const mobile = typeof window !== "undefined" && window.innerWidth < 768;
+  const mobile = useIsMobile();
   const st = activity.status || "completed";
   const isScheduled = st === "scheduled";
   const isExpired = st === "expired";
@@ -50,16 +52,16 @@ export default function ActivityDetailModal({ activity, participants, onClose, o
   const daysUntil = Math.ceil((new Date(activity.activity_date + "T12:00:00").getTime() - Date.now()) / 864e5);
   const wasEdited = activity.updated_at && activity.created_at && new Date(activity.updated_at).getTime() - new Date(activity.created_at).getTime() > 5000;
 
-  const dateLabel = new Date(activity.activity_date + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const dateLabel = formatWeekdayDateLongBRT(activity.activity_date + "T12:00:00");
   const statusLabel = isOverdue ? `Atrasada — há ${Math.abs(daysUntil)} dias` : isExpired ? `Expirada — ${Math.abs(daysUntil)} dias sem ação` : isToday && isScheduled ? "Hoje" : isScheduled ? `Agendada — em ${daysUntil} dias` : isSkipped ? "Pulada" : "";
   const statusColor = isOverdue || isExpired ? T.red : isToday && isScheduled ? T.blue : isScheduled ? T.blue : isSkipped ? T.slate : T.sprout;
 
   return createPortal(
-    <>
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 9998 }} />
+    <div style={{ position: "fixed", inset: 0, zIndex: 9998 }}>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)" }} />
       <div style={mobile
-        ? { position: "fixed", inset: 0, zIndex: 9999, overflowY: "auto", background: T.ink }
-        : { position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 9999, width: 480, maxWidth: "95vw", maxHeight: "90vh", overflowY: "auto", background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 16, boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }
+        ? { position: "absolute", inset: 0, zIndex: 1, overflowY: "auto", background: T.ink }
+        : { position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 1, width: 480, maxWidth: "95vw", maxHeight: "90vh", overflowY: "auto", background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 16, boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }
       }>
         {/* Header */}
         <div style={{ padding: "20px 24px 16px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -151,7 +153,7 @@ export default function ActivityDetailModal({ activity, participants, onClose, o
         {/* Footer */}
         <div style={{ padding: "12px 24px 8px", borderTop: `1px solid ${T.stone}` }}>
           <div style={{ fontSize: 11, color: T.slate }}>
-            Criada por {activity.profiles?.name || "—"} em {new Date(activity.created_at).toLocaleDateString("pt-BR")}
+            Criada por {activity.profiles?.name || "—"} em {formatDateBRT(activity.created_at)}
             {wasEdited && <span style={{ fontStyle: "italic" }}> · editada ✎</span>}
           </div>
         </div>
@@ -175,7 +177,7 @@ export default function ActivityDetailModal({ activity, participants, onClose, o
           {lightbox.urls.length > 1 && lightbox.idx < lightbox.urls.length - 1 && <button type="button" onClick={(e) => { e.stopPropagation(); setLightbox({ ...lightbox, idx: lightbox.idx + 1 }); }} style={{ position: "absolute", right: 16, background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", fontSize: 24, padding: "12px 16px", borderRadius: 8, cursor: "pointer" }}>›</button>}
         </div>
       )}
-    </>,
+    </div>,
     document.body,
   );
 }

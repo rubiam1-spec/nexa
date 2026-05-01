@@ -9,6 +9,7 @@ export type Negotiation = {
   unitId: string;
   clientId: string | null;
   brokerId: string | null;
+  thirdPartyPropertyId: string | null;
   status: NegotiationStatus;
   score: number;
   temperature: NegotiationTemperature;
