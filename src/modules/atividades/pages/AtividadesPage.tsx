@@ -116,21 +116,23 @@ function calculateStreak(acts: Activity[], pid: string): number {
 
 // ── Sub-components ──
 
-function KpiCard({ label, value, delta, warn, icon, accent, deltaPct, progressPct, compact }: { label: string; value: string | number; delta?: string; warn?: boolean; icon?: string; accent?: string; deltaPct?: number; progressPct?: number; compact?: boolean }) {
+function KpiCard({ label, value, delta, warn, icon, accent, deltaPct, progressPct, compact, tooltip }: { label: string; value: string | number; delta?: string; warn?: boolean; icon?: string; accent?: string; deltaPct?: number; progressPct?: number; compact?: boolean; tooltip?: string }) {
   const color = accent || (warn ? T.amber : T.sprout);
   const glyph = icon || (label[0] || "·").toUpperCase();
   const positive = deltaPct !== undefined && deltaPct >= 0;
   // Onda 2.1: variante compact = fita única, label + valor numa linha,
   // sem progress bar nem bloco de delta vertical (delta vira inline).
+  // Onda 3.2: tooltip explica o cálculo subjacente do KPI.
   if (compact) {
     return (
-      <div style={{
+      <div title={tooltip} style={{
         position: "relative",
         background: "var(--surface-raised)",
         borderRadius: 8, padding: "8px 12px",
         border: "1px solid var(--border-default)",
         flex: 1, minWidth: 120,
         display: "flex", flexDirection: "column", gap: 2,
+        cursor: tooltip ? "help" : "default",
       }}>
         <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: T.fog, letterSpacing: "0.08em", textTransform: "uppercase" }}>{label}</div>
         <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
@@ -436,8 +438,13 @@ function RankingRow({ member, position, selected, maxCount }: { member: RankedMe
   const isMobile = useIsMobile();
   const isZero = member.count === 0;
   const pct = maxCount > 0 ? (member.count / maxCount) * 100 : 0;
-  const barColor = position === 1 ? T.sprout : position === 2 ? T.blue : T.fog;
+  // Onda 3.1: cor única para todas as barras — variação só em comprimento.
+  const barColor = T.sprout;
   const trend = member.trendDelta;
+  const trendTooltip =
+    trend > 0
+      ? `+${trend} atividades nos últimos 7 dias vs 7 dias anteriores`
+      : `${trend} atividades nos últimos 7 dias vs 7 dias anteriores`;
   // Onda 1.5: zerados em opacidade reduzida, sem barra, com legenda discreta.
   return (
     <div style={{
@@ -453,14 +460,15 @@ function RankingRow({ member, position, selected, maxCount }: { member: RankedMe
       transition: "border-color 0.15s, background 0.15s, opacity 0.15s",
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: T.slate, minWidth: 20, textAlign: "center", fontFamily: "var(--font-mono)" }}>{position}</div>
+        {/* Onda 3.1: posição com ordinal explícito. */}
+        <div style={{ fontSize: 13, fontWeight: 700, color: T.slate, minWidth: 28, textAlign: "center", fontFamily: "var(--font-mono)" }}>{position}º</div>
         <div style={{ width: 36, height: 36, borderRadius: "50%", background: (isZero ? T.fog : member.alert ? T.amber : T.sprout) + "20", color: isZero ? T.fog : member.alert ? T.amber : T.sprout, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>{initials(member.name)}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 500, color: T.chalk }}>
             {member.name}
             {!isZero && member.streak > 0 && <span style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 8px", borderRadius: 12, background: member.streak >= 5 ? T.orange + "20" : T.sprout + "20", color: member.streak >= 5 ? T.orange : T.sprout, fontSize: 10, fontWeight: 600, marginLeft: 8 }}>● {member.streak}</span>}
             {!isZero && trend !== 0 && (
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: trend > 0 ? T.sprout : T.red, marginLeft: 6, fontWeight: 600 }}>
+              <span title={trendTooltip} style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: trend > 0 ? T.sprout : T.red, marginLeft: 6, fontWeight: 600, cursor: "help" }}>
                 {trend > 0 ? "↑ +" : "↓ "}{trend}
               </span>
             )}
@@ -472,10 +480,20 @@ function RankingRow({ member, position, selected, maxCount }: { member: RankedMe
           </div>
         </div>
         {!isMobile && (
+          /* Onda 3.2: tooltips explicam o cálculo de cada métrica do ranking. */
           <div style={{ display: "flex", gap: 20 }}>
-            <div style={{ textAlign: "right" }}><div style={{ fontSize: 16, fontWeight: 600, color: member.alert && !isZero ? T.amber : T.chalk }}>{member.count}</div><div style={{ fontSize: 9, color: T.fog, textTransform: "uppercase", letterSpacing: "0.05em" }}>Atividades</div></div>
-            <div style={{ textAlign: "right" }}><div style={{ fontSize: 16, fontWeight: 600, color: T.chalk }}>{isZero ? "—" : member.avg}</div><div style={{ fontSize: 9, color: T.fog, textTransform: "uppercase", letterSpacing: "0.05em" }}>Média/dia</div></div>
-            <div style={{ textAlign: "right" }}><div style={{ fontSize: 16, fontWeight: 600, color: T.chalk }}>{isZero ? "—" : member.hours}</div><div style={{ fontSize: 9, color: T.fog, textTransform: "uppercase", letterSpacing: "0.05em" }}>Em campo</div></div>
+            <div title="Atividades registradas no período filtrado" style={{ textAlign: "right", cursor: "help" }}>
+              <div style={{ fontSize: 16, fontWeight: 600, color: member.alert && !isZero ? T.amber : T.chalk }}>{member.count}</div>
+              <div style={{ fontSize: 9, color: T.fog, textTransform: "uppercase", letterSpacing: "0.05em" }}>Atividades</div>
+            </div>
+            <div title="Média de atividades por dia corrido do mês corrente" style={{ textAlign: "right", cursor: "help" }}>
+              <div style={{ fontSize: 16, fontWeight: 600, color: T.chalk }}>{isZero ? "—" : member.avg}</div>
+              <div style={{ fontSize: 9, color: T.fog, textTransform: "uppercase", letterSpacing: "0.05em" }}>Média/dia</div>
+            </div>
+            <div title="Tempo total em atividades de campo (visitas e reuniões externas)" style={{ textAlign: "right", cursor: "help" }}>
+              <div style={{ fontSize: 16, fontWeight: 600, color: T.chalk }}>{isZero ? "—" : member.hours}</div>
+              <div style={{ fontSize: 9, color: T.fog, textTransform: "uppercase", letterSpacing: "0.05em" }}>Em campo</div>
+            </div>
           </div>
         )}
       </div>
@@ -996,6 +1014,8 @@ export default function AtividadesPage() {
   const [viewMode, setViewMode] = useState<"mine" | "team">("team");
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [consultantFilter, setConsultantFilter] = useState("all");
+  // Onda 3.3: ordenação da lista de atividades.
+  const [listSort, setListSort] = useState<"date_desc" | "date_asc" | "type" | "profile">("date_desc");
   const [teamProfiles, setTeamProfiles] = useState<{ id: string; name: string; role: string }[]>([]);
   const [pendingFollowups, setPendingFollowups] = useState<{ id: string; clientName: string; quadra: string; lote: string; dias: number }[]>([]);
   const [searchParams] = useSearchParams();
@@ -1148,11 +1168,41 @@ export default function AtividadesPage() {
     return f;
   }, [filteredBeforeType, typeFilter]);
 
-  const groupedByDate = useMemo(() => {
+  // Onda 3.3: grouping muda conforme ordenação escolhida.
+  const grouped = useMemo(() => {
+    if (listSort === "type" || listSort === "profile") {
+      const groups: Record<string, Activity[]> = {};
+      for (const a of filteredActivities) {
+        const key = listSort === "type" ? a.type : (a.profiles?.name ?? "Desconhecido");
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(a);
+      }
+      // Items dentro do grupo sempre por data desc.
+      Object.values(groups).forEach((arr) => arr.sort((a, b) => b.activity_date.localeCompare(a.activity_date) || (b.start_time || "").localeCompare(a.start_time || "")));
+      return Object.entries(groups).sort(([a], [b]) => {
+        const labelA = listSort === "type" ? (badgeLabels[a] ?? a) : a;
+        const labelB = listSort === "type" ? (badgeLabels[b] ?? b) : b;
+        return labelA.localeCompare(labelB);
+      });
+    }
     const groups: Record<string, Activity[]> = {};
-    for (const a of filteredActivities) { if (!groups[a.activity_date]) groups[a.activity_date] = []; groups[a.activity_date].push(a); }
-    return Object.entries(groups).sort(([a], [b]) => b.localeCompare(a));
-  }, [filteredActivities]);
+    for (const a of filteredActivities) {
+      if (!groups[a.activity_date]) groups[a.activity_date] = [];
+      groups[a.activity_date].push(a);
+    }
+    return Object.entries(groups).sort(([a], [b]) =>
+      listSort === "date_asc" ? a.localeCompare(b) : b.localeCompare(a),
+    );
+  }, [filteredActivities, listSort]);
+
+  const groupHeaderLabel = useCallback(
+    (key: string) => {
+      if (listSort === "type") return badgeLabels[key] ?? key;
+      if (listSort === "profile") return key;
+      return formatDateLabel(key);
+    },
+    [listSort],
+  );
 
   const overdueActivities = useMemo(() => {
     const base = memberFilter ? activities.filter((a) => a.profile_id === memberFilter) : activities;
@@ -1435,14 +1485,15 @@ export default function AtividadesPage() {
           const avgDay = dayOfMonth > 0 ? (personalCompletedMonth / dayOfMonth).toFixed(1) : "0";
           return (
             <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: isMobile ? "wrap" : "nowrap" }}>
-              <KpiCard compact label="Este mês" value={personalCompletedMonth} accent={T.sprout} />
-              <KpiCard compact label="Média / dia" value={avgDay} accent={T.blue} />
+              <KpiCard compact label="Este mês" value={personalCompletedMonth} accent={T.sprout} tooltip="Atividades concluídas neste mês" />
+              <KpiCard compact label="Média / dia" value={avgDay} accent={T.blue} tooltip="Média de atividades concluídas por dia corrido do mês" />
               <KpiCard
                 compact
                 label="Pendentes"
                 value={personalPending}
                 accent={personalPending > 0 ? T.orange : T.fog}
                 warn={personalPending > 0}
+                tooltip="Atividades agendadas que ainda não foram concluídas"
               />
               <KpiCard
                 compact
@@ -1450,16 +1501,17 @@ export default function AtividadesPage() {
                 value={personalOverdue}
                 accent={personalOverdue > 0 ? T.red : T.fog}
                 warn={personalOverdue > 0}
+                tooltip="Atividades agendadas com data anterior a hoje"
               />
             </div>
           );
         }
         return (
           <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: isMobile ? "wrap" : "nowrap" }}>
-            <KpiCard compact label="Total este mês" value={kpis.monthCount} accent={T.sprout} deltaPct={kpis.monthDeltaPct} />
-            <KpiCard compact label="Média / dia" value={kpis.avgPerDay} accent={T.blue} deltaPct={kpis.avgDeltaPct} />
-            <KpiCard compact label="Horas em campo" value={kpis.hoursInField + "h"} accent={T.purple} deltaPct={kpis.hoursDeltaPct} />
-            <KpiCard compact label="Taxa follow-up" value={kpis.followUpRate + "%"} warn={kpis.followUpRate < 20} accent={kpis.followUpRate < 20 ? T.red : T.sprout} deltaPct={kpis.followUpDeltaPct} />
+            <KpiCard compact label="Total este mês" value={kpis.monthCount} accent={T.sprout} deltaPct={kpis.monthDeltaPct} tooltip="Atividades registradas no período filtrado" />
+            <KpiCard compact label="Média / dia" value={kpis.avgPerDay} accent={T.blue} deltaPct={kpis.avgDeltaPct} tooltip="Média de atividades por dia corrido do mês" />
+            <KpiCard compact label="Horas em campo" value={kpis.hoursInField + "h"} accent={T.purple} deltaPct={kpis.hoursDeltaPct} tooltip="Tempo total em atividades de campo (visitas, reuniões externas)" />
+            <KpiCard compact label="Taxa follow-up" value={kpis.followUpRate + "%"} warn={kpis.followUpRate < 20} accent={kpis.followUpRate < 20 ? T.red : T.sprout} deltaPct={kpis.followUpDeltaPct} tooltip="Percentual de atividades do tipo follow-up sobre o total do período" />
           </div>
         );
       })()}
@@ -1747,8 +1799,19 @@ export default function AtividadesPage() {
       {/* Ranking (manager/director) */}
       {(isDirector || (isManager && viewMode === "team")) && ranking.length > 0 && (
         <div style={{ marginBottom: 20 }}>
-          {/* Onda 2.4: H3 alinhado ao Brand Book v7 — sans 11 caps tracking 4. */}
-          <h3 style={{ fontFamily: "var(--font-sans)", fontSize: 11, color: T.fog, letterSpacing: "0.18em", margin: 0, marginBottom: 10, fontWeight: 600, textTransform: "uppercase" }}>Produtividade por membro</h3>
+          {/*
+            Onda 2.4: H3 alinhado ao Brand Book v7 — sans 11 caps tracking 4.
+            Onda 3.1: cabeçalho declara escopo (Equipe Comercial Interna)
+            e período corrente, eliminando ambiguidade de "quem está sendo
+            comparado" e "em qual janela de tempo".
+          */}
+          <h3 style={{ fontFamily: "var(--font-sans)", fontSize: 11, color: T.fog, letterSpacing: "0.18em", margin: 0, marginBottom: 10, fontWeight: 600, textTransform: "uppercase" }}>
+            Produtividade
+            <span style={{ color: T.slate, margin: "0 6px" }}>·</span>
+            Equipe Comercial Interna
+            <span style={{ color: T.slate, margin: "0 6px" }}>·</span>
+            {periodCfg.periodLabel}
+          </h3>
           {(() => {
             const maxCount = ranking.reduce((m, r) => Math.max(m, r.count), 0);
             return ranking.map((r, idx) => (
@@ -1814,6 +1877,46 @@ export default function AtividadesPage() {
         return <FilterChips chips={chips} onRemove={handleRemove} />;
       })()}
 
+      {/* Onda 3.3: header da lista com contagem + dropdown de ordenação. */}
+      {!loading && filteredActivities.length > 0 && (() => {
+        const sortLabels: Record<typeof listSort, string> = {
+          date_desc: "data (mais recentes)",
+          date_asc: "data (mais antigas)",
+          type: "tipo",
+          profile: "responsável",
+        };
+        return (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap",
+            fontFamily: "var(--font-mono)", fontSize: 10, color: T.fog,
+            marginBottom: 10,
+          }}>
+            <span>Mostrando <strong style={{ color: T.bone }}>{filteredActivities.length}</strong> {filteredActivities.length === 1 ? "atividade" : "atividades"}</span>
+            <span style={{ color: T.slate }}>·</span>
+            <span>ordenadas por {sortLabels[listSort]}</span>
+            <div style={{ flex: 1 }} />
+            <select
+              value={listSort}
+              onChange={(e) => setListSort(e.target.value as typeof listSort)}
+              title="Ordenação da lista"
+              style={{
+                padding: "5px 26px 5px 10px", borderRadius: 6,
+                background: "var(--surface-base)", border: "1px solid var(--border-default)",
+                color: T.bone, fontFamily: "var(--font-mono)", fontSize: 10, cursor: "pointer",
+                appearance: "none",
+                backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%239C9686' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E\")",
+                backgroundRepeat: "no-repeat", backgroundPosition: "right 8px center",
+              }}
+            >
+              <option value="date_desc">Data (mais recentes)</option>
+              <option value="date_asc">Data (mais antigas)</option>
+              <option value="type">Tipo</option>
+              <option value="profile">Responsável</option>
+            </select>
+          </div>
+        );
+      })()}
+
       {/* Activity list */}
       {loading ? (
         <div style={{ color: T.fog, textAlign: "center", padding: 40, fontFamily: "var(--font-mono)", fontSize: 13 }}>Carregando atividades...</div>
@@ -1825,9 +1928,9 @@ export default function AtividadesPage() {
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          {groupedByDate.map(([date, acts]) => (
-            <div key={date}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: T.fog, fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8, paddingBottom: 6, borderBottom: `1px solid ${T.stone}` }}>{formatDateLabel(date)}</div>
+          {grouped.map(([key, acts]) => (
+            <div key={key}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: T.fog, fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8, paddingBottom: 6, borderBottom: `1px solid ${T.stone}` }}>{groupHeaderLabel(key)}</div>
               {acts.map((a) => <ActivityCard key={a.id} activity={a} showAuthor={showAuthor} isOwner={a.profile_id === profileId} canManage={canManage} onDelete={async () => { await fetchActivities(); setToast("Atividade excluída"); }} onEdit={openEditModal} onComplete={(act) => { setCompletingActivity(act); setCompleteOutcome(""); setCompleteDuration(60); }} onSkip={(act) => { setSkippingActivity(act); setSkipReason(""); }} onClick={async (act) => { setSelectedActivity(act); if (supabase) { const { data } = await supabase.from("activity_participants").select("participant_type, participant_name, participant_detail").eq("activity_id", act.id); setSelectedParticipants((data ?? []) as typeof selectedParticipants); } }} />)}
             </div>
           ))}
