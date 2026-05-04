@@ -12,6 +12,9 @@ import ActivityDetailModal from "../../../shared/components/ActivityDetailModal"
 import PhotoUpload from "../../../shared/components/PhotoUpload";
 import WeeklyCalendar from "../components/WeeklyCalendar";
 import DailyCalendarMobile from "../components/DailyCalendarMobile";
+import FilterChips, { type FilterChip } from "../components/FilterChips";
+import { isCommercialInternalRole } from "../constants/teamScope";
+import { useActivityPeriod, type Period } from "../hooks/useActivityPeriod";
 import { formatDateBRT, formatDateTimeBRT, formatDateLongBRT, formatWeekdayDateLongBRT } from "../../../shared/utils/dateUtils";
 import { toActivityMomentBRT, decideInitialActivityStatus } from "../../../domain/atividade/ActivityScheduling";
 
@@ -408,46 +411,56 @@ function ActivityCard({ activity, showAuthor, isOwner, canManage, onDelete, onEd
 
 function RankingRow({ member, position, selected, maxCount }: { member: RankedMember; position: number; selected?: boolean; maxCount: number }) {
   const isMobile = useIsMobile();
+  const isZero = member.count === 0;
   const pct = maxCount > 0 ? (member.count / maxCount) * 100 : 0;
   const barColor = position === 1 ? T.sprout : position === 2 ? T.blue : T.fog;
   const trend = member.trendDelta;
+  // Onda 1.5: zerados em opacidade reduzida, sem barra, com legenda discreta.
   return (
     <div style={{
       padding: "12px 16px", borderRadius: 10,
-      border: selected ? `1px solid ${T.sprout}60` : `1px solid ${member.alert ? T.amber + "40" : "var(--border-default)"}`,
+      border: selected
+        ? `1px solid ${T.sprout}60`
+        : `1px solid ${isZero ? "var(--border-default)" : member.alert ? T.amber + "40" : "var(--border-default)"}`,
       marginBottom: 4,
+      opacity: isZero ? 0.6 : 1,
       background: selected
         ? "linear-gradient(145deg, rgba(74,222,128,0.08), var(--surface-base))"
         : "linear-gradient(145deg, var(--surface-raised), var(--surface-base))",
-      transition: "border-color 0.15s, background 0.15s",
+      transition: "border-color 0.15s, background 0.15s, opacity 0.15s",
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
         <div style={{ fontSize: 15, fontWeight: 700, color: T.slate, minWidth: 20, textAlign: "center", fontFamily: "var(--font-mono)" }}>{position}</div>
-        <div style={{ width: 36, height: 36, borderRadius: "50%", background: (member.alert ? T.amber : T.sprout) + "20", color: member.alert ? T.amber : T.sprout, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>{initials(member.name)}</div>
+        <div style={{ width: 36, height: 36, borderRadius: "50%", background: (isZero ? T.fog : member.alert ? T.amber : T.sprout) + "20", color: isZero ? T.fog : member.alert ? T.amber : T.sprout, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>{initials(member.name)}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 500, color: T.chalk }}>
             {member.name}
-            {member.streak > 0 && <span style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 8px", borderRadius: 12, background: member.streak >= 5 ? T.orange + "20" : T.sprout + "20", color: member.streak >= 5 ? T.orange : T.sprout, fontSize: 10, fontWeight: 600, marginLeft: 8 }}>● {member.streak}</span>}
-            {trend !== 0 && (
+            {!isZero && member.streak > 0 && <span style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 8px", borderRadius: 12, background: member.streak >= 5 ? T.orange + "20" : T.sprout + "20", color: member.streak >= 5 ? T.orange : T.sprout, fontSize: 10, fontWeight: 600, marginLeft: 8 }}>● {member.streak}</span>}
+            {!isZero && trend !== 0 && (
               <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: trend > 0 ? T.sprout : T.red, marginLeft: 6, fontWeight: 600 }}>
                 {trend > 0 ? "↑ +" : "↓ "}{trend}
               </span>
             )}
-            {member.alert && <span style={{ fontSize: 10, color: T.amber, marginLeft: 8, fontWeight: 400 }}>! {member.alert}</span>}
+            {!isZero && member.alert && <span style={{ fontSize: 10, color: T.amber, marginLeft: 8, fontWeight: 400 }}>! {member.alert}</span>}
           </div>
-          <div style={{ fontSize: 11, color: T.fog }}>{member.roleLabel}</div>
+          <div style={{ fontSize: 11, color: T.fog }}>
+            {member.roleLabel}
+            {isZero && <span style={{ marginLeft: 8, fontStyle: "italic" }}>· Sem atividades neste período</span>}
+          </div>
         </div>
         {!isMobile && (
           <div style={{ display: "flex", gap: 20 }}>
-            <div style={{ textAlign: "right" }}><div style={{ fontSize: 16, fontWeight: 600, color: member.alert ? T.amber : T.chalk }}>{member.count}</div><div style={{ fontSize: 9, color: T.fog, textTransform: "uppercase", letterSpacing: "0.05em" }}>Atividades</div></div>
-            <div style={{ textAlign: "right" }}><div style={{ fontSize: 16, fontWeight: 600, color: T.chalk }}>{member.avg}</div><div style={{ fontSize: 9, color: T.fog, textTransform: "uppercase", letterSpacing: "0.05em" }}>Média/dia</div></div>
-            <div style={{ textAlign: "right" }}><div style={{ fontSize: 16, fontWeight: 600, color: T.chalk }}>{member.hours}</div><div style={{ fontSize: 9, color: T.fog, textTransform: "uppercase", letterSpacing: "0.05em" }}>Em campo</div></div>
+            <div style={{ textAlign: "right" }}><div style={{ fontSize: 16, fontWeight: 600, color: member.alert && !isZero ? T.amber : T.chalk }}>{member.count}</div><div style={{ fontSize: 9, color: T.fog, textTransform: "uppercase", letterSpacing: "0.05em" }}>Atividades</div></div>
+            <div style={{ textAlign: "right" }}><div style={{ fontSize: 16, fontWeight: 600, color: T.chalk }}>{isZero ? "—" : member.avg}</div><div style={{ fontSize: 9, color: T.fog, textTransform: "uppercase", letterSpacing: "0.05em" }}>Média/dia</div></div>
+            <div style={{ textAlign: "right" }}><div style={{ fontSize: 16, fontWeight: 600, color: T.chalk }}>{isZero ? "—" : member.hours}</div><div style={{ fontSize: 9, color: T.fog, textTransform: "uppercase", letterSpacing: "0.05em" }}>Em campo</div></div>
           </div>
         )}
       </div>
-      <div style={{ height: 3, borderRadius: 2, marginTop: 8, background: "rgba(42,40,34,0.3)", overflow: "hidden" }}>
-        <div style={{ height: "100%", borderRadius: 2, width: `${pct}%`, background: barColor, transition: "width 0.5s" }} />
-      </div>
+      {!isZero && (
+        <div style={{ height: 3, borderRadius: 2, marginTop: 8, background: "rgba(42,40,34,0.3)", overflow: "hidden" }}>
+          <div style={{ height: "100%", borderRadius: 2, width: `${pct}%`, background: barColor, transition: "width 0.5s" }} />
+        </div>
+      )}
     </div>
   );
 }
@@ -951,7 +964,10 @@ export default function AtividadesPage() {
   const [skipping, setSkipping] = useState(false);
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
   const [selectedParticipants, setSelectedParticipants] = useState<{ participant_type: string; participant_name: string; participant_detail: string | null }[]>([]);
-  const [periodFilter, setPeriodFilter] = useState("month");
+  // Onda 1.6: período e modo de data centralizados em hook persistido (localStorage).
+  const periodCfg = useActivityPeriod({ period: "month", dateMode: "activity_date" });
+  const periodFilter = periodCfg.period;
+  const setPeriodFilter = (p: string) => periodCfg.setPeriod(p as Period);
   const [typeFilter, setTypeFilter] = useState("all");
   const [memberFilter, setMemberFilter] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"mine" | "team">("team");
@@ -1006,18 +1022,49 @@ export default function AtividadesPage() {
 
   useEffect(() => {
     if (!supabase || !accountId || isConsultant) return;
-    supabase.from("user_account_access").select("role, profiles:profile_id(id, name, role)").eq("account_id", accountId).then(({ data }) => {
-      if (!data) return;
-      const members: { id: string; name: string; role: string }[] = [];
+    let cancelled = false;
+    (async () => {
+      // Onda 1.1: a FK real é user_account_access.user_id → profiles.id.
+      // Antes usava-se profiles:profile_id(...) que retornava sempre null.
+      const { data } = await supabase!
+        .from("user_account_access")
+        .select("role, user_id, profiles:user_id(id, name, role)")
+        .eq("account_id", accountId);
+      if (!data || cancelled) return;
+
+      // Onda 1.2: aplicar escopo Equipe Comercial Interna.
+      const scoped: { id: string; name: string; role: string }[] = [];
       for (const row of data as Record<string, unknown>[]) {
         const p = row.profiles as Record<string, unknown> | null;
         if (!p) continue;
-        const r = (row.role as string) || (p.role as string) || "";
-        if (r === "broker") continue;
-        members.push({ id: p.id as string, name: p.name as string, role: r });
+        const r = ((row.role as string) || (p.role as string) || "").trim();
+        if (!isCommercialInternalRole(r)) continue;
+        scoped.push({ id: p.id as string, name: (p.name as string) ?? "Sem nome", role: r });
       }
-      setTeamProfiles(members);
-    });
+
+      // Onda 1.3: saneamento de owner — oculta owners zerados de sempre.
+      const ownerIds = scoped.filter((m) => m.role === "owner").map((m) => m.id);
+      let ownerActivityCount: Map<string, number> = new Map();
+      if (ownerIds.length > 0) {
+        const { data: ownerActs } = await supabase!
+          .from("activities")
+          .select("profile_id")
+          .eq("account_id", accountId)
+          .in("profile_id", ownerIds);
+        if (cancelled) return;
+        ownerActivityCount = new Map();
+        for (const row of (ownerActs ?? []) as { profile_id: string }[]) {
+          ownerActivityCount.set(row.profile_id, (ownerActivityCount.get(row.profile_id) ?? 0) + 1);
+        }
+      }
+      const filtered = scoped.filter((m) => {
+        if (m.role !== "owner") return true;
+        return (ownerActivityCount.get(m.id) ?? 0) > 0;
+      });
+
+      if (!cancelled) setTeamProfiles(filtered);
+    })();
+    return () => { cancelled = true; };
   }, [accountId, isConsultant]);
 
   // ── Fetch follow-up suggestions (ENTREGA 2) ──
@@ -1045,6 +1092,14 @@ export default function AtividadesPage() {
   const weekStart = startOfWeek();
   const monthStart = startOfMonth();
 
+  // Onda 1.6: filtro de período honra dateMode (activity_date | created_at).
+  const dateColumnFor = useCallback(
+    (a: Activity) =>
+      periodCfg.dateColumn === "activity_date" ? a.activity_date : (a.created_at ?? "").slice(0, 10),
+    [periodCfg.dateColumn],
+  );
+  const periodStart = periodCfg.startDate;
+
   // Base filtered by status + period + member (but NOT type) — used for type pill counts
   const filteredBeforeType = useMemo(() => {
     let f = activities;
@@ -1053,18 +1108,16 @@ export default function AtividadesPage() {
       f = [...f].sort((a, b) => a.activity_date.localeCompare(b.activity_date));
     } else if (statusFilter === "completed") {
       f = f.filter((a) => (a.status || "completed") === "completed");
-      if (periodFilter === "today") f = f.filter((a) => a.activity_date === today);
-      else if (periodFilter === "week") f = f.filter((a) => a.activity_date >= weekStart);
-      else if (periodFilter === "month") f = f.filter((a) => a.activity_date >= monthStart);
+      if (periodFilter === "today") f = f.filter((a) => dateColumnFor(a) === periodStart);
+      else if (periodFilter !== "all") f = f.filter((a) => dateColumnFor(a) >= periodStart);
     } else {
       f = f.filter((a) => a.status !== "skipped");
-      if (periodFilter === "today") f = f.filter((a) => a.activity_date === today);
-      else if (periodFilter === "week") f = f.filter((a) => a.activity_date >= weekStart);
-      else if (periodFilter === "month") f = f.filter((a) => a.activity_date >= monthStart);
+      if (periodFilter === "today") f = f.filter((a) => dateColumnFor(a) === periodStart);
+      else if (periodFilter !== "all") f = f.filter((a) => dateColumnFor(a) >= periodStart);
     }
     if (memberFilter) f = f.filter((a) => a.profile_id === memberFilter);
     return f;
-  }, [activities, statusFilter, periodFilter, memberFilter, today, weekStart, monthStart]);
+  }, [activities, statusFilter, periodFilter, memberFilter, periodStart, dateColumnFor]);
 
   const filteredActivities = useMemo(() => {
     let f = filteredBeforeType;
@@ -1148,18 +1201,33 @@ export default function AtividadesPage() {
   // Streak (ENTREGA 3)
   const streak = useMemo(() => profileId ? calculateStreak(activities, profileId) : 0, [activities, profileId]);
 
-  // Ranking with streak
+  // Onda 1.4: ranking faz LEFT JOIN — todos os membros do escopo aparecem,
+  // mesmo zerados. Director continua visível para todos nesta onda;
+  // configurabilidade entra na Onda 2.5 via account_settings.
+  // Onda 1.6: período + dateMode vêm do hook (toggle persistido).
   const ranking = useMemo((): RankedMember[] => {
     if (isConsultant) return [];
-    const monthActs = activities.filter((a) => a.activity_date >= monthStart);
+    const periodActs = activities.filter((a) => dateColumnFor(a) >= periodStart);
     const map: Record<string, { name: string; role: string; count: number; totalMinutes: number; lastDate: string }> = {};
-    for (const p of teamProfiles) { if (p.role === "director" && !isDirector) continue; map[p.id] = { name: p.name, role: p.role, count: 0, totalMinutes: 0, lastDate: "" }; }
-    for (const a of monthActs) {
-      if (!map[a.profile_id]) map[a.profile_id] = { name: a.profiles?.name ?? "Desconhecido", role: a.profiles?.role ?? "", count: 0, totalMinutes: 0, lastDate: "" };
-      map[a.profile_id].count++; map[a.profile_id].totalMinutes += a.duration_minutes;
+    // Seed com TODOS os membros do escopo (Equipe Comercial Interna).
+    for (const p of teamProfiles) {
+      map[p.id] = { name: p.name, role: p.role, count: 0, totalMinutes: 0, lastDate: "" };
+    }
+    // Sobrescreve com dados reais do período.
+    for (const a of periodActs) {
+      if (!map[a.profile_id]) {
+        map[a.profile_id] = { name: a.profiles?.name ?? "Desconhecido", role: a.profiles?.role ?? "", count: 0, totalMinutes: 0, lastDate: "" };
+      }
+      map[a.profile_id].count++;
+      map[a.profile_id].totalMinutes += a.duration_minutes;
       if (a.activity_date > map[a.profile_id].lastDate) map[a.profile_id].lastDate = a.activity_date;
     }
-    for (const a of activities) { if (map[a.profile_id] && a.activity_date > (map[a.profile_id].lastDate || "")) map[a.profile_id].lastDate = a.activity_date; }
+    // lastDate considera histórico inteiro pra alerta de inatividade.
+    for (const a of activities) {
+      if (map[a.profile_id] && a.activity_date > (map[a.profile_id].lastDate || "")) {
+        map[a.profile_id].lastDate = a.activity_date;
+      }
+    }
     const days = daysSinceMonthStart();
     const now = new Date();
     const d7 = new Date(now); d7.setDate(d7.getDate() - 7);
@@ -1170,9 +1238,21 @@ export default function AtividadesPage() {
       const inactive = d.role !== "director" && (!d.lastDate || daysDiff(d.lastDate) >= 3);
       const last7 = activities.filter((a) => a.profile_id === id && a.activity_date > s7).length;
       const prev7 = activities.filter((a) => a.profile_id === id && a.activity_date > s14 && a.activity_date <= s7).length;
-      return { id, name: d.name, role: d.role, roleLabel: ROLE_LABELS[d.role] || d.role, count: d.count, totalMinutes: d.totalMinutes, avg: days > 0 ? (d.count / days).toFixed(1) : "0", hours: (d.totalMinutes / 60).toFixed(1) + "h", alert: inactive ? (!d.lastDate ? "Sem atividades" : daysDiff(d.lastDate) + " dias inativo") : undefined, streak: calculateStreak(activities, id), trendDelta: last7 - prev7 };
+      return {
+        id,
+        name: d.name,
+        role: d.role,
+        roleLabel: ROLE_LABELS[d.role] || d.role,
+        count: d.count,
+        totalMinutes: d.totalMinutes,
+        avg: days > 0 ? (d.count / days).toFixed(1) : "0",
+        hours: (d.totalMinutes / 60).toFixed(1) + "h",
+        alert: inactive ? (!d.lastDate ? "Sem atividades" : daysDiff(d.lastDate) + " dias inativo") : undefined,
+        streak: calculateStreak(activities, id),
+        trendDelta: last7 - prev7,
+      };
     }).sort((a, b) => b.count - a.count);
-  }, [activities, teamProfiles, isConsultant, isDirector, monthStart]);
+  }, [activities, teamProfiles, isConsultant, periodStart, dateColumnFor]);
 
   const inactiveMembers = useMemo(() => ranking.filter((r) => r.alert), [ranking]);
 
@@ -1531,7 +1611,26 @@ export default function AtividadesPage() {
             <option value="today">Hoje</option>
             <option value="week">Esta semana</option>
             <option value="month">Este mês</option>
+            <option value="quarter">Este trimestre</option>
             <option value="all">Todo período</option>
+          </select>
+
+          {/* Onda 1.6: toggle de modo de data (activity_date | created_at) */}
+          <select
+            value={periodCfg.dateMode}
+            onChange={(e) => periodCfg.setDateMode(e.target.value as typeof periodCfg.dateMode)}
+            title="Considerar período pela data da atividade ou pela data do registro"
+            style={{
+              padding: "6px 28px 6px 10px", borderRadius: 6,
+              background: "var(--surface-base)", border: "1px solid rgba(42,40,34,0.4)",
+              color: T.bone, fontFamily: "var(--font-mono)", fontSize: 10, cursor: "pointer",
+              appearance: "none",
+              backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%239C9686' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E\")",
+              backgroundRepeat: "no-repeat", backgroundPosition: "right 8px center",
+            }}
+          >
+            <option value="activity_date">Por data da atividade</option>
+            <option value="created_at">Por data do registro</option>
           </select>
 
           {(isManager && viewMode === "team" || isDirector) && teamProfiles.length > 0 && (
@@ -1625,6 +1724,31 @@ export default function AtividadesPage() {
 
       {/* Member filter badge */}
       {memberFilter && (() => { const m = ranking.find((r) => r.id === memberFilter); return m ? <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 14px", borderRadius: 8, background: T.sprout + "15", border: `1px solid ${T.sprout}30`, marginBottom: 12, fontSize: 13, color: T.sprout }}>Filtrado por: <strong>{m.name}</strong><button type="button" onClick={() => setMemberFilter(null)} style={{ background: "none", border: "none", color: T.sprout, fontSize: 16, cursor: "pointer", padding: 0, lineHeight: 1 }}>×</button></div> : null; })()}
+
+      {/* Onda 1.7: chips de filtros ativos sempre visíveis */}
+      {(() => {
+        const chips: FilterChip[] = [
+          { id: "period", label: `Período: ${periodCfg.periodLabel}`, removable: false },
+          { id: "dateMode", label: `Por: ${periodCfg.dateModeLabel}`, removable: false },
+        ];
+        if (typeFilter !== "all") {
+          chips.push({ id: "type", label: `Tipo: ${badgeLabels[typeFilter] ?? typeFilter}`, removable: true });
+        }
+        if (memberFilter) {
+          const m = ranking.find((r) => r.id === memberFilter);
+          chips.push({ id: "member", label: `Membro: ${m?.name ?? "—"}`, removable: true });
+        }
+        if (consultantFilter && consultantFilter !== "all") {
+          const cm = teamProfiles.find((p) => p.id === consultantFilter);
+          chips.push({ id: "consultant", label: `Consultor: ${cm?.name ?? "—"}`, removable: true });
+        }
+        const handleRemove = (id: string) => {
+          if (id === "type") setTypeFilter("all");
+          else if (id === "member") setMemberFilter(null);
+          else if (id === "consultant") setConsultantFilter("all");
+        };
+        return <FilterChips chips={chips} onRemove={handleRemove} />;
+      })()}
 
       {/* Activity list */}
       {loading ? (
