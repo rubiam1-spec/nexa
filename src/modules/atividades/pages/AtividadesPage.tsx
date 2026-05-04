@@ -113,14 +113,37 @@ function calculateStreak(acts: Activity[], pid: string): number {
   }
   return streak;
 }
-function greetingText() { const h = new Date().getHours(); return h < 12 ? "Bom dia" : h < 18 ? "Boa tarde" : "Boa noite"; }
 
 // ── Sub-components ──
 
-function KpiCard({ label, value, delta, warn, icon, accent, deltaPct, progressPct }: { label: string; value: string | number; delta?: string; warn?: boolean; icon?: string; accent?: string; deltaPct?: number; progressPct?: number }) {
+function KpiCard({ label, value, delta, warn, icon, accent, deltaPct, progressPct, compact }: { label: string; value: string | number; delta?: string; warn?: boolean; icon?: string; accent?: string; deltaPct?: number; progressPct?: number; compact?: boolean }) {
   const color = accent || (warn ? T.amber : T.sprout);
   const glyph = icon || (label[0] || "·").toUpperCase();
   const positive = deltaPct !== undefined && deltaPct >= 0;
+  // Onda 2.1: variante compact = fita única, label + valor numa linha,
+  // sem progress bar nem bloco de delta vertical (delta vira inline).
+  if (compact) {
+    return (
+      <div style={{
+        position: "relative",
+        background: "var(--surface-raised)",
+        borderRadius: 8, padding: "8px 12px",
+        border: "1px solid var(--border-default)",
+        flex: 1, minWidth: 120,
+        display: "flex", flexDirection: "column", gap: 2,
+      }}>
+        <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: T.fog, letterSpacing: "0.08em", textTransform: "uppercase" }}>{label}</div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 18, fontWeight: 700, color: warn ? T.amber : T.chalk, lineHeight: 1.1 }}>{value}</span>
+          {deltaPct !== undefined && (
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: positive ? T.sprout : T.red, fontWeight: 600 }}>
+              {positive ? "+" : ""}{deltaPct}%
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
   return (
     <div style={{
       position: "relative", overflow: "hidden",
@@ -1309,10 +1332,11 @@ export default function AtividadesPage() {
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
         <div>
+          {/* Onda 2.4: H1 alinhado ao Brand Book v7 — serif 24/400. */}
           <h1 style={{
             fontFamily: "'Instrument Serif', Georgia, serif",
-            fontStyle: "italic", fontSize: 28, color: T.chalk,
-            fontWeight: 400, margin: 0, lineHeight: 1.1,
+            fontStyle: "italic", fontSize: 24, color: T.chalk,
+            fontWeight: 400, margin: 0, lineHeight: 1.15,
           }}>{isConsultant || (isManager && viewMode === "mine") ? "Minhas Atividades" : isDirector ? "Atividades da Operação" : "Atividades da Equipe"}</h1>
           {isConsultant && authenticatedProfile ? (
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
@@ -1400,7 +1424,7 @@ export default function AtividadesPage() {
         </div>
       )}
 
-      {/* KPIs — visão Minhas (2 cards) ou Equipe (4 cards) */}
+      {/* KPIs — Onda 2.1: fita única compacta, libera viewport para a lista. */}
       {(() => {
         const isPersonal = isConsultant || (isManager && viewMode === "mine");
         if (isPersonal) {
@@ -1409,48 +1433,55 @@ export default function AtividadesPage() {
           const personalOverdue = overdueActivities.length;
           const dayOfMonth = new Date().getDate();
           const avgDay = dayOfMonth > 0 ? (personalCompletedMonth / dayOfMonth).toFixed(1) : "0";
-          const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
-          const projected = dayOfMonth > 0 ? Math.round((personalCompletedMonth / dayOfMonth) * daysInMonth) : 0;
-          const urgent = personalPending > 0;
           return (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
-              <div style={{ padding: "14px 16px", background: "linear-gradient(145deg, var(--surface-raised), var(--surface-base))", border: "1px solid var(--border-default)", borderRadius: 10 }}>
-                <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: T.fog, letterSpacing: "0.1em", marginBottom: 6 }}>ESTE MÊS</div>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 26, fontWeight: 700, color: T.chalk }}>{personalCompletedMonth}</span>
-                  <span style={{ fontSize: 12, color: T.fog }}>atividades</span>
-                </div>
-                <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: T.slate, marginTop: 4 }}>média {avgDay}/dia · projeção ~{projected} este mês</div>
-              </div>
-              <div style={{ padding: "14px 16px", background: urgent ? "linear-gradient(145deg, rgba(217,119,6,0.06), var(--surface-base))" : "linear-gradient(145deg, var(--surface-raised), var(--surface-base))", border: urgent ? "1px solid rgba(217,119,6,0.2)" : "1px solid var(--border-default)", borderRadius: 10 }}>
-                <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: urgent ? T.orange : T.fog, letterSpacing: "0.1em", marginBottom: 6 }}>PENDENTES</div>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 26, fontWeight: 700, color: urgent ? T.orange : T.chalk }}>{personalPending}</span>
-                  {personalOverdue > 0 && <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: T.red, fontWeight: 600 }}>{personalOverdue} atrasada{personalOverdue > 1 ? "s" : ""}</span>}
-                </div>
-                {personalOverdue > 0 && (
-                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: T.red, marginTop: 4 }}>
-                    {personalOverdue} atrasada{personalOverdue > 1 ? "s" : ""} — resolver hoje
-                  </div>
-                )}
-              </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: isMobile ? "wrap" : "nowrap" }}>
+              <KpiCard compact label="Este mês" value={personalCompletedMonth} accent={T.sprout} />
+              <KpiCard compact label="Média / dia" value={avgDay} accent={T.blue} />
+              <KpiCard
+                compact
+                label="Pendentes"
+                value={personalPending}
+                accent={personalPending > 0 ? T.orange : T.fog}
+                warn={personalPending > 0}
+              />
+              <KpiCard
+                compact
+                label="Atrasadas"
+                value={personalOverdue}
+                accent={personalOverdue > 0 ? T.red : T.fog}
+                warn={personalOverdue > 0}
+              />
             </div>
           );
         }
         return (
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, minmax(0, 1fr))" : "repeat(4, minmax(0, 1fr))", gap: 12, marginBottom: 24 }}>
-            <KpiCard label="Total este mês" value={kpis.monthCount} icon="T" accent={T.sprout} deltaPct={kpis.monthDeltaPct} progressPct={kpis.monthProgressPct} />
-            <KpiCard label="Média diária" value={kpis.avgPerDay} icon="M" accent={T.blue} deltaPct={kpis.avgDeltaPct} progressPct={kpis.avgProgressPct} />
-            <KpiCard label="Horas em campo" value={kpis.hoursInField + "h"} icon="h" accent={T.purple} deltaPct={kpis.hoursDeltaPct} progressPct={kpis.hoursProgressPct} />
-            <KpiCard label="Taxa follow-up" value={kpis.followUpRate + "%"} warn={kpis.followUpRate < 20} icon="%" accent={kpis.followUpRate < 20 ? T.red : T.sprout} deltaPct={kpis.followUpDeltaPct} progressPct={kpis.followUpRate} />
+          <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: isMobile ? "wrap" : "nowrap" }}>
+            <KpiCard compact label="Total este mês" value={kpis.monthCount} accent={T.sprout} deltaPct={kpis.monthDeltaPct} />
+            <KpiCard compact label="Média / dia" value={kpis.avgPerDay} accent={T.blue} deltaPct={kpis.avgDeltaPct} />
+            <KpiCard compact label="Horas em campo" value={kpis.hoursInField + "h"} accent={T.purple} deltaPct={kpis.hoursDeltaPct} />
+            <KpiCard compact label="Taxa follow-up" value={kpis.followUpRate + "%"} warn={kpis.followUpRate < 20} accent={kpis.followUpRate < 20 ? T.red : T.sprout} deltaPct={kpis.followUpDeltaPct} />
           </div>
         );
       })()}
 
-      {/* Daily brief (ENTREGA 4) */}
+      {/*
+        Onda 2.2: as duas caixas têm regras de negócio genuinamente distintas
+        (Fase 1 confirmou). Caixa verde = compromissos pessoais registrados em
+        atividades anteriores via campo `next_action`. Caixa laranja =
+        sugestões automáticas a partir de negociações ativas sem contato há
+        7+ dias. Os títulos+subtítulos foram introduzidos para deixar a
+        diferença explícita ao usuário, em vez de depender só de cor.
+      */}
       {showBrief && (
-        <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: 20, marginBottom: 20 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: T.chalk, marginBottom: 12 }}>{greetingText()}! Resumo da sua operação</div>
+        <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderLeft: `3px solid ${T.sprout}`, borderRadius: 10, padding: 20, marginBottom: 20 }}>
+          <div style={{ marginBottom: 14 }}>
+            <h2 style={{ fontFamily: "var(--font-sans)", fontSize: 16, fontWeight: 500, color: T.chalk, margin: 0, lineHeight: 1.2 }}>
+              Compromissos pendentes
+            </h2>
+            <div style={{ fontSize: 12, color: T.fog, marginTop: 2 }}>
+              Próximos passos que você prometeu durante atividades anteriores
+            </div>
+          </div>
           {yesterdayActs.length > 0 && (
             <div style={{ fontSize: 13, color: T.fog, marginBottom: 8 }}>
               Ontem você realizou <span style={{ color: T.sprout, fontWeight: 600 }}>{yesterdayActs.length} {yesterdayActs.length === 1 ? "atividade" : "atividades"}</span>
@@ -1459,7 +1490,7 @@ export default function AtividadesPage() {
           )}
           {pendingActions.length > 0 && (
             <div style={{ marginTop: 10 }}>
-              <div style={{ fontSize: 12, color: T.orange, fontWeight: 500, marginBottom: 6 }}>● {pendingActions.length} {pendingActions.length === 1 ? "ação pendente" : "ações pendentes"} para hoje:</div>
+              <div style={{ fontSize: 12, color: T.sprout, fontWeight: 500, marginBottom: 6 }}>● {pendingActions.length} {pendingActions.length === 1 ? "compromisso para hoje" : "compromissos para hoje"}</div>
               {pendingActions.slice(0, 3).map((a) => (
                 <div key={a.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 12px", borderRadius: 6, background: T.stone, marginBottom: 4 }}>
                   <span style={{ fontSize: 12, color: T.bone }}>{a.next_action}</span>
@@ -1474,10 +1505,17 @@ export default function AtividadesPage() {
         </div>
       )}
 
-      {/* Follow-up suggestions (ENTREGA 2) */}
+      {/* Sugestões da inteligência — ver comentário na caixa anterior. */}
       {pendingFollowups.length > 0 && (
-        <div style={{ background: T.orange + "10", border: `1px solid ${T.orange}30`, borderRadius: 10, padding: 16, marginBottom: 20 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: T.orange, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>Sugestões de follow-up</div>
+        <div style={{ background: T.orange + "10", border: `1px solid ${T.orange}30`, borderLeft: `3px solid ${T.orange}`, borderRadius: 10, padding: 16, marginBottom: 20 }}>
+          <div style={{ marginBottom: 12 }}>
+            <h2 style={{ fontFamily: "var(--font-sans)", fontSize: 16, fontWeight: 500, color: T.chalk, margin: 0, lineHeight: 1.2 }}>
+              Sugestões da inteligência
+            </h2>
+            <div style={{ fontSize: 12, color: T.fog, marginTop: 2 }}>
+              Clientes em negociação sem contato há mais de 7 dias
+            </div>
+          </div>
           {pendingFollowups.slice(0, 3).map((n) => (
             <div key={n.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderRadius: 8, background: T.carbon, border: `1px solid ${T.stone}`, marginBottom: 6 }}>
               <div>
@@ -1546,32 +1584,56 @@ export default function AtividadesPage() {
               </div>
             )}
 
-            {([["pending", `Pendentes${pendingCount ? ` (${pendingCount})` : ""}`], ["completed", `Concluídas (${completedCount})`], ["all", "Todas"]] as const).map(([k, l]) => (
-              <button key={k} type="button" onClick={() => setStatusFilter(k as "pending" | "completed" | "all")} style={{
-                padding: "6px 12px", borderRadius: 8,
-                border: statusFilter === k ? "1px solid rgba(74,222,128,0.25)" : "1px solid rgba(42,40,34,0.4)",
-                background: statusFilter === k ? "rgba(74,222,128,0.06)" : "transparent",
-                color: statusFilter === k ? T.sprout : T.fog,
-                fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 600, cursor: "pointer",
-              }}>{l}</button>
+            {/* Onda 2.3: rótulo "Agendadas" deixa explícito o escopo da tab
+                (atividades com status scheduled/expired) — diferente de
+                "Compromissos pendentes" e "Sugestões da inteligência" acima. */}
+            {([
+              ["pending", `Agendadas${pendingCount ? ` (${pendingCount})` : ""}`, "Atividades com status agendada ou expirada"],
+              ["completed", `Concluídas (${completedCount})`, "Atividades já realizadas"],
+              ["all", "Todas", "Todas as atividades exceto puladas"],
+            ] as const).map(([k, l, tip]) => (
+              <button
+                key={k}
+                type="button"
+                title={tip}
+                onClick={() => setStatusFilter(k as "pending" | "completed" | "all")}
+                style={{
+                  padding: "6px 12px", borderRadius: 8,
+                  border: statusFilter === k ? "1px solid rgba(74,222,128,0.25)" : "1px solid rgba(42,40,34,0.4)",
+                  background: statusFilter === k ? "rgba(74,222,128,0.06)" : "transparent",
+                  color: statusFilter === k ? T.sprout : T.fog,
+                  fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 600, cursor: "pointer",
+                }}
+              >{l}</button>
             ))}
 
             <div style={{ flex: 1, minWidth: 0 }} />
 
-            <button type="button" onClick={() => setShowAdvancedFilters((p) => !p)} style={{
-              padding: "6px 12px", borderRadius: 8,
-              border: activeFilterCount > 0 ? "1px solid rgba(96,165,250,0.3)" : showAdvancedFilters ? "1px solid rgba(96,165,250,0.25)" : "1px solid rgba(42,40,34,0.4)",
-              background: activeFilterCount > 0 ? "rgba(96,165,250,0.08)" : showAdvancedFilters ? "rgba(96,165,250,0.06)" : "transparent",
-              color: activeFilterCount > 0 || showAdvancedFilters ? T.blue : T.fog,
-              fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 600, cursor: "pointer",
-              display: "flex", alignItems: "center", gap: 6,
-            }}>
+            {/* Onda 2.5: filtros como ação secundária — peso visual menor
+                que tabs, ícone de funil + label + badge contador. */}
+            <button
+              type="button"
+              title="Filtros adicionais (período, modo de data, tipo, membro)"
+              onClick={() => setShowAdvancedFilters((p) => !p)}
+              style={{
+                padding: "5px 10px", borderRadius: 8,
+                border: "1px solid var(--border-default)",
+                background: "transparent",
+                color: activeFilterCount > 0 || showAdvancedFilters ? T.bone : T.fog,
+                fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 500, cursor: "pointer",
+                display: "flex", alignItems: "center", gap: 6,
+                opacity: 0.85,
+              }}
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+              </svg>
               Filtros
               {activeFilterCount > 0 && (
                 <span style={{
                   fontFamily: "var(--font-mono)", fontSize: 8,
-                  background: T.blue, color: T.ink,
-                  width: 16, height: 16, borderRadius: "50%",
+                  background: "var(--surface-hover)", color: T.bone,
+                  minWidth: 14, height: 14, padding: "0 4px", borderRadius: 7,
                   display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700,
                 }}>{activeFilterCount}</span>
               )}
@@ -1685,7 +1747,8 @@ export default function AtividadesPage() {
       {/* Ranking (manager/director) */}
       {(isDirector || (isManager && viewMode === "team")) && ranking.length > 0 && (
         <div style={{ marginBottom: 20 }}>
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: T.fog, letterSpacing: "0.12em", marginBottom: 8, fontWeight: 600 }}>PRODUTIVIDADE POR MEMBRO</div>
+          {/* Onda 2.4: H3 alinhado ao Brand Book v7 — sans 11 caps tracking 4. */}
+          <h3 style={{ fontFamily: "var(--font-sans)", fontSize: 11, color: T.fog, letterSpacing: "0.18em", margin: 0, marginBottom: 10, fontWeight: 600, textTransform: "uppercase" }}>Produtividade por membro</h3>
           {(() => {
             const maxCount = ranking.reduce((m, r) => Math.max(m, r.count), 0);
             return ranking.map((r, idx) => (
@@ -1713,13 +1776,14 @@ export default function AtividadesPage() {
         </div>
       )}
 
-      {/* Section label — activities list */}
+      {/* Section label — activities list (Onda 2.4: H3 sans 11 caps tracking 4). */}
       {(isDirector || (isManager && viewMode === "team")) && ranking.length > 0 && (
-        <div style={{
-          fontFamily: "var(--font-mono)", fontSize: 9, color: T.fog,
-          letterSpacing: "0.12em", marginTop: 16, marginBottom: 8, paddingTop: 12,
+        <h3 style={{
+          fontFamily: "var(--font-sans)", fontSize: 11, color: T.fog,
+          letterSpacing: "0.18em", marginTop: 16, marginBottom: 10, paddingTop: 12,
           borderTop: "1px solid rgba(42,40,34,0.3)", fontWeight: 600,
-        }}>ATIVIDADES</div>
+          textTransform: "uppercase", margin: "16px 0 10px",
+        }}>Atividades</h3>
       )}
 
       {/* Member filter badge */}
