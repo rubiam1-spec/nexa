@@ -24,6 +24,7 @@ interface Props {
   accountLogo: string | null;
   devLogo: string | null;
   accountName: string;
+  devName: string;
   footerText: string;
   corPrimaria: string;
   customTemplates: BannerTemplate[];
@@ -82,7 +83,7 @@ function formatDate(iso: string): string {
 // ── Component ──
 
 export default function ComunicadosTab({
-  accountId, accountLogo, devLogo, accountName, footerText, corPrimaria, customTemplates,
+  accountId, accountLogo, devLogo, accountName, devName, footerText, corPrimaria, customTemplates,
 }: Props) {
   const tipos = getComunicadoTypes(corPrimaria);
   const [selectedTipo, setSelectedTipo] = useState<ComunicadoTipo | null>(null);
@@ -220,6 +221,7 @@ export default function ComunicadosTab({
           accountLogo={accountLogo}
           devLogo={devLogo}
           accountName={accountName}
+          devName={devName}
           footerText={footerText}
           customTemplates={customTemplates}
           onCreated={handleCreated}

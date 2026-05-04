@@ -605,6 +605,7 @@ export default function RelacionamentoPage() {
           accountLogo={branding?.accountLogoLight || branding?.accountLogo || null}
           devLogo={branding?.devLogoLight || branding?.devLogo || null}
           accountName={branding?.accountName ?? ""}
+          devName={branding?.devName ?? development?.developmentName ?? ""}
           footerText={branding?.footerText ?? ""}
           corPrimaria={corPrimaria}
           customTemplates={customAnnounceTemplates}

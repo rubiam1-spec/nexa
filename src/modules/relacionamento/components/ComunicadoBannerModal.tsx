@@ -1,7 +1,14 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import html2canvas from "html2canvas";
 import { type TextConfig } from "./BannerTemplateEditorModal";
+import { useBannerCapture } from "../hooks/useBannerCapture";
+import {
+  BannerLogo,
+  LowResLogoWarning,
+  WhatsAppHint,
+  bannerFilenameSlug,
+  useLogoLowResWarning,
+} from "./BannerLogo";
 
 // ── Types ──
 
@@ -28,6 +35,7 @@ interface Props {
   accountLogo: string | null;
   devLogo: string | null;
   accountName: string;
+  devName: string;
   footerText: string;
   customTemplates?: BannerTemplate[];
   onCreated?: (entry: { title: string; tipo: ComunicadoTipo }) => void;
@@ -70,18 +78,29 @@ async function urlToBase64(url: string): Promise<string | null> {
 // ── Component ──
 
 export default function ComunicadoBannerModal({
-  isOpen, onClose, tipo, accountLogo, devLogo, accountName,
+  isOpen, onClose, tipo, accountLogo, devLogo, accountName, devName,
   footerText, customTemplates, onCreated,
 }: Props) {
   const hasCustom = (customTemplates?.length ?? 0) > 0;
   const [title, setTitle] = useState(tipo.defaultTitle);
   const [message, setMessage] = useState(tipo.defaultMessage);
   const [logos, setLogos] = useState<{ acc: string | null; dev: string | null }>({ acc: null, dev: null });
-  const [downloading, setDownloading] = useState(false);
   const [source, setSource] = useState<"nexa" | "custom">(hasCustom ? "custom" : "nexa");
   const [customIdx, setCustomIdx] = useState(0);
   const bannerRef = useRef<HTMLDivElement>(null);
   const activeCustomTemplate = source === "custom" ? (customTemplates?.[customIdx] ?? null) : null;
+
+  const showLowResWarning = useLogoLowResWarning(isOpen ? [accountLogo, devLogo] : []);
+
+  const filename = `comunicado-${bannerFilenameSlug(title)}-${bannerFilenameSlug(devName)}`;
+  const captureBg = source === "nexa" ? "#FDFBF7" : "#FFFFFF";
+
+  const { capture, copy, isCapturing } = useBannerCapture({
+    ref: bannerRef,
+    filename,
+    targetSize: 1500,
+    backgroundColor: captureBg,
+  });
 
   // Reset inputs when opened with a different tipo
   useEffect(() => {
@@ -106,38 +125,14 @@ export default function ComunicadoBannerModal({
     return () => { cancelled = true; };
   }, [isOpen, accountLogo, devLogo]);
 
-  const capture = async () => {
-    if (!bannerRef.current) return null;
-    return html2canvas(bannerRef.current, { scale: 2.25, useCORS: true, backgroundColor: null, logging: false });
-  };
-
   const handleDownload = async () => {
-    setDownloading(true);
-    try {
-      const canvas = await capture();
-      if (!canvas) return;
-      const link = document.createElement("a");
-      const slug = title.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-").slice(0, 40);
-      link.download = `comunicado-${slug}.png`;
-      link.href = canvas.toDataURL("image/png");
-      link.click();
-      onCreated?.({ title, tipo });
-    } catch (e) { console.error(e); }
-    finally { setDownloading(false); }
+    await capture();
+    onCreated?.({ title, tipo });
   };
 
   const handleCopy = async () => {
-    setDownloading(true);
-    try {
-      const canvas = await capture();
-      if (!canvas) return;
-      canvas.toBlob(async (blob) => {
-        if (!blob) return;
-        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-        onCreated?.({ title, tipo });
-      });
-    } catch (e) { console.error(e); }
-    finally { setDownloading(false); }
+    await copy();
+    onCreated?.({ title, tipo });
   };
 
   if (!isOpen) return null;
@@ -148,17 +143,18 @@ export default function ComunicadoBannerModal({
 
   const LogoSection = () => (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 22 }}>
-      {logos.acc ? (
-        <img src={logos.acc} alt={accountName} style={{ maxHeight: 26, maxWidth: 80, objectFit: "contain" }} />
-      ) : (
-        <span style={{ fontFamily: MONO, fontSize: 8, fontWeight: 700, color: "#9C9686", letterSpacing: "0.05em" }}>
-          {accountName.toUpperCase()}
-        </span>
-      )}
+      <BannerLogo
+        src={logos.acc}
+        alt={accountName}
+        width={80}
+        height={26}
+        fallbackText={accountName}
+        fallbackFontSize={8}
+      />
       {logos.acc && logos.dev && (
         <>
           <div style={{ width: 1, height: 16, background: "#D4CFC4" }} />
-          <img src={logos.dev} alt="" style={{ maxHeight: 22, maxWidth: 70, objectFit: "contain" }} />
+          <BannerLogo src={logos.dev} alt={devName} width={70} height={22} fallbackText={devName} fallbackFontSize={8} />
         </>
       )}
     </div>
@@ -270,6 +266,8 @@ export default function ComunicadoBannerModal({
           </button>
         </div>
 
+        <LowResLogoWarning show={showLowResWarning} accentColor={tipo.color} />
+
         {/* Inputs — real-time editing */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12, flexShrink: 0 }}>
           <div>
@@ -342,24 +340,24 @@ export default function ComunicadoBannerModal({
 
         {/* Action buttons */}
         <div style={{ display: "flex", gap: 10, flexShrink: 0 }}>
-          <button onClick={handleDownload} disabled={downloading} style={{
+          <button onClick={handleDownload} disabled={isCapturing} style={{
             flex: 1, padding: "10px 16px", borderRadius: 8, border: "none",
-            background: downloading ? `${tipo.color}80` : tipo.color,
+            background: isCapturing ? `${tipo.color}80` : tipo.color,
             color: btnTextColor, fontFamily: SANS, fontSize: 13, fontWeight: 700,
-            cursor: downloading ? "not-allowed" : "pointer",
+            cursor: isCapturing ? "not-allowed" : "pointer",
             display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
             transition: "background 150ms",
           }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
             </svg>
-            {downloading ? "Gerando..." : "Baixar PNG"}
+            {isCapturing ? "Gerando..." : "Baixar PNG"}
           </button>
-          <button onClick={handleCopy} disabled={downloading} style={{
+          <button onClick={handleCopy} disabled={isCapturing} style={{
             flex: 1, padding: "10px 16px", borderRadius: 8,
             border: "1.5px solid rgba(61,58,48,0.4)", background: "transparent",
             color: "#9C9686", fontFamily: SANS, fontSize: 13, fontWeight: 600,
-            cursor: downloading ? "not-allowed" : "pointer",
+            cursor: isCapturing ? "not-allowed" : "pointer",
             display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
           }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -368,6 +366,8 @@ export default function ComunicadoBannerModal({
             Copiar
           </button>
         </div>
+
+        <WhatsAppHint />
 
       </div>
     </div>,

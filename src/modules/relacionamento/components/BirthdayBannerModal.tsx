@@ -1,6 +1,13 @@
 import { useState, useEffect, useRef } from "react";
-import html2canvas from "html2canvas";
 import { type TextConfig } from "./BannerTemplateEditorModal";
+import { useBannerCapture } from "../hooks/useBannerCapture";
+import {
+  BannerLogo,
+  LowResLogoWarning,
+  WhatsAppHint,
+  bannerFilenameSlug,
+  useLogoLowResWarning,
+} from "./BannerLogo";
 
 // ── Types ──
 
@@ -57,6 +64,12 @@ async function urlToBase64(url: string): Promise<string | null> {
   }
 }
 
+const TEMPLATE_BG: Record<1 | 2 | 3, string> = {
+  1: "#FDFBF7",
+  2: "#F7F9F3",
+  3: "#FEF9F4",
+};
+
 export default function BirthdayBannerModal({
   isOpen,
   onClose,
@@ -76,13 +89,24 @@ export default function BirthdayBannerModal({
   const hasCustom = (customTemplates?.length ?? 0) > 0;
   const [template, setTemplate] = useState<1 | 2 | 3>(1);
   const [logos, setLogos] = useState<{ acc: string | null; dev: string | null }>({ acc: null, dev: null });
-  const [downloading, setDownloading] = useState(false);
   const [source, setSource] = useState<"nexa" | "custom">(hasCustom ? "custom" : "nexa");
   const [customIdx, setCustomIdx] = useState(0);
   const bannerRef = useRef<HTMLDivElement>(null);
   const activeCustomTemplate = source === "custom" ? (customTemplates?.[customIdx] ?? null) : null;
 
   const { first } = getDisplayName(name);
+  const showLowResWarning = useLogoLowResWarning(isOpen ? [accountLogo, devLogo] : []);
+
+  const filename = `aniversario-${bannerFilenameSlug(first)}-${bannerFilenameSlug(_devName)}`;
+  const captureBg =
+    source === "nexa" ? TEMPLATE_BG[template] : "#FFFFFF";
+
+  const { capture, copy, isCapturing } = useBannerCapture({
+    ref: bannerRef,
+    filename,
+    targetSize: 1500,
+    backgroundColor: captureBg,
+  });
 
   useEffect(() => {
     if (!isOpen) return;
@@ -98,48 +122,6 @@ export default function BirthdayBannerModal({
     return () => { cancelled = true; };
   }, [isOpen, accountLogo, devLogo]);
 
-  const handleDownload = async () => {
-    if (!bannerRef.current) return;
-    setDownloading(true);
-    try {
-      const canvas = await html2canvas(bannerRef.current, {
-        scale: 2.25,
-        useCORS: true,
-        backgroundColor: null,
-        logging: false,
-      });
-      const link = document.createElement("a");
-      link.download = `parabens-${first.toLowerCase().replace(/\s/g, "-")}.png`;
-      link.href = canvas.toDataURL("image/png");
-      link.click();
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setDownloading(false);
-    }
-  };
-
-  const handleCopy = async () => {
-    if (!bannerRef.current) return;
-    setDownloading(true);
-    try {
-      const canvas = await html2canvas(bannerRef.current, {
-        scale: 2.25,
-        useCORS: true,
-        backgroundColor: null,
-        logging: false,
-      });
-      canvas.toBlob(async (blob) => {
-        if (!blob) return;
-        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-      });
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setDownloading(false);
-    }
-  };
-
   if (!isOpen) return null;
 
   const MONO = "'JetBrains Mono', monospace";
@@ -148,21 +130,9 @@ export default function BirthdayBannerModal({
 
   const LogoSection = () => (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 18 }}>
-      {logos.acc ? (
-        <img src={logos.acc} alt={accountName} style={{ maxHeight: 28, maxWidth: 80, objectFit: "contain" }} />
-      ) : (
-        <span style={{ fontFamily: MONO, fontSize: 9, fontWeight: 700, color: "#9C9686", letterSpacing: "0.05em" }}>
-          {accountName.toUpperCase()}
-        </span>
-      )}
+      <BannerLogo src={logos.acc} alt={accountName} width={80} height={28} fallbackText={accountName} />
       <div style={{ width: 1, height: 20, background: "#D4CFC4" }} />
-      {logos.dev ? (
-        <img src={logos.dev} alt={_devName} style={{ maxHeight: 28, maxWidth: 80, objectFit: "contain" }} />
-      ) : (
-        <span style={{ fontFamily: MONO, fontSize: 9, fontWeight: 700, color: "#9C9686", letterSpacing: "0.05em" }}>
-          {_devName.toUpperCase()}
-        </span>
-      )}
+      <BannerLogo src={logos.dev} alt={_devName} width={80} height={28} fallbackText={_devName} />
     </div>
   );
 
@@ -377,6 +347,8 @@ export default function BirthdayBannerModal({
           </button>
         </div>
 
+        <LowResLogoWarning show={showLowResWarning} accentColor={corPrimaria} />
+
         {/* Source toggle — only shown when custom templates exist */}
         {hasCustom && (
           <div style={{ display: "flex", gap: 8 }}>
@@ -471,19 +443,19 @@ export default function BirthdayBannerModal({
         {/* Action buttons */}
         <div style={{ display: "flex", gap: 10 }}>
           <button
-            onClick={handleDownload}
-            disabled={downloading}
+            onClick={capture}
+            disabled={isCapturing}
             style={{
               flex: 1,
               padding: "10px 16px",
               borderRadius: 8,
               border: "none",
-              background: downloading ? `${corPrimaria}80` : corPrimaria,
+              background: isCapturing ? `${corPrimaria}80` : corPrimaria,
               color: "#1C1B18",
               fontFamily: "'Outfit', sans-serif",
               fontSize: 13,
               fontWeight: 700,
-              cursor: downloading ? "not-allowed" : "pointer",
+              cursor: isCapturing ? "not-allowed" : "pointer",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -493,11 +465,11 @@ export default function BirthdayBannerModal({
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
             </svg>
-            {downloading ? "Gerando..." : "Baixar PNG"}
+            {isCapturing ? "Gerando..." : "Baixar PNG"}
           </button>
           <button
-            onClick={handleCopy}
-            disabled={downloading}
+            onClick={copy}
+            disabled={isCapturing}
             style={{
               flex: 1,
               padding: "10px 16px",
@@ -508,7 +480,7 @@ export default function BirthdayBannerModal({
               fontFamily: "'Outfit', sans-serif",
               fontSize: 13,
               fontWeight: 600,
-              cursor: downloading ? "not-allowed" : "pointer",
+              cursor: isCapturing ? "not-allowed" : "pointer",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -521,6 +493,8 @@ export default function BirthdayBannerModal({
             Copiar
           </button>
         </div>
+
+        <WhatsAppHint />
       </div>
     </div>
   );
