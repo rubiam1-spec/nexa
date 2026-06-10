@@ -993,7 +993,17 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
         const isPlanned = actStatus !== "completed";
         // column_id: explícito (add-card) ou padrão por modo (plan→A fazer, done→conclui).
         const targetColumnId = forcedColumnId ?? (planMode ? (planColumnId ?? null) : (doneColumnId ?? planColumnId ?? null));
-        const contactStr = participants.length > 0 ? participants.map((p) => p.name).join(", ") : contactName.trim() || null;
+        // Identidade do cliente/contato resolvida de TODAS as fontes (picker,
+        // participante avulso, negociação vinculada, prop) — mantém título e
+        // client_id sempre coerentes (Tarefa 5).
+        const clientPart = participants.find((p) => p.type === "client" && p.id) ?? null;
+        const resolvedClientId = propClientId ?? clientSel?.id ?? clientPart?.id ?? linkedNeg?.client_id ?? undefined;
+        const resolvedClientName = clientSel?.name ?? clientPart?.name ?? linkedNeg?.clientName ?? null;
+        // Sujeito do título: cliente quando houver; senão corretor.
+        const subjectName = resolvedClientName ?? brokerSel?.name ?? null;
+        // Sem participantes explícitos, ao menos grava o nome do sujeito em
+        // contact_name (cliente/corretor) para o card nunca ficar anônimo.
+        const contactStr = participants.length > 0 ? participants.map((p) => p.name).join(", ") : (contactName.trim() || subjectName || null);
         // Verdade do motor = base_type do kind; rastreia também o kind_id.
         const effType = selectedKind?.base_type ?? type;
         // Gating dirigido pela presença do campo no kind (adaptativo); na
@@ -1002,9 +1012,19 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
         const saveNext = selectedKind ? has("proximo_passo") : !isPlanned;
         const saveOutcome = selectedKind ? (has("resultado") && !planMode) : !isPlanned;
         const durationOut = selectedKind ? (has("resultado") || !planMode ? duration : 0) : (isPlanned ? 0 : duration);
-        // Título: texto digitado OU composição automática (kind sem campo de título).
-        // Espaçamento " · " entre as partes (kind · pessoa · empreendimento).
-        const composedTitle = title.trim() || (selectedKind ? [selectedKind.label, clientSel?.name ?? brokerSel?.name ?? null, developmentName ?? null].filter(Boolean).join(" · ") : "");
+        // Título: texto digitado OU composição automática (kind sem campo de
+        // título). Com cliente/contato, o nome entra logo após o tipo:
+        // "{tipo} {nome}" + sufixo " · {unidade}" (details.unit_label). Sem
+        // sujeito, mantém o padrão atual "{tipo} · {empreendimento}".
+        const unitLabelForTitle = selectedKind?.fields.includes("unidade") && unitSel?.label
+          ? unitSel.label
+          : (linkedNeg?.quadra ? `Q${linkedNeg.quadra} · L${linkedNeg.lote}` : null);
+        const autoTitle = selectedKind
+          ? (subjectName
+              ? [`${selectedKind.label} ${subjectName}`, unitLabelForTitle].filter(Boolean).join(" · ")
+              : [selectedKind.label, developmentName ?? null].filter(Boolean).join(" · "))
+          : "";
+        const composedTitle = title.trim() || autoTitle;
         // Campos-coringa → details (só os presentes/preenchidos). observacoes
         // NÃO entra aqui — vai pra coluna `description`. Unidade mora em details
         // (activities NÃO tem coluna unit_id).
@@ -1033,9 +1053,8 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
         };
         // Auto-vínculo ao funil: pickers dedicados + negociação real (props têm prioridade).
         // (unidade vai em details.unit_id — activities não tem coluna unit_id.)
-        const clientP = participants.find((p) => p.type === "client" && p.id);
         const effNegId = negotiationId ?? linkedNeg?.id ?? undefined;
-        const effClientId = propClientId ?? clientSel?.id ?? linkedNeg?.client_id ?? clientP?.id ?? undefined;
+        const effClientId = resolvedClientId;
         const effBrokerId = brokerSel?.id ?? undefined;
         if (thirdPartyPropertyId) insertPayload.third_party_property_id = thirdPartyPropertyId;
         if (effNegId) insertPayload.negotiation_id = effNegId;
