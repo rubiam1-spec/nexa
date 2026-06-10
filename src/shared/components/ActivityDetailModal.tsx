@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
+import InlineEdit from "../../modules/atividades/components/InlineEdit";
 import { formatDateBRT, formatWeekdayDateLongBRT } from "../utils/dateUtils";
 import { useIsMobile } from "../hooks/useIsMobile";
 
@@ -7,14 +8,18 @@ interface Activity {
   id: string; type: string; title: string; status: string;
   activity_date: string; start_time: string | null; duration_minutes: number;
   outcome: string | null; description: string | null; skip_reason: string | null;
+  archived_at?: string | null;
   contact_name: string | null; created_at: string; updated_at?: string | null;
   profiles?: { name: string; role: string } | null;
   activity_photos?: { id: string; photo_url: string }[] | null;
 }
 
 interface ActivityParticipant {
-  participant_type: string; participant_name: string; participant_detail: string | null;
+  participant_type: string; participant_name: string; participant_detail: string | null; participant_id?: string | null;
 }
+
+interface TeamProfile { id: string; name: string; role: string }
+interface ChecklistItem { id: string; text: string; done: boolean; position: number }
 
 const T = {
   ink: "var(--surface-base)", carbon: "var(--surface-raised)", stone: "var(--border-default)",
@@ -34,12 +39,71 @@ const PCOLORS: Record<string, string> = { broker: "#4ADE80", client: "#60A5FA", 
 function fmtDuration(m: number) { if (!m) return "—"; if (m < 60) return `${m}min`; const h = Math.floor(m / 60); const r = m % 60; return r > 0 ? `${h}h${r}min` : `${h}h`; }
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 
-export default function ActivityDetailModal({ activity, participants, onClose, onEdit, onComplete, onSkip, onDelete, canEdit }: {
+export default function ActivityDetailModal({ activity, participants, teamProfiles, onAddTeamMember, onRemoveTeamMember, checklist, onAddChecklist, onToggleChecklist, onRemoveChecklist, onReorderChecklist, onEditChecklist, onRenameTitle, onArchive, onClose, onEdit, onComplete, onSkip, onDelete, canEdit }: {
   activity: Activity; participants: ActivityParticipant[]; onClose: () => void;
+  teamProfiles?: TeamProfile[];
+  onAddTeamMember?: (m: { id: string; name: string }) => void;
+  onRemoveTeamMember?: (participantId: string) => void;
+  checklist?: ChecklistItem[];
+  onAddChecklist?: (text: string, position: number) => Promise<ChecklistItem | null>;
+  onToggleChecklist?: (id: string, done: boolean) => void;
+  onRemoveChecklist?: (id: string) => void;
+  onReorderChecklist?: (id: string, position: number) => void;
+  onEditChecklist?: (id: string, text: string) => void;
+  onRenameTitle?: (title: string) => void;
+  onArchive?: (archived: boolean) => void;
   onEdit?: () => void; onComplete?: () => void; onSkip?: () => void; onDelete?: () => void;
   canEdit?: boolean;
 }) {
+  const [titleLocal, setTitleLocal] = useState(activity.title);
+  useEffect(() => { setTitleLocal(activity.title); }, [activity.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [lightbox, setLightbox] = useState<{ urls: string[]; idx: number } | null>(null);
+  const [addingTeam, setAddingTeam] = useState(false);
+  // Checklist: estado local otimista, semeado da prop e re-semeado por card.
+  const [items, setItems] = useState<ChecklistItem[]>(() => [...(checklist ?? [])].sort((a, b) => a.position - b.position));
+  const [newItem, setNewItem] = useState("");
+  const canManageChecklist = Boolean(canEdit && onAddChecklist && onToggleChecklist && onRemoveChecklist);
+  // Reseta só quando troca o card aberto — durante a sessão o estado local
+  // (otimista) é a fonte de verdade, evitando que um [] novo a cada render
+  // do pai apague itens recém-adicionados.
+  useEffect(() => {
+    setItems([...(checklist ?? [])].sort((a, b) => a.position - b.position));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activity.id]);
+  const doneCount = items.filter((i) => i.done).length;
+  const pct = items.length > 0 ? Math.round((doneCount / items.length) * 100) : 0;
+  const toggleItem = (it: ChecklistItem) => {
+    setItems((p) => p.map((x) => (x.id === it.id ? { ...x, done: !x.done } : x)));
+    onToggleChecklist?.(it.id, !it.done);
+  };
+  const removeItem = (id: string) => {
+    setItems((p) => p.filter((x) => x.id !== id));
+    onRemoveChecklist?.(id);
+  };
+  const addItem = async () => {
+    const text = newItem.trim();
+    if (!text || !onAddChecklist) return;
+    const pos = (items.reduce((m, x) => Math.max(m, x.position), 0) || 0) + 1000;
+    setNewItem("");
+    const row = await onAddChecklist(text, pos);
+    if (row) setItems((p) => [...p, row]);
+  };
+  const moveItem = (idx: number, dir: -1 | 1) => {
+    const j = idx + dir;
+    if (j < 0 || j >= items.length) return;
+    const reordered = [...items];
+    [reordered[idx], reordered[j]] = [reordered[j], reordered[idx]];
+    setItems(reordered);
+    // Persistir nova posição do item movido (entre vizinhos).
+    const moved = reordered[j];
+    const prev = reordered[j - 1];
+    const next = reordered[j + 1];
+    const newPos = prev && next ? (prev.position + next.position) / 2 : prev ? prev.position + 1000 : next ? next.position - 1000 : 1000;
+    onReorderChecklist?.(moved.id, newPos);
+  };
+  const teamParticipants = participants.filter((p) => p.participant_type === "user" && p.participant_id);
+  const teamIds = new Set(teamParticipants.map((p) => p.participant_id));
+  const canManageTeam = Boolean(canEdit && onAddTeamMember && onRemoveTeamMember && teamProfiles);
   const photos = activity.activity_photos ?? [];
   const mobile = useIsMobile();
   const st = activity.status || "completed";
@@ -69,9 +133,19 @@ export default function ActivityDetailModal({ activity, participants, onClose, o
           <button type="button" onClick={onClose} style={{ background: "none", border: "none", color: T.fog, fontSize: 22, cursor: "pointer", padding: "0 4px", lineHeight: 1 }}>×</button>
         </div>
 
-        {/* Title */}
+        {/* Title (click-to-edit) */}
         <div style={{ padding: "0 24px 16px" }}>
-          <h2 style={{ fontSize: 18, fontWeight: 700, color: T.chalk, margin: 0, textDecoration: isSkipped ? "line-through" : "none" }}>{activity.title}</h2>
+          {canEdit && onRenameTitle && !isSkipped ? (
+            <InlineEdit
+              value={titleLocal}
+              onSave={(v) => { setTitleLocal(v); onRenameTitle(v); }}
+              ariaLabel="Título da atividade"
+              textStyle={{ fontSize: 18, fontWeight: 700, color: T.chalk, display: "block" }}
+              inputStyle={{ width: "100%", boxSizing: "border-box", fontSize: 18, fontWeight: 700, color: T.chalk, background: T.carbon, border: `1px solid ${T.sprout}`, borderRadius: 8, padding: "4px 10px", outline: "none" }}
+            />
+          ) : (
+            <h2 style={{ fontSize: 18, fontWeight: 700, color: T.chalk, margin: 0, textDecoration: isSkipped ? "line-through" : "none" }}>{titleLocal}</h2>
+          )}
         </div>
 
         {/* Info rows */}
@@ -99,6 +173,84 @@ export default function ActivityDetailModal({ activity, participants, onClose, o
                 <div style={{ padding: "10px 14px", fontSize: 13, color: T.bone }}>{activity.contact_name}</div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Equipe (participantes 'user') — add/remove */}
+        {canManageTeam && (
+          <div style={{ padding: "0 24px 16px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <div style={{ fontSize: 10, color: T.fog, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "var(--font-mono)" }}>EQUIPE</div>
+              <button type="button" onClick={() => setAddingTeam((v) => !v)} style={{ background: "none", border: "none", color: T.sprout, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{addingTeam ? "Fechar" : "+ Adicionar"}</button>
+            </div>
+            {teamParticipants.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: addingTeam ? 8 : 0 }}>
+                {teamParticipants.map((p) => (
+                  <span key={p.participant_id} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 14, background: T.purple + "18", border: `1px solid ${T.purple}30`, fontSize: 12, color: T.purple }}>
+                    {p.participant_name}
+                    <button type="button" onClick={() => onRemoveTeamMember!(p.participant_id!)} style={{ background: "none", border: "none", color: T.purple, fontSize: 14, cursor: "pointer", padding: 0, lineHeight: 1 }}>×</button>
+                  </span>
+                ))}
+              </div>
+            )}
+            {addingTeam && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+                {(teamProfiles ?? []).filter((tp) => !teamIds.has(tp.id)).map((tp) => (
+                  <button key={tp.id} type="button" onClick={() => { onAddTeamMember!({ id: tp.id, name: tp.name }); }} style={{ padding: "4px 10px", borderRadius: 14, border: `1px solid ${T.stone}`, background: "transparent", color: T.bone, fontSize: 12, cursor: "pointer" }}>+ {tp.name}</button>
+                ))}
+                {(teamProfiles ?? []).filter((tp) => !teamIds.has(tp.id)).length === 0 && (
+                  <span style={{ fontSize: 12, color: T.slate, fontStyle: "italic" }}>Todos já adicionados</span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Checklist */}
+        {(items.length > 0 || canManageChecklist) && (
+          <div style={{ padding: "0 24px 16px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <div style={{ fontSize: 10, color: T.fog, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "var(--font-mono)" }}>CHECKLIST</div>
+              {items.length > 0 && <div style={{ fontSize: 11, color: T.sprout, fontFamily: "var(--font-mono)", fontWeight: 600 }}>✓ {doneCount}/{items.length}</div>}
+            </div>
+            {items.length > 0 && (
+              <div style={{ height: 4, borderRadius: 2, background: "rgba(42,40,34,0.4)", overflow: "hidden", marginBottom: 10 }}>
+                <div style={{ height: "100%", width: `${pct}%`, background: T.sprout, transition: "width 0.3s" }} />
+              </div>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {items.map((it, idx) => (
+                <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
+                  <button type="button" disabled={!canManageChecklist} onClick={() => toggleItem(it)} style={{ width: 18, height: 18, borderRadius: 5, flexShrink: 0, border: `1px solid ${it.done ? T.sprout : T.stone}`, background: it.done ? T.sprout : "transparent", color: T.ink, fontSize: 11, cursor: canManageChecklist ? "pointer" : "default", display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 18 }}>{it.done ? "✓" : ""}</button>
+                  {canManageChecklist && onEditChecklist ? (
+                    <span style={{ flex: 1 }}>
+                      <InlineEdit
+                        value={it.text}
+                        onSave={(v) => { setItems((p) => p.map((x) => (x.id === it.id ? { ...x, text: v } : x))); onEditChecklist(it.id, v); }}
+                        ariaLabel="Item da checklist"
+                        textStyle={{ fontSize: 13, color: it.done ? T.slate : T.bone, textDecoration: it.done ? "line-through" : "none" }}
+                        inputStyle={{ width: "100%", boxSizing: "border-box", fontSize: 13, color: T.chalk, background: T.carbon, border: `1px solid ${T.sprout}`, borderRadius: 6, padding: "4px 8px", outline: "none" }}
+                      />
+                    </span>
+                  ) : (
+                    <span style={{ flex: 1, fontSize: 13, color: it.done ? T.slate : T.bone, textDecoration: it.done ? "line-through" : "none" }}>{it.text}</span>
+                  )}
+                  {canManageChecklist && (
+                    <>
+                      <button type="button" onClick={() => moveItem(idx, -1)} disabled={idx === 0} style={{ background: "none", border: "none", color: idx === 0 ? T.stone : T.fog, fontSize: 12, cursor: idx === 0 ? "default" : "pointer", padding: "0 2px" }}>↑</button>
+                      <button type="button" onClick={() => moveItem(idx, 1)} disabled={idx === items.length - 1} style={{ background: "none", border: "none", color: idx === items.length - 1 ? T.stone : T.fog, fontSize: 12, cursor: idx === items.length - 1 ? "default" : "pointer", padding: "0 2px" }}>↓</button>
+                      <button type="button" onClick={() => removeItem(it.id)} style={{ background: "none", border: "none", color: T.fog, fontSize: 15, cursor: "pointer", padding: "0 2px", lineHeight: 1 }}>×</button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+            {canManageChecklist && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                <input value={newItem} onChange={(e) => setNewItem(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void addItem(); } }} placeholder="+ adicionar item" style={{ flex: 1, background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "9px 12px", color: T.chalk, fontSize: 13, outline: "none", minHeight: 40 }} />
+                {newItem.trim() && <button type="button" onClick={() => void addItem()} style={{ background: "transparent", border: `1px solid ${T.sprout}40`, color: T.sprout, borderRadius: 8, padding: "9px 12px", fontSize: 13, cursor: "pointer" }}>Add</button>}
+              </div>
+            )}
           </div>
         )}
 
@@ -164,6 +316,7 @@ export default function ActivityDetailModal({ activity, participants, onClose, o
             {(isScheduled || isExpired) && onComplete && <button type="button" onClick={onComplete} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: T.sprout, color: "var(--interactive-on-primary)", fontSize: 13, fontWeight: 700, cursor: "pointer", minWidth: 100 }}>{isExpired ? "✓ Concluir mesmo assim" : "✓ Concluir"}</button>}
             {!isSkipped && onEdit && <button type="button" onClick={onEdit} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.bone, fontSize: 13, cursor: "pointer", minWidth: 80 }}>✎ Editar</button>}
             {(isScheduled || isExpired) && onSkip && <button type="button" onClick={onSkip} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${T.amber}30`, background: T.amber + "10", color: T.amber, fontSize: 13, cursor: "pointer", minWidth: 80 }}>⊘ Pular</button>}
+            {onArchive && (activity.archived_at ? <button type="button" onClick={() => onArchive(false)} style={{ padding: "10px 16px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.bone, fontSize: 13, cursor: "pointer" }}>↩ Desarquivar</button> : <button type="button" onClick={() => onArchive(true)} style={{ padding: "10px 16px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.bone, fontSize: 13, cursor: "pointer" }}>📥 Arquivar</button>)}
             {onDelete && <button type="button" onClick={onDelete} style={{ padding: "10px 16px", borderRadius: 8, border: `1px solid ${T.red}30`, background: T.red + "10", color: T.red, fontSize: 13, cursor: "pointer" }}>Excluir</button>}
           </div>
         )}

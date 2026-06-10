@@ -401,6 +401,7 @@ button:disabled {
 @keyframes fadeInUp { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: translateY(0) } }
 @keyframes fadeInScale { from { opacity: 0; transform: scale(0.96) } to { opacity: 1; transform: scale(1) } }
 @keyframes slideInRight { from { opacity: 0; transform: translateX(12px) } to { opacity: 1; transform: translateX(0) } }
+@keyframes nexaFadeIn { from { opacity: 0; transform: translateX(10px) } to { opacity: 1; transform: translateX(0) } }
 @keyframes slideUpSheet { from { transform: translateY(100%) } to { transform: translateY(0) } }
 @keyframes slideDownSheet { from { transform: translateY(0) } to { transform: translateY(100%) } }
 @keyframes toastIn { from { opacity: 0; transform: translateY(-12px) scale(0.96) } to { opacity: 1; transform: translateY(0) scale(1) } }

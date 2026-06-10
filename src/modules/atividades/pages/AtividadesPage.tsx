@@ -11,12 +11,53 @@ import ParticipantInput, { type Participant } from "../../../shared/components/P
 import ActivityDetailModal from "../../../shared/components/ActivityDetailModal";
 import PhotoUpload from "../../../shared/components/PhotoUpload";
 import WeeklyCalendar from "../components/WeeklyCalendar";
-import DailyCalendarMobile from "../components/DailyCalendarMobile";
 import FilterChips, { type FilterChip } from "../components/FilterChips";
 import { isCommercialInternalRole } from "../constants/teamScope";
 import { useActivityPeriod, type Period } from "../hooks/useActivityPeriod";
+import { useActivities } from "../hooks/useActivities";
+import {
+  insertActivity as repoInsertActivity,
+  updateActivity as repoUpdateActivity,
+  countActivitiesByProfile as repoCountActivitiesByProfile,
+  fetchRecentActivityClientIds as repoFetchRecentActivityClientIds,
+  logActivityEvent as repoLogActivityEvent,
+  addActivityParticipant as repoAddParticipant,
+  removeActivityParticipant as repoRemoveParticipant,
+  findActiveNegotiations as repoFindActiveNegotiations,
+  fetchTemplates as repoFetchTemplates,
+  applyChecklist as repoApplyChecklist,
+  addChecklistItem as repoAddChecklistItem,
+  toggleChecklistItem as repoToggleChecklistItem,
+  removeChecklistItem as repoRemoveChecklistItem,
+  reorderChecklistItem as repoReorderChecklistItem,
+  updateChecklistText as repoUpdateChecklistText,
+  type ActiveNegotiation,
+  type ActivityTemplate,
+  type ChecklistItem,
+} from "../../../infra/repositories/activitiesSupabaseRepository";
+import KanbanBoard, { type KanbanSuggestion, type BoardColumnVM } from "../components/KanbanBoard";
+import { useBoardColumns } from "../hooks/useBoardColumns";
+import { useActivityKinds } from "../hooks/useActivityKinds";
+import { useActivityRange } from "../hooks/useActivityRange";
+import ActivitiesList from "../components/ActivitiesList";
+import ActivityFilterBar from "../components/ActivityFilterBar";
+import ArchivedPanel from "../components/ArchivedPanel";
+import { fetchActivities as repoFetchActivities, deleteActivity as repoDeleteActivity } from "../../../infra/repositories/activitiesSupabaseRepository";
+import { type ActivityKind, normalizeChecklist } from "../../../infra/repositories/activityKindsRepository";
+import { type QuickParsed } from "../config/quickParse";
+import KindIcon from "../components/KindIcon";
+import { fieldDef, defaultOffsetDays } from "../fields/fieldRegistry";
+import EntityPicker from "../fields/EntityPicker";
+import UnitPicker, { type UnitValue } from "../fields/UnitPicker";
+import TeamMultiSelect from "../fields/TeamMultiSelect";
+import { type PickOption } from "../../../infra/repositories/activityFieldsRepository";
+import { ACTIVITY_TYPE_SCHEMA, GROUP_LABELS } from "../config/activityTypeSchema";
 import { formatDateBRT, formatDateTimeBRT, formatDateLongBRT, formatWeekdayDateLongBRT } from "../../../shared/utils/dateUtils";
-import { toActivityMomentBRT, decideInitialActivityStatus } from "../../../domain/atividade/ActivityScheduling";
+import {
+  toActivityMomentBRT,
+  decideInitialActivityStatus,
+  parseDateHint,
+} from "../../../domain/atividade/ActivityScheduling";
 
 // ── Tokens ──
 
@@ -29,22 +70,36 @@ const T = {
 
 // ── Types ──
 
-type ActivityType = "visit_broker" | "visit_client" | "visit_development" | "training" | "phone_call" | "follow_up" | "meeting_internal" | "meeting_external" | "other";
+type ActivityType = "visit_broker" | "visit_client" | "visit_development" | "training" | "phone_call" | "follow_up" | "meeting_internal" | "meeting_external" | "operational" | "other";
 
-type ActivityStatus = "completed" | "scheduled" | "skipped" | "expired";
+// "expired" é derivado client-side (scheduled + activity_date < today).
+// Nunca persistido — o CHECK do banco aceita scheduled/in_progress/completed/skipped/missed/cancelled.
+type ActivityStatus =
+  | "completed"
+  | "scheduled"
+  | "in_progress"
+  | "skipped"
+  | "expired";
 
 interface Activity {
   id: string; account_id: string; development_id: string; profile_id: string;
   type: ActivityType; title: string; status: ActivityStatus;
   client_id: string | null; broker_id: string | null;
+  column_id: string | null; outcome_category: string | null;
+  kind_id?: string | null;
+  details?: Record<string, unknown> | null;
+  archived_at?: string | null;
+  activity_kinds?: { id: string; label: string; icon: string; color: string | null; base_type: string } | null;
   contact_name: string | null; contact_company: string | null;
   activity_date: string; start_time: string | null; duration_minutes: number;
   outcome: string | null; next_action: string | null; next_action_date: string | null;
   description: string | null; skip_reason: string | null; created_at: string; updated_at?: string | null;
-  clients?: { name: string } | null; brokers?: { name: string } | null;
+  clients?: { name: string; temperature?: string | null } | null; brokers?: { name: string } | null;
+  negotiations?: { temperature: string | null } | null;
   profiles?: { name: string; role: string } | null;
   activity_photos?: { id: string; photo_url: string }[] | null;
-  activity_participants?: { participant_name: string; participant_type: string }[] | null;
+  activity_participants?: { participant_name: string; participant_type: string; participant_id?: string | null }[] | null;
+  activity_checklist_items?: { id: string; text: string; done: boolean; position: number }[] | null;
   third_party_property?: { id: string; titulo: string } | null;
 }
 
@@ -59,16 +114,16 @@ interface RankedMember {
 const badgeColors: Record<string, string> = {
   visit_broker: T.blue, visit_client: T.sprout, visit_development: T.purple,
   training: T.purple, phone_call: T.sprout, follow_up: T.orange,
-  meeting_internal: T.amber, meeting_external: T.amber, other: T.fog,
+  meeting_internal: T.amber, meeting_external: T.amber, operational: "#8A857B", other: T.fog,
 };
 const badgeLabels: Record<string, string> = {
   visit_broker: "Visita corretor", visit_client: "Visita cliente", visit_development: "Visita empreend.",
   training: "Treinamento", phone_call: "Ligação", follow_up: "Follow-up",
-  meeting_internal: "Reunião interna", meeting_external: "Reunião externa", other: "Outro",
+  meeting_internal: "Reunião interna", meeting_external: "Reunião externa", operational: "Demanda operacional", other: "Outro",
 };
 const typeIcons: Record<string, React.ReactNode> = {
   visit_broker: <IcVisita size={20} color="#F87171" sw={2} />, visit_client: <IcClientes size={20} color="#A78BFA" sw={2} />, visit_development: <IcEmpreendimentos size={20} color="#FBBF24" sw={2} />, training: <IcTreinamento size={20} color="#60A5FA" sw={2} />,
-  phone_call: <IcLigacao size={20} color="#F87171" sw={2} />, follow_up: <IcFollowUp size={20} color="#4ADE80" sw={2} />, meeting_internal: <IcReuniao size={20} color="#FBBF24" sw={2} />, meeting_external: <IcImobiliarias size={20} color="#60A5FA" sw={2} />, other: <IcOutro size={20} color="#9C9686" sw={2} />,
+  phone_call: <IcLigacao size={20} color="#F87171" sw={2} />, follow_up: <IcFollowUp size={20} color="#4ADE80" sw={2} />, meeting_internal: <IcReuniao size={20} color="#FBBF24" sw={2} />, meeting_external: <IcImobiliarias size={20} color="#60A5FA" sw={2} />, operational: <IcOutro size={20} color="#8A857B" sw={2} />, other: <IcOutro size={20} color="#9C9686" sw={2} />,
 };
 const typePlaceholders: Record<string, string> = {
   visit_broker: "Ex: Visita Imobiliária Casa Nova", visit_client: "Ex: Visita ao cliente André",
@@ -81,6 +136,33 @@ const DURATIONS = [
   { label: "1h30", value: 90 }, { label: "2h", value: 120 }, { label: "3h+", value: 180 },
 ];
 const ROLE_LABELS: Record<string, string> = { director: "Diretor", manager: "Gestor", commercial_consultant: "Consultor", broker: "Corretor", administrative: "Administrativo" };
+// Resultado estruturado (quick-tag opcional, salvo em outcome_category).
+const OUTCOME_CATS: { key: string; label: string; color: string }[] = [
+  { key: "avancou", label: "Avançou", color: "#4ADE80" },
+  { key: "neutro", label: "Neutro", color: "#9C9686" },
+  { key: "sem_sucesso", label: "Sem sucesso", color: "#C2613A" },
+  { key: "remarcou", label: "Remarcou", color: "#FBBF24" },
+];
+
+function OutcomeChips({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
+  return (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+      {OUTCOME_CATS.map((c) => {
+        const active = value === c.key;
+        return (
+          <button key={c.key} type="button" onClick={() => onChange(active ? null : c.key)} style={{
+            padding: "6px 12px", borderRadius: 16, cursor: "pointer",
+            border: `1px solid ${active ? c.color : "var(--border-default)"}`,
+            background: active ? c.color + "1F" : "transparent",
+            color: active ? c.color : "var(--text-muted)",
+            fontSize: 12, fontWeight: 600, fontFamily: "var(--font-mono)",
+            transition: "all 0.12s",
+          }}>{c.label}</button>
+        );
+      })}
+    </div>
+  );
+}
 
 // ── Helpers ──
 
@@ -301,7 +383,7 @@ function TodayBlock({ overdue, today, upcoming, onClickActivity }: { overdue: Ac
   );
 }
 
-function ActivityCard({ activity, showAuthor, isOwner, canManage, onDelete, onEdit, onComplete, onSkip, onClick }: { activity: Activity; showAuthor?: boolean; isOwner?: boolean; canManage?: boolean; onDelete?: (id: string) => void; onEdit?: (activity: Activity) => void; onComplete?: (activity: Activity) => void; onSkip?: (activity: Activity) => void; onClick?: (activity: Activity) => void }) {
+function ActivityCard({ activity, showAuthor, isOwner, canManage, onDelete, onEdit, onComplete, onSkip, onClick }: { activity: Activity; showAuthor?: boolean; isOwner?: boolean; canManage?: boolean; onDelete?: (id: string) => void | Promise<void>; onEdit?: (activity: Activity) => void; onComplete?: (activity: Activity) => void; onSkip?: (activity: Activity) => void; onClick?: (activity: Activity) => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -319,11 +401,11 @@ function ActivityCard({ activity, showAuthor, isOwner, canManage, onDelete, onEd
   const sideBorderColor = isOverdue ? T.red : isCompleted ? "#3D3A30" : isExpired ? T.slate : typeColor;
 
   async function handleDelete() {
-    if (!supabase || !onDelete) return;
+    if (!onDelete) return;
     setDeleting(true);
     try {
-      const { error } = await supabase.from("activities").delete().eq("id", activity.id);
-      if (!error) onDelete(activity.id);
+      // Persistência é responsabilidade do pai (hook useActivities).
+      await onDelete(activity.id);
     } catch (err) { console.error("Erro ao excluir:", err); }
     finally { setDeleting(false); setConfirmOpen(false); setMenuOpen(false); }
   }
@@ -511,6 +593,19 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
   return createPortal(<div style={{ position: "fixed", bottom: 32, left: "50%", transform: "translateX(-50%)", background: T.sprout, color: T.ink, padding: "10px 24px", borderRadius: 8, fontSize: 13, fontWeight: 700, zIndex: 10000, boxShadow: "0 4px 16px rgba(0,0,0,0.4)" }}>{message}</div>, document.body);
 }
 
+// Toast com ação "Desfazer" (janela ~6s) — usado em "Limpar concluídas".
+function UndoToast({ message, onUndo, onDone }: { message: string; onUndo: () => void; onDone: () => void }) {
+  useEffect(() => { const t = setTimeout(onDone, 6000); return () => clearTimeout(t); }, [onDone]);
+  return createPortal(
+    <div style={{ position: "fixed", bottom: 32, left: "50%", transform: "translateX(-50%)", background: "var(--surface-raised)", border: "1px solid var(--border-default)", color: "var(--text-primary)", padding: "10px 12px 10px 18px", borderRadius: 10, fontSize: 13, zIndex: 10000, boxShadow: "0 8px 24px rgba(0,0,0,0.45)", display: "flex", alignItems: "center", gap: 14 }}>
+      <span>{message}</span>
+      <button type="button" onClick={onUndo} style={{ background: "transparent", border: "none", color: T.sprout, fontSize: 13, fontWeight: 700, cursor: "pointer", padding: "4px 6px" }}>Desfazer</button>
+      <button type="button" onClick={onDone} style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 16, cursor: "pointer", lineHeight: 1 }}>×</button>
+    </div>,
+    document.body,
+  );
+}
+
 // ── Date & Time Pickers (v7) ──
 const PICKER_MONTHS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 const PICKER_DAYS = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -693,8 +788,23 @@ function TimePickerField({ value, onChange }: { value: string; onChange: (v: str
 
 // ── Registration Modal ──
 
-export function RegistrationModal({ accountId, developmentId, profileId, initialType, initialTitle, initialDate, initialStartTime, editActivity, canManageDate, onClose, onSaved, thirdPartyPropertyId, thirdPartyPropertyTitle, negotiationId, clientId: propClientId }: { accountId: string; developmentId: string; profileId: string; initialType?: ActivityType; initialTitle?: string; initialDate?: string; initialStartTime?: string; editActivity?: Activity | null; canManageDate?: boolean; onClose: () => void; onSaved: () => void; thirdPartyPropertyId?: string; thirdPartyPropertyTitle?: string; negotiationId?: string; clientId?: string }) {
+export function RegistrationModal({ accountId, developmentId, profileId, initialType, initialTitle, initialDate, initialStartTime, editActivity, canManageDate, initialMode, forcedStatus, forcedColumnId, planColumnId, doneColumnId, templates, developmentName, kinds, teamProfiles, currentUser, onClose, onSaved, thirdPartyPropertyId, thirdPartyPropertyTitle, negotiationId, clientId: propClientId }: { accountId: string; developmentId: string; profileId: string; initialType?: ActivityType; initialTitle?: string; initialDate?: string; initialStartTime?: string; editActivity?: Activity | null; canManageDate?: boolean; initialMode?: "plan" | "done"; forcedStatus?: "scheduled" | "in_progress"; forcedColumnId?: string | null; planColumnId?: string | null; doneColumnId?: string | null; templates?: Record<string, ActivityTemplate>; developmentName?: string | null; kinds?: { comercial: ActivityKind[]; interno: ActivityKind[]; operacional: ActivityKind[]; byKey: Record<string, ActivityKind>; byId: Record<string, ActivityKind> }; teamProfiles?: { id: string; name: string }[]; currentUser?: { id: string; name: string } | null; onClose: () => void; onSaved: () => void; thirdPartyPropertyId?: string; thirdPartyPropertyTitle?: string; negotiationId?: string; clientId?: string }) {
   const isEdit = !!editActivity;
+  // Criador em 2 etapas (só criação): 'type' (escolher tipo) → 'form' (adaptado).
+  const [stage, setStage] = useState<"type" | "form">(isEdit || initialType ? "form" : "type");
+  const [showMore, setShowMore] = useState(false);
+  // Kind selecionado (catálogo) — dirige a Etapa 2 na criação.
+  const [selectedKind, setSelectedKind] = useState<ActivityKind | null>(null);
+  const [kindSearch, setKindSearch] = useState("");
+  // Campos dirigidos pelo catálogo (Etapa 2 adaptativa).
+  const [clientSel, setClientSel] = useState<PickOption | null>(null);
+  const [brokerSel, setBrokerSel] = useState<PickOption | null>(null);
+  const [unitSel, setUnitSel] = useState<UnitValue>(null);
+  const [details, setDetails] = useState<{ valor?: number; canal?: string; referencia?: string; local?: string; observacoes?: string }>({});
+  // Toggle de criação: "plan" (Planejar → scheduled/in_progress) vs
+  // "done" (Já realizada → completed). Sobrepõe decideInitialActivityStatus.
+  const [mode, setMode] = useState<"plan" | "done">(initialMode ?? "done");
+  const [outcomeCategory, setOutcomeCategory] = useState<string | null>(null);
   const [type, setType] = useState<ActivityType | null>(editActivity?.type ?? initialType ?? null);
   const [title, setTitle] = useState(editActivity?.title ?? initialTitle ?? "");
   const contactName = editActivity?.contact_name ?? "";
@@ -718,6 +828,96 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
   const [nextAction, setNextAction] = useState(editActivity?.next_action ?? "");
   const [nextActionDate, setNextActionDate] = useState(editActivity?.next_action_date ?? "");
   const [description, setDescription] = useState(editActivity?.description ?? "");
+  // Criação inteligente: auto-vínculo, checklist do template, parser de data.
+  const [linkedNeg, setLinkedNeg] = useState<ActiveNegotiation | null>(null);
+  const [negOptions, setNegOptions] = useState<ActiveNegotiation[]>([]);
+  const [linkDismissed, setLinkDismissed] = useState(false);
+  const [checklistDraft, setChecklistDraft] = useState<string[]>([]);
+  const [newChecklistText, setNewChecklistText] = useState("");
+  const [dateHintLabel, setDateHintLabel] = useState<string | null>(null);
+  // Marca como "tocado" quando a data/hora vem de um slot da Agenda — assim o
+  // applyKind/parser não sobrescreve o que o usuário escolheu no calendário.
+  const dateTouched = useRef(!!initialDate);
+  const timeTouched = useRef(!!initialStartTime);
+
+  // Busca acento-insensível na lista de tipos (Etapa 1).
+  const naSearch = (s: string) => s.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
+  // Seleciona um kind (Etapa 1) → prefilla duração, checklist e defaults.
+  const applyKind = (k: ActivityKind) => {
+    setSelectedKind(k);
+    setType(k.base_type as ActivityType);
+    if (k.suggested_duration_minutes) setDuration(k.suggested_duration_minutes);
+    setChecklistDraft(mode === "plan" ? normalizeChecklist(k.default_checklist) : []);
+    setClientSel(null); setBrokerSel(null); setUnitSel(null); setDetails({});
+    setLinkedNeg(null); setNegOptions([]); setLinkDismissed(false);
+    // Data padrão por base_type (às 09:00) — só se o usuário não tiver mexido.
+    if (!dateTouched.current) setActivityDate(addDays(defaultOffsetDays(k.base_type)));
+    if (!timeTouched.current) setStartTime("09:00");
+    // Responsável(is) = usuário atual pré-selecionado.
+    if (k.fields.includes("responsaveis") && currentUser) {
+      setParticipants([{ type: "user", id: currentUser.id, name: currentUser.name }]);
+    } else if (k.fields.includes("participantes")) {
+      setParticipants([]);
+    }
+  };
+
+  // Resolve o kind a partir de initialType (suggestion/quick-action que pulam
+  // a Etapa 1) quando o catálogo carrega.
+  useEffect(() => {
+    if (isEdit || selectedKind || !initialType || !kinds) return;
+    const k = kinds.comercial.concat(kinds.interno, kinds.operacional).find((x) => x.base_type === initialType || x.key === initialType);
+    if (k) applyKind(k);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kinds, initialType]);
+
+  // Template legado (fallback) — só quando NÃO há kind selecionado (ex.: edição).
+  useEffect(() => {
+    if (isEdit || selectedKind || !type || !templates) return;
+    const tpl = templates[type];
+    if (!tpl) return;
+    if (tpl.suggested_duration_minutes) setDuration(tpl.suggested_duration_minutes);
+    setChecklistDraft(mode === "plan" ? [...tpl.checklist] : []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [type, mode]);
+
+  // Auto-vínculo: cliente/corretor selecionado → negociações ativas reais.
+  // Só para kinds comerciais (kind.autolink); demais nunca consultam.
+  useEffect(() => {
+    if (isEdit || negotiationId || linkDismissed) return;
+    const autoLink = selectedKind ? selectedKind.autolink : (type ? ACTIVITY_TYPE_SCHEMA[type]?.autoLink : false);
+    if (!autoLink) { setLinkedNeg(null); setNegOptions([]); return; }
+    // Fonte: pickers dedicados (cliente/corretor) da Etapa 2 adaptativa.
+    const clientP = clientSel ?? participants.find((p) => p.type === "client" && p.id) ?? null;
+    const brokerP = brokerSel ?? participants.find((p) => p.type === "broker" && p.id) ?? null;
+    if (!clientP && !brokerP) { setLinkedNeg(null); setNegOptions([]); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const negs = await repoFindActiveNegotiations({ accountId, clientId: clientP?.id ?? null, brokerId: brokerP?.id ?? null });
+        if (cancelled) return;
+        if (negs.length === 1) { setLinkedNeg(negs[0]); setNegOptions([]); }
+        else if (negs.length > 1) { setLinkedNeg(null); setNegOptions(negs); }
+        else { setLinkedNeg(null); setNegOptions([]); }
+      } catch { if (!cancelled) { setLinkedNeg(null); setNegOptions([]); } }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [participants, linkDismissed, type, selectedKind, clientSel, brokerSel]);
+
+  // Parser de data no título (sugestão; não sobrescreve edição manual).
+  useEffect(() => {
+    if (isEdit) return;
+    const hint = parseDateHint(title);
+    if (hint.date && !dateTouched.current) setActivityDate(hint.date);
+    if (hint.time && !timeTouched.current) setStartTime(hint.time);
+    if (hint.date || hint.time) {
+      const parts: string[] = [];
+      if (hint.date) parts.push(formatWeekdayDateLongBRT(hint.date + "T12:00:00").replace(/ de \d{4}$/, ""));
+      if (hint.time) parts.push(hint.time);
+      setDateHintLabel(parts.join(" · "));
+    } else setDateHintLabel(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title]);
   // Date editing: within 24h or manager/director
   const dateEditable = !isEdit || canManageDate || (editActivity?.created_at ? (Date.now() - new Date(editActivity.created_at).getTime()) < 24 * 60 * 60 * 1000 : true);
   const [saving, setSaving] = useState(false);
@@ -727,8 +927,24 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
   const [followUpPick, setFollowUpPick] = useState<"1" | "2" | "7">("1");
   const [savingFollowUp, setSavingFollowUp] = useState(false);
   const isMobile = useIsMobile();
-  const isFuture = activityDate > todayStr();
-  const canSave = type !== null && title.trim().length > 0;
+  // planMode: criação em modo "Planejar" (não vale para edição).
+  const planMode = !isEdit && mode === "plan";
+  // Esconde duração/resultado/próxima ação: em criação quando Planejar;
+  // em edição quando a atividade é futura (preserva comportamento anterior).
+  const hideCompletionFields = isEdit ? activityDate > todayStr() : planMode;
+  // Catálogo (kind) dirige a Etapa 2 na criação; schema legado serve à edição.
+  const schema = type ? ACTIVITY_TYPE_SCHEMA[type] : null;
+  const branch = selectedKind?.branch ?? schema?.branch;
+  const isConfeccao = branch === "confeccao";
+  // Pessoas: na criação (kind) sempre mostra; na edição segue o schema legado.
+  const needsPeople = selectedKind
+    ? true
+    : (!!schema && (schema.needs.includes("client") || schema.needs.includes("broker") || schema.needs.includes("team") || schema.needs.includes("assignee")));
+  const showAutoLink = !isEdit && (selectedKind ? selectedKind.autolink : !!schema?.autoLink);
+  // Kinds sem campo de título compõem o título automático no save.
+  const kindHasTitleField = selectedKind ? selectedKind.fields.some((f) => fieldDef(f).toTitle) : true;
+  // planMode exige horário (slot de ordem no Quadro).
+  const canSave = type !== null && (kindHasTitleField ? title.trim().length > 0 : true) && (!planMode || startTime.trim().length > 0);
 
   function addDays(d: number): string { const dt = new Date(); dt.setDate(dt.getDate() + d); return dt.toISOString().slice(0, 10); }
 
@@ -742,38 +958,78 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
           type, title: title.trim(), contact_name: contactName.trim() || null,
           duration_minutes: duration, outcome: outcome.trim() || null,
           next_action: nextAction.trim() || null, next_action_date: nextActionDate || null,
-          description: description.trim() || null, updated_at: new Date().toISOString(),
+          description: description.trim() || null,
         };
         if (dateEditable) {
           updateData.activity_date = activityDate;
           updateData.start_time = startTime || null;
         }
-        const { error } = await supabase.from("activities").update(updateData).eq("id", editActivity.id);
-        if (error) throw error;
+        await repoUpdateActivity(editActivity.id, updateData);
         onSaved(); onClose();
       } else {
-        // Insert mode — delega decisão scheduled/completed ao domínio
-        // (activity_date + start_time no fuso BRT vs now).
-        const moment = toActivityMomentBRT(activityDate, startTime || null);
-        const actStatus = decideInitialActivityStatus(moment);
-        const isFuture = actStatus === "scheduled";
+        // Insert mode — o toggle Planejar/Já realizada decide explicitamente
+        // o status (sobrepõe decideInitialActivityStatus). Plan → coluna
+        // forçada (scheduled/in_progress); Já realizada → completed.
+        const actStatus: ActivityStatus = planMode ? (forcedStatus ?? "scheduled") : "completed";
+        const isPlanned = actStatus !== "completed";
+        // column_id: explícito (add-card) ou padrão por modo (plan→A fazer, done→conclui).
+        const targetColumnId = forcedColumnId ?? (planMode ? (planColumnId ?? null) : (doneColumnId ?? planColumnId ?? null));
         const contactStr = participants.length > 0 ? participants.map((p) => p.name).join(", ") : contactName.trim() || null;
+        // Verdade do motor = base_type do kind; rastreia também o kind_id.
+        const effType = selectedKind?.base_type ?? type;
+        // Gating dirigido pela presença do campo no kind (adaptativo); na
+        // ausência de kind (edição/legado), segue o isPlanned anterior.
+        const has = (f: string) => !!selectedKind && selectedKind.fields.includes(f);
+        const saveNext = selectedKind ? has("proximo_passo") : !isPlanned;
+        const saveOutcome = selectedKind ? (has("resultado") && !planMode) : !isPlanned;
+        const durationOut = selectedKind ? (has("resultado") || !planMode ? duration : 0) : (isPlanned ? 0 : duration);
+        // Título: texto digitado OU composição automática (kind sem campo de título).
+        // Espaçamento " · " entre as partes (kind · pessoa · empreendimento).
+        const composedTitle = title.trim() || (selectedKind ? [selectedKind.label, clientSel?.name ?? brokerSel?.name ?? null, developmentName ?? null].filter(Boolean).join(" · ") : "");
+        // Campos-coringa → details (só os presentes/preenchidos). observacoes
+        // NÃO entra aqui — vai pra coluna `description`. Unidade mora em details
+        // (activities NÃO tem coluna unit_id).
+        const detailsOut: Record<string, unknown> = {};
+        for (const dk of ["valor", "canal", "referencia", "local"] as const) {
+          const v = details[dk];
+          if (v !== undefined && v !== "" && (!selectedKind || selectedKind.fields.includes(dk))) detailsOut[dk] = v;
+        }
+        if (selectedKind?.fields.includes("unidade")) {
+          if (unitSel?.id) { detailsOut.unit_id = unitSel.id; detailsOut.unit_label = unitSel.label; }
+          else { delete detailsOut.unit_id; delete detailsOut.unit_label; }
+        }
         const insertPayload: Record<string, unknown> = {
           account_id: accountId, development_id: developmentId, profile_id: profileId,
-          type, title: title.trim(), contact_name: contactStr,
+          type: effType, kind_id: selectedKind?.id ?? null, title: composedTitle || effType, contact_name: contactStr,
           activity_date: activityDate, start_time: startTime || null,
-          duration_minutes: isFuture ? 0 : duration,
-          outcome: isFuture ? null : (outcome.trim() || null),
-          next_action: isFuture ? null : (nextAction.trim() || null),
-          next_action_date: isFuture ? null : (nextActionDate || null),
+          duration_minutes: durationOut,
+          outcome: saveOutcome ? (outcome.trim() || null) : null,
+          outcome_category: saveOutcome ? outcomeCategory : null,
+          next_action: saveNext ? (nextAction.trim() || null) : null,
+          next_action_date: saveNext ? (nextActionDate || null) : null,
           description: description.trim() || null,
+          details: detailsOut,
           status: actStatus,
+          column_id: targetColumnId,
         };
+        // Auto-vínculo ao funil: pickers dedicados + negociação real (props têm prioridade).
+        // (unidade vai em details.unit_id — activities não tem coluna unit_id.)
+        const clientP = participants.find((p) => p.type === "client" && p.id);
+        const effNegId = negotiationId ?? linkedNeg?.id ?? undefined;
+        const effClientId = propClientId ?? clientSel?.id ?? linkedNeg?.client_id ?? clientP?.id ?? undefined;
+        const effBrokerId = brokerSel?.id ?? undefined;
         if (thirdPartyPropertyId) insertPayload.third_party_property_id = thirdPartyPropertyId;
-        if (negotiationId) insertPayload.negotiation_id = negotiationId;
-        if (propClientId) insertPayload.client_id = propClientId;
-        const { data: inserted, error } = await supabase.from("activities").insert(insertPayload).select("id").single();
-        if (error) throw error;
+        if (effNegId) insertPayload.negotiation_id = effNegId;
+        if (effClientId) insertPayload.client_id = effClientId;
+        if (effBrokerId) insertPayload.broker_id = effBrokerId;
+        const inserted = await repoInsertActivity(insertPayload);
+        if (inserted?.id) {
+          void repoLogActivityEvent({ accountId, activityId: inserted.id, action: "created", actorProfileId: profileId, details: { type, status: actStatus } });
+          // Checklist do template/manual (modo Planejar).
+          if (checklistDraft.length > 0) {
+            try { await repoApplyChecklist(inserted.id, checklistDraft); } catch (e) { console.warn("[checklist] aplicar falhou:", e); }
+          }
+        }
         // Save participants
         if (inserted?.id && participants.length > 0) {
           await supabase.from("activity_participants").insert(participants.map((p) => ({ activity_id: inserted.id, participant_type: p.type, participant_id: p.id, participant_name: p.name, participant_detail: p.detail || null })));
@@ -792,7 +1048,7 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
           }
         }
         onSaved();
-        if (isFuture || (nextAction.trim() && nextActionDate)) { onClose(); return; }
+        if (isPlanned || (nextAction.trim() && nextActionDate)) { onClose(); return; }
         setStep(2);
       }
     } catch (err: unknown) {
@@ -815,7 +1071,7 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
     const moment = toActivityMomentBRT(followDate, null);
     const status = decideInitialActivityStatus(moment);
     try {
-      await supabase.from("activities").insert({
+      await repoInsertActivity({
         account_id: accountId, development_id: developmentId, profile_id: profileId,
         type: followUpType, title: `Follow-up: ${badgeLabels[followUpType]}`,
         activity_date: followDate, duration_minutes: 30,
@@ -833,6 +1089,115 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
   const allTypes = Object.keys(badgeLabels) as ActivityType[];
   const focusIn = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => { e.currentTarget.style.borderColor = "rgba(74,222,128,0.25)"; };
   const focusOut = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => { e.currentTarget.style.borderColor = "rgba(42,40,34,0.5)"; };
+
+  // ── Etapa 2 adaptativa: renderiza cada campo do kind como controle ──
+  const setDetail = (k: string, v: unknown) => setDetails((p) => ({ ...p, [k]: v === "" || v == null ? undefined : v }));
+  function nextFriday(): string { const d = new Date(); let add = (5 - d.getDay() + 7) % 7; if (add === 0) add = 7; d.setDate(d.getDate() + add); return d.toISOString().slice(0, 10); }
+  const dateChips: { label: string; date: string }[] = [
+    { label: "Hoje", date: todayStr() },
+    { label: "Amanhã", date: addDays(1) },
+    { label: "Sexta", date: nextFriday() },
+    { label: "Próx. sem.", date: addDays(7) },
+  ];
+  const CHANNELS = ["Instagram", "Folder", "Site", "WhatsApp", "Outro"];
+  const chipBtn = (active: boolean, label: string, onClick: () => void) => (
+    <button key={label} type="button" onClick={onClick} style={{ padding: "7px 13px", borderRadius: 18, minHeight: 36, border: `1px solid ${active ? T.sprout : T.stone}`, background: active ? "rgba(74,222,128,0.12)" : "transparent", color: active ? T.sprout : T.bone, fontSize: 12, fontWeight: 600, fontFamily: "var(--font-mono)", cursor: "pointer" }}>{label}</button>
+  );
+
+  function renderField(key: string): React.ReactNode {
+    const def = fieldDef(key);
+    if (def.control === "outcome" && planMode) return null; // resultado só em "Já realizada"
+    const wrap = (node: React.ReactNode) => (
+      <div key={key} style={{ marginBottom: 14 }}>
+        <label style={LBL}>{def.label}</label>
+        {node}
+      </div>
+    );
+    switch (def.control) {
+      case "text":
+        if (def.toTitle) return wrap(<input id="activity-title" style={IS} value={title} onChange={(e) => setTitle(e.target.value)} placeholder={isConfeccao ? "Ex: Atualizar tabela" : "O que vai fazer?"} onFocus={focusIn} onBlur={focusOut} autoFocus={def.autofocus} />);
+        return wrap(<input style={IS} value={(details[def.detailsKey as keyof typeof details] as string) ?? ""} onChange={(e) => setDetail(def.detailsKey!, e.target.value)} placeholder={def.label} onFocus={focusIn} onBlur={focusOut} />);
+      case "textarea":
+        // Observações gravam na coluna real `description`.
+        return wrap(<textarea rows={2} style={{ ...IS, resize: "vertical" }} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Anotações adicionais..." onFocus={focusIn} onBlur={focusOut as unknown as React.FocusEventHandler<HTMLTextAreaElement>} />);
+      case "client":
+        return wrap(<EntityPicker accountId={accountId} entity="client" value={clientSel} onChange={setClientSel} />);
+      case "broker":
+        return wrap(<EntityPicker accountId={accountId} entity="broker" value={brokerSel} onChange={setBrokerSel} />);
+      case "negotiation":
+        if (linkedNeg) return wrap(
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 8, background: "rgba(74,222,128,0.08)", border: `1px solid ${T.sprout}40` }}>
+            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", color: T.sprout, fontFamily: "var(--font-mono)" }}>VINCULADO</span>
+            <span style={{ fontSize: 12, color: T.bone, flex: 1 }}>{linkedNeg.quadra ? `Q${linkedNeg.quadra} · L${linkedNeg.lote}` : "Negociação"}{linkedNeg.clientName ? ` · ${linkedNeg.clientName}` : ""}</span>
+            <button type="button" onClick={() => { setLinkedNeg(null); setNegOptions([]); setLinkDismissed(true); }} style={{ background: "none", border: "none", color: T.fog, fontSize: 16, cursor: "pointer", lineHeight: 1 }}>×</button>
+          </div>,
+        );
+        if (negOptions.length > 1) return wrap(
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {negOptions.map((n) => (
+              <button key={n.id} type="button" onClick={() => { setLinkedNeg(n); setNegOptions([]); }} style={{ padding: "10px 12px", borderRadius: 8, border: `1px solid ${T.stone}`, background: T.carbon, color: T.chalk, fontSize: 13, cursor: "pointer", textAlign: "left", minHeight: 44 }}>{n.quadra ? `Q${n.quadra} · L${n.lote}` : "Negociação"}{n.clientName ? ` · ${n.clientName}` : ""}</button>
+            ))}
+          </div>,
+        );
+        return wrap(<div style={{ fontSize: 12, color: T.slate, fontStyle: "italic" }}>Selecione um cliente para vincular</div>);
+      case "development":
+        return wrap(<div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 8, background: "var(--surface-raised)", border: `1px solid ${T.stone}` }}><span style={{ fontSize: 13, color: T.bone }}>{developmentName ?? "Empreendimento ativo"}</span></div>);
+      case "unit":
+        return wrap(<UnitPicker accountId={accountId} developmentId={developmentId} value={unitSel} onChange={setUnitSel} suggested={linkedNeg?.unit_id ? { id: linkedNeg.unit_id, quadra: linkedNeg.quadra, lote: linkedNeg.lote } : null} />);
+      case "datetime":
+        return wrap(
+          <div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+              {dateChips.map((c) => chipBtn(activityDate === c.date, c.label, () => { dateTouched.current = true; setActivityDate(c.date); }))}
+            </div>
+            <div style={{ display: "flex", gap: 12 }}>
+              <div style={{ flex: 1 }}><DatePickerField value={activityDate} onChange={(v) => { dateTouched.current = true; setActivityDate(v); }} disabled={!dateEditable} /></div>
+              <div style={{ flex: 1 }}><TimePickerField value={startTime} onChange={(v) => { timeTouched.current = true; setStartTime(v); }} /></div>
+            </div>
+          </div>,
+        );
+      case "duration":
+        return wrap(<div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{DURATIONS.map((d) => chipBtn(duration === d.value, d.label, () => setDuration(d.value)))}</div>);
+      case "team":
+        return wrap(<TeamMultiSelect teamProfiles={teamProfiles ?? []} participants={participants} onChange={setParticipants} />);
+      case "outcome":
+        return wrap(<><OutcomeChips value={outcomeCategory} onChange={setOutcomeCategory} /><input style={{ ...IS, marginTop: 6 }} value={outcome} onChange={(e) => setOutcome(e.target.value)} placeholder="Nota do resultado (opcional)" onFocus={focusIn} onBlur={focusOut} /></>);
+      case "nextstep":
+        return wrap(
+          <div style={{ display: "flex", gap: 12 }}>
+            <input style={{ ...IS, flex: 2 }} value={nextAction} onChange={(e) => setNextAction(e.target.value)} placeholder="O que fazer em seguida?" onFocus={focusIn} onBlur={focusOut} />
+            <div style={{ flex: 1 }}><DatePickerField value={nextActionDate} onChange={setNextActionDate} align="right" /></div>
+          </div>,
+        );
+      case "checklist":
+        return wrap(
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {checklistDraft.map((item, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input value={item} onChange={(e) => setChecklistDraft((p) => p.map((x, j) => (j === i ? e.target.value : x)))} style={{ ...IS, flex: 1, padding: "8px 12px" }} />
+                <button type="button" onClick={() => setChecklistDraft((p) => p.filter((_, j) => j !== i))} style={{ background: "none", border: "none", color: T.fog, fontSize: 16, cursor: "pointer", lineHeight: 1 }}>×</button>
+              </div>
+            ))}
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input value={newChecklistText} onChange={(e) => setNewChecklistText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && newChecklistText.trim()) { e.preventDefault(); setChecklistDraft((p) => [...p, newChecklistText.trim()]); setNewChecklistText(""); } }} placeholder="+ adicionar subtarefa" style={{ ...IS, flex: 1, padding: "8px 12px" }} />
+            </div>
+          </div>,
+        );
+      case "currency":
+        return wrap(
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 13, color: T.fog, fontFamily: "var(--font-mono)" }}>R$</span>
+            <input inputMode="decimal" style={IS} value={details.valor != null ? String(details.valor) : ""} onChange={(e) => { const n = parseFloat(e.target.value.replace(/\./g, "").replace(",", ".")); setDetail("valor", Number.isFinite(n) ? n : undefined); }} placeholder="0,00" onFocus={focusIn} onBlur={focusOut} />
+          </div>,
+        );
+      case "channel":
+        return wrap(<div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{CHANNELS.map((c) => chipBtn(details.canal === c, c, () => setDetail("canal", details.canal === c ? undefined : c)))}</div>);
+      case "attachment":
+        return wrap(<button type="button" disabled style={{ padding: "8px 14px", borderRadius: 8, border: `1px dashed ${T.stone}`, background: "transparent", color: T.slate, fontSize: 13, cursor: "not-allowed" }}>Anexar (em breve)</button>);
+      default:
+        return null;
+    }
+  }
 
   return createPortal(
     <div style={{ position: "fixed", inset: 0, zIndex: 9000 }}>
@@ -873,74 +1238,187 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
         ) : (
         /* ── Step 1: Registro normal ── */
         <>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-          <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontStyle: "italic", fontSize: 22, color: T.chalk, fontWeight: 400, margin: 0 }}>{isEdit ? "Editar atividade" : "Registrar atividade"}</h2>
-          {thirdPartyPropertyTitle && <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", color: "#D97706", background: "rgba(217,119,6,0.08)", padding: "2px 6px", borderRadius: 4, fontFamily: "var(--font-mono)" }}>IMÓVEL</span><span style={{ fontSize: 12, color: T.fog }}>{thirdPartyPropertyTitle}</span></div>}
-          <button type="button" onClick={onClose} style={{ background: "none", border: "none", color: T.fog, fontSize: 20, cursor: "pointer" }}>&times;</button>
+        {!isEdit && stage === "type" ? (
+          /* ───── ETAPA 1: escolher o tipo ───── */
+          <div style={{ animation: "nexaFadeIn 160ms ease" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontStyle: "italic", fontSize: 22, color: T.chalk, fontWeight: 400, margin: 0 }}>Registrar atividade</h2>
+              <button type="button" onClick={onClose} style={{ background: "none", border: "none", color: T.fog, fontSize: 20, cursor: "pointer" }}>&times;</button>
+            </div>
+            <div style={{ display: "flex", gap: 0, border: `1px solid ${T.stone}`, borderRadius: 10, overflow: "hidden", marginBottom: 12 }}>
+              {([["plan", "Planejar"], ["done", "Já realizada"]] as const).map(([m, label], i) => (
+                <button key={m} type="button" onClick={() => setMode(m)} style={{ flex: 1, padding: "10px 8px", fontSize: 13, fontWeight: 600, cursor: "pointer", border: "none", borderRight: i === 0 ? `1px solid ${T.stone}` : "none", color: mode === m ? T.sprout : T.fog, background: mode === m ? "rgba(74,222,128,0.1)" : "transparent", transition: "all 120ms ease" }}>{label}</button>
+              ))}
+            </div>
+            <input value={kindSearch} onChange={(e) => setKindSearch(e.target.value)} placeholder="Buscar tipo de registro…" autoFocus style={{ ...IS, marginBottom: 12 }} />
+            <div style={{ maxHeight: isMobile ? "50vh" : 360, overflowY: "auto", margin: "0 -4px", padding: "0 4px" }}>
+              {(["comercial", "interno", "operacional"] as const).map((cat) => {
+                const list = (kinds?.[cat] ?? []).filter((k) => naSearch(k.label).includes(naSearch(kindSearch)));
+                if (list.length === 0) return null;
+                return (
+                  <div key={cat} style={{ marginBottom: 10 }}>
+                    <div style={{ ...LBL, marginBottom: 6, position: "sticky", top: 0, background: T.ink, paddingTop: 4, paddingBottom: 4 }}>{GROUP_LABELS[cat]}</div>
+                    {list.map((k) => {
+                      const c = badgeColors[k.base_type] || T.sprout;
+                      const hint = k.autolink ? "vincula negociação" : k.branch === "confeccao" ? "confecção" : "";
+                      return (
+                        <button key={k.id} type="button" onClick={() => { applyKind(k); setStage("form"); setShowMore(false); setKindSearch(""); setTimeout(() => document.getElementById("activity-title")?.focus(), 60); }} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", minHeight: 44, padding: "8px 10px", borderRadius: 8, border: "1px solid transparent", background: "transparent", color: T.chalk, fontSize: 14, cursor: "pointer", textAlign: "left", transition: "background 0.12s ease, border-color 0.12s ease" }} onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-raised)"; e.currentTarget.style.borderColor = T.stone; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "transparent"; }}>
+                          <span style={{ width: 30, height: 30, borderRadius: 8, background: c + "18", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><KindIcon name={k.icon} size={17} color={c} /></span>
+                          <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{k.label}</span>
+                          {hint && <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: T.slate, flexShrink: 0 }}>{hint}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+              {(kinds?.comercial.length ?? 0) + (kinds?.interno.length ?? 0) + (kinds?.operacional.length ?? 0) === 0 && (
+                <div style={{ fontSize: 13, color: T.slate, textAlign: "center", padding: 20 }}>Carregando tipos…</div>
+              )}
+            </div>
+            <div style={{ marginTop: 12, fontSize: 11, color: T.slate, fontFamily: "var(--font-mono)", textAlign: "center" }}>Edite os tipos em Configurações</div>
+          </div>
+        ) : (
+        /* ───── ETAPA 2 / edição: form adaptado pelo schema ───── */
+        <div style={{ animation: !isEdit ? "nexaFadeIn 160ms ease" : undefined }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, gap: 10 }}>
+          {isEdit ? (
+            <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontStyle: "italic", fontSize: 22, color: T.chalk, fontWeight: 400, margin: 0 }}>Editar atividade</h2>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+              <button type="button" onClick={() => setStage("type")} title="Trocar tipo" style={{ background: "transparent", border: `1px solid ${T.stone}`, borderRadius: 8, color: T.bone, fontSize: 15, cursor: "pointer", width: 32, height: 32, flexShrink: 0 }}>←</button>
+              {(selectedKind || type) && (() => {
+                const c = badgeColors[selectedKind?.base_type ?? type ?? "other"] || T.sprout;
+                const label = selectedKind?.label ?? (type ? badgeLabels[type] : "");
+                return (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 20, background: c + "18", color: c, fontSize: 13, fontWeight: 700 }}>
+                    {selectedKind ? <KindIcon name={selectedKind.icon} size={16} color={c} /> : type ? <span style={{ fontSize: 16, display: "inline-flex" }}>{typeIcons[type]}</span> : null}
+                    {label}
+                  </span>
+                );
+              })()}
+            </div>
+          )}
+          {thirdPartyPropertyTitle && <div style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", color: "#D97706", background: "rgba(217,119,6,0.08)", padding: "2px 6px", borderRadius: 4, fontFamily: "var(--font-mono)" }}>IMÓVEL</span><span style={{ fontSize: 12, color: T.fog }}>{thirdPartyPropertyTitle}</span></div>}
+          <button type="button" onClick={onClose} style={{ background: "none", border: "none", color: T.fog, fontSize: 20, cursor: "pointer", marginLeft: "auto" }}>&times;</button>
         </div>
-        <label style={LBL}>Tipo de atividade</label>
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, minmax(0, 1fr))" : "repeat(3, minmax(0, 1fr))", gap: 8, marginBottom: 18 }}>
-          {allTypes.map((k) => {
-            const isSel = type === k;
-            const c = badgeColors[k] || T.sprout;
-            return (
-              <button key={k} type="button" onClick={() => setType(k)} style={{
-                background: isSel
-                  ? `linear-gradient(145deg, ${c}1F, ${c}0A)`
-                  : "linear-gradient(145deg, var(--surface-raised), var(--surface-base))",
-                border: isSel ? `2px solid ${c}66` : "1px solid rgba(42,40,34,0.5)",
-                borderRadius: 10, padding: "12px 6px", cursor: "pointer",
-                display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
-                transform: isSel ? "scale(1.02)" : "none",
-                transition: "all 0.15s",
-                boxShadow: isSel ? `0 0 16px ${c}20` : "none",
-              }}>
-                <span style={{ fontSize: 20, color: isSel ? c : T.fog, transition: "color 0.15s" }}>{typeIcons[k]}</span>
-                <span style={{ fontSize: 11, color: isSel ? c : T.bone, fontWeight: 600, transition: "color 0.15s" }}>{badgeLabels[k]}</span>
-              </button>
-            );
-          })}
-        </div>
-        <label style={LBL}>Título *</label>
-        <input id="activity-title" style={{ ...IS, marginBottom: 14 }} value={title} onChange={(e) => setTitle(e.target.value)} placeholder={type ? typePlaceholders[type] : "Selecione o tipo primeiro"} onFocus={focusIn} onBlur={focusOut} />
-        <label style={LBL}>Com quem</label>
-        <div style={{ marginBottom: 14 }}>
-          <ParticipantInput accountId={accountId} value={participants} onChange={setParticipants} />
-        </div>
-        <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
+
+        {/* Edição mantém a grade de tipos inline (trocar tipo como antes). */}
+        {isEdit && (
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, minmax(0, 1fr))" : "repeat(3, minmax(0, 1fr))", gap: 8, marginBottom: 18 }}>
+            {allTypes.map((k) => {
+              const isSel = type === k;
+              const c = badgeColors[k] || T.sprout;
+              return (
+                <button key={k} type="button" onClick={() => setType(k)} style={{ background: isSel ? `linear-gradient(145deg, ${c}1F, ${c}0A)` : "linear-gradient(145deg, var(--surface-raised), var(--surface-base))", border: isSel ? `2px solid ${c}66` : "1px solid rgba(42,40,34,0.5)", borderRadius: 10, padding: "12px 6px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, transition: "all 0.15s" }}>
+                  <span style={{ fontSize: 20, color: isSel ? c : T.fog }}>{typeIcons[k]}</span>
+                  <span style={{ fontSize: 11, color: isSel ? c : T.bone, fontWeight: 600 }}>{badgeLabels[k]}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {selectedKind && !isEdit ? (
+          /* Etapa 2 ADAPTATIVA — renderiza só os campos do kind, em ordem */
+          <>
+            {selectedKind.fields.filter((f) => !fieldDef(f).advanced).map((f) => renderField(f))}
+            {dateHintLabel && <div style={{ fontSize: 11, color: T.fog, fontFamily: "var(--font-mono)", marginBottom: 10 }}>interpretado: {dateHintLabel}</div>}
+            {planMode && <div style={{ padding: "10px 14px", borderRadius: 8, background: T.blue + "10", border: `1px solid ${T.blue}30`, fontSize: 12, color: T.blue, marginBottom: 14 }}>📅 {forcedStatus === "in_progress" ? "Cartão entra em Em andamento" : "Cartão entra em A fazer"} — {formatWeekdayDateLongBRT(activityDate + "T12:00:00").replace(/ de \d{4}$/, "")}</div>}
+            {selectedKind.fields.some((f) => fieldDef(f).advanced) && (
+              <>
+                <button type="button" onClick={() => setShowMore((v) => !v)} style={{ background: "none", border: "none", color: T.fog, fontSize: 12, fontFamily: "var(--font-mono)", cursor: "pointer", padding: "2px 0", marginBottom: showMore ? 10 : 14, display: "block" }}>{showMore ? "− menos opções" : "+ mais opções"}</button>
+                {showMore && selectedKind.fields.filter((f) => fieldDef(f).advanced).map((f) => renderField(f))}
+              </>
+            )}
+          </>
+        ) : (
+        <>
+        <label style={LBL}>{isConfeccao ? "Demanda *" : "Título *"}</label>
+        <input id="activity-title" style={{ ...IS, marginBottom: 14 }} value={title} onChange={(e) => setTitle(e.target.value)} placeholder={isConfeccao ? "Ex: Atualizar tabela de preços" : type ? typePlaceholders[type] : "Título da atividade"} onFocus={focusIn} onBlur={focusOut} />
+
+        {(isEdit || needsPeople) && (<>
+          <label style={LBL}>{isConfeccao ? "Responsável(is)" : "Com quem"}</label>
+          <div style={{ marginBottom: 14 }}>
+            <ParticipantInput accountId={accountId} value={participants} onChange={setParticipants} />
+          </div>
+        </>)}
+
+        {!isEdit && schema?.needs.includes("development") && developmentName && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, padding: "8px 12px", borderRadius: 8, background: "var(--surface-raised)", border: `1px solid ${T.stone}` }}>
+            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", color: T.fog, fontFamily: "var(--font-mono)" }}>EMPREENDIMENTO</span>
+            <span style={{ fontSize: 12, color: T.bone }}>{developmentName}</span>
+          </div>
+        )}
+
+        {/* Auto-vínculo à negociação ativa (só tipos comerciais) */}
+        {showAutoLink && linkedNeg && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, padding: "8px 12px", borderRadius: 8, background: "rgba(74,222,128,0.08)", border: `1px solid ${T.sprout}40` }}>
+            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", color: T.sprout, fontFamily: "var(--font-mono)" }}>VINCULADO</span>
+            <span style={{ fontSize: 12, color: T.bone, flex: 1 }}>Negociação{linkedNeg.quadra ? ` Q${linkedNeg.quadra} · L${linkedNeg.lote}` : ""}{linkedNeg.clientName ? ` · ${linkedNeg.clientName}` : ""}</span>
+            <button type="button" onClick={() => { setLinkedNeg(null); setNegOptions([]); setLinkDismissed(true); }} style={{ background: "none", border: "none", color: T.fog, fontSize: 16, cursor: "pointer", lineHeight: 1 }}>×</button>
+          </div>
+        )}
+        {showAutoLink && !linkedNeg && negOptions.length > 1 && (
+          <div style={{ marginBottom: 14 }}>
+            <label style={LBL}>Qual negociação?</label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {negOptions.map((n) => (
+                <button key={n.id} type="button" onClick={() => { setLinkedNeg(n); setNegOptions([]); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 8, border: `1px solid ${T.stone}`, background: T.carbon, color: T.chalk, fontSize: 13, cursor: "pointer", textAlign: "left", minHeight: 44 }}>
+                  {n.quadra ? `Q${n.quadra} · L${n.lote}` : "Negociação"}{n.clientName ? ` · ${n.clientName}` : ""}
+                </button>
+              ))}
+              <button type="button" onClick={() => { setNegOptions([]); setLinkDismissed(true); }} style={{ background: "none", border: "none", color: T.fog, fontSize: 12, cursor: "pointer", alignSelf: "flex-start" }}>Não vincular</button>
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 12, marginBottom: dateHintLabel ? 6 : 14 }}>
           <div style={{ flex: 1 }}>
-            <label style={LBL}>Data *{!dateEditable && isEdit ? <span style={{ fontSize: 9, color: T.red, marginLeft: 4 }}>(bloqueado após 24h)</span> : ""}</label>
-            <DatePickerField value={activityDate} onChange={setActivityDate} disabled={!dateEditable} />
+            <label style={LBL}>{isConfeccao ? "Prazo" : "Data"} *{!dateEditable && isEdit ? <span style={{ fontSize: 9, color: T.red, marginLeft: 4 }}>(bloqueado após 24h)</span> : ""}</label>
+            <DatePickerField value={activityDate} onChange={(v) => { dateTouched.current = true; setActivityDate(v); }} disabled={!dateEditable} />
           </div>
           <div style={{ flex: 1 }}>
             <label style={LBL}>Horário</label>
-            <TimePickerField value={startTime} onChange={setStartTime} />
+            <TimePickerField value={startTime} onChange={(v) => { timeTouched.current = true; setStartTime(v); }} />
           </div>
         </div>
-        {isFuture && !isEdit && <div style={{ padding: "10px 14px", borderRadius: 8, background: T.blue + "10", border: `1px solid ${T.blue}30`, fontSize: 12, color: T.blue, marginBottom: 14 }}>📅 Atividade será agendada para {formatWeekdayDateLongBRT(activityDate + "T12:00:00").replace(/ de \d{4}$/, "")}</div>}
-        {!isFuture && (<>
+        {!isEdit && dateHintLabel && (
+          <div style={{ fontSize: 11, color: T.fog, fontFamily: "var(--font-mono)", marginBottom: 14 }}>interpretado: {dateHintLabel}</div>
+        )}
+        {planMode && <div style={{ padding: "10px 14px", borderRadius: 8, background: T.blue + "10", border: `1px solid ${T.blue}30`, fontSize: 12, color: T.blue, marginBottom: 14 }}>📅 {forcedStatus === "in_progress" ? "Cartão entra em Em andamento" : "Cartão entra em A fazer"} — {formatWeekdayDateLongBRT(activityDate + "T12:00:00").replace(/ de \d{4}$/, "")}</div>}
+        {planMode && (
+          <div style={{ marginBottom: 14 }}>
+            <label style={LBL}>{isConfeccao ? "Subtarefas" : "Checklist"}</label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {checklistDraft.map((item, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <input value={item} onChange={(e) => setChecklistDraft((p) => p.map((x, j) => (j === i ? e.target.value : x)))} style={{ ...IS, flex: 1, marginBottom: 0, padding: "8px 12px" }} />
+                  <button type="button" onClick={() => setChecklistDraft((p) => p.filter((_, j) => j !== i))} style={{ background: "none", border: "none", color: T.fog, fontSize: 16, cursor: "pointer", lineHeight: 1 }}>×</button>
+                </div>
+              ))}
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input value={newChecklistText} onChange={(e) => setNewChecklistText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && newChecklistText.trim()) { e.preventDefault(); setChecklistDraft((p) => [...p, newChecklistText.trim()]); setNewChecklistText(""); } }} placeholder={isConfeccao ? "+ adicionar subtarefa" : "+ adicionar item"} style={{ ...IS, flex: 1, marginBottom: 0, padding: "8px 12px" }} />
+                {newChecklistText.trim() && <button type="button" onClick={() => { setChecklistDraft((p) => [...p, newChecklistText.trim()]); setNewChecklistText(""); }} style={{ background: "transparent", border: `1px solid ${T.sprout}40`, color: T.sprout, borderRadius: 8, padding: "8px 12px", fontSize: 13, cursor: "pointer" }}>Add</button>}
+              </div>
+            </div>
+          </div>
+        )}
+        {!hideCompletionFields && (<>
         <label style={LBL}>Duração</label>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
           {DURATIONS.map((d) => {
             const act = duration === d.value;
             return (
-              <button key={d.value} type="button" onClick={() => setDuration(d.value)} style={{
-                padding: "8px 14px", borderRadius: 8,
-                background: act ? "rgba(74,222,128,0.1)" : "transparent",
-                border: act ? "1px solid rgba(74,222,128,0.3)" : "1px solid rgba(42,40,34,0.5)",
-                color: act ? T.sprout : T.bone,
-                fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 600,
-                cursor: "pointer",
-                boxShadow: act ? "0 0 12px rgba(74,222,128,0.1)" : "none",
-                transition: "all 0.15s",
-              }}>{d.label}</button>
+              <button key={d.value} type="button" onClick={() => setDuration(d.value)} style={{ padding: "8px 14px", borderRadius: 8, background: act ? "rgba(74,222,128,0.1)" : "transparent", border: act ? "1px solid rgba(74,222,128,0.3)" : "1px solid rgba(42,40,34,0.5)", color: act ? T.sprout : T.bone, fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 600, cursor: "pointer", boxShadow: act ? "0 0 12px rgba(74,222,128,0.1)" : "none", transition: "all 0.15s" }}>{d.label}</button>
             );
           })}
         </div>
         <label style={LBL}>Resultado</label>
-        <input style={{ ...IS, marginBottom: 14 }} value={outcome} onChange={(e) => setOutcome(e.target.value)} placeholder="O que aconteceu?" onFocus={focusIn} onBlur={focusOut} />
+        <input style={{ ...IS, marginBottom: 10 }} value={outcome} onChange={(e) => setOutcome(e.target.value)} placeholder="O que aconteceu?" onFocus={focusIn} onBlur={focusOut} />
+        <OutcomeChips value={outcomeCategory} onChange={setOutcomeCategory} />
         </>)}
-        {!isFuture && (<>
+        {!hideCompletionFields && (<>
         <label style={LBL}>Próxima ação</label>
         <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
           <input style={{ ...IS, flex: 2 }} value={nextAction} onChange={(e) => setNextAction(e.target.value)} placeholder="O que fazer em seguida?" onFocus={focusIn} onBlur={focusOut} />
@@ -949,20 +1427,35 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
           </div>
         </div>
         </>)}
-        <label style={LBL}>Observações</label>
-        <textarea rows={2} style={{ ...IS, resize: "vertical", marginBottom: 14 }} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Anotações adicionais..." onFocus={focusIn} onBlur={focusOut as unknown as React.FocusEventHandler<HTMLTextAreaElement>} />
-        {!isEdit && (
+        {/* Progressive disclosure: observações/fotos recolhidos na criação. */}
+        {isEdit ? (
           <>
-            <label style={LBL}>Fotos (opcional)</label>
-            <div style={{ marginBottom: photos.length > 0 ? 8 : 14 }}>
-              <PhotoUpload photos={photos} onChange={setPhotos} />
-            </div>
-            {photos.length > 0 && <input style={{ ...IS, marginBottom: 14 }} value={photoCaption} onChange={(e) => setPhotoCaption(e.target.value)} placeholder="Legenda da foto (opcional)" />}
+            <label style={LBL}>Observações</label>
+            <textarea rows={2} style={{ ...IS, resize: "vertical", marginBottom: 14 }} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Anotações adicionais..." onFocus={focusIn} onBlur={focusOut as unknown as React.FocusEventHandler<HTMLTextAreaElement>} />
+          </>
+        ) : (
+          <>
+            <button type="button" onClick={() => setShowMore((v) => !v)} style={{ background: "none", border: "none", color: T.fog, fontSize: 12, fontFamily: "var(--font-mono)", cursor: "pointer", padding: "2px 0", marginBottom: showMore ? 10 : 14 }}>{showMore ? "− menos opções" : "+ mais opções"}</button>
+            {showMore && (
+              <>
+                <label style={LBL}>Observações</label>
+                <textarea rows={2} style={{ ...IS, resize: "vertical", marginBottom: 14 }} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Anotações adicionais..." onFocus={focusIn} onBlur={focusOut as unknown as React.FocusEventHandler<HTMLTextAreaElement>} />
+                <label style={LBL}>Fotos (opcional)</label>
+                <div style={{ marginBottom: photos.length > 0 ? 8 : 14 }}>
+                  <PhotoUpload photos={photos} onChange={setPhotos} />
+                </div>
+                {photos.length > 0 && <input style={{ ...IS, marginBottom: 14 }} value={photoCaption} onChange={(e) => setPhotoCaption(e.target.value)} placeholder="Legenda da foto (opcional)" />}
+              </>
+            )}
           </>
         )}
+        </>
+        )}
         <button type="button" onClick={handleSave} disabled={!canSave || saving} style={{ width: "100%", height: 40, background: T.sprout, color: T.ink, border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: canSave && !saving ? "pointer" : "not-allowed", opacity: canSave && !saving ? 1 : 0.5 }}>
-          {saving ? "Salvando..." : isEdit ? "Salvar alterações" : isFuture ? "📅 Agendar atividade" : "Registrar atividade"}
+          {saving ? "Salvando..." : isEdit ? "Salvar alterações" : isConfeccao ? "Criar demanda" : planMode ? "📅 Agendar atividade" : "Registrar atividade"}
         </button>
+        </div>
+        )}
         </>
         )}
       </div>
@@ -987,11 +1480,11 @@ export default function AtividadesPage() {
   const isManager = role === "manager";
   const isDirector = role === "director";
 
-  const [activities, setActivities] = useState<Activity[]>([]);
-  const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalType, setModalType] = useState<ActivityType | undefined>(undefined);
   const [modalTitle, setModalTitle] = useState<string | undefined>(undefined);
+  const [modalNegotiationId, setModalNegotiationId] = useState<string | undefined>(undefined);
+  const [modalClientId, setModalClientId] = useState<string | undefined>(undefined);
   const [editingActivity, setEditingActivity] = useState<Activity | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const canManage = isDirector || isManager || (role as string) === "owner";
@@ -999,12 +1492,13 @@ export default function AtividadesPage() {
   const [completingActivity, setCompletingActivity] = useState<Activity | null>(null);
   const [completeOutcome, setCompleteOutcome] = useState("");
   const [completeDuration, setCompleteDuration] = useState(60);
+  const [completeCategory, setCompleteCategory] = useState<string | null>(null);
   const [completing, setCompleting] = useState(false);
   const [skippingActivity, setSkippingActivity] = useState<Activity | null>(null);
   const [skipReason, setSkipReason] = useState("");
   const [skipping, setSkipping] = useState(false);
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
-  const [selectedParticipants, setSelectedParticipants] = useState<{ participant_type: string; participant_name: string; participant_detail: string | null }[]>([]);
+  const [selectedParticipants, setSelectedParticipants] = useState<{ participant_type: string; participant_name: string; participant_detail: string | null; participant_id?: string | null }[]>([]);
   // Onda 1.6: período e modo de data centralizados em hook persistido (localStorage).
   const periodCfg = useActivityPeriod({ period: "month", dateMode: "activity_date" });
   const periodFilter = periodCfg.period;
@@ -1017,12 +1511,45 @@ export default function AtividadesPage() {
   // Onda 3.3: ordenação da lista de atividades.
   const [listSort, setListSort] = useState<"date_desc" | "date_asc" | "type" | "profile">("date_desc");
   const [teamProfiles, setTeamProfiles] = useState<{ id: string; name: string; role: string }[]>([]);
-  const [pendingFollowups, setPendingFollowups] = useState<{ id: string; clientName: string; quadra: string; lote: string; dias: number }[]>([]);
+  const [pendingFollowups, setPendingFollowups] = useState<{ id: string; clientId: string | null; clientName: string; quadra: string; lote: string; dias: number }[]>([]);
   const [searchParams] = useSearchParams();
-  const initialView = searchParams.get("view") === "calendar" ? "calendar" : "list";
-  const [displayMode, setDisplayMode] = useState<"list" | "calendar">(initialView);
+  // Quadro (kanban) é o padrão — só restam Quadro · Agenda no toggle.
+  // ?view=... prevalece sobre o storage para deep links. A antiga Lista
+  // foi removida do toggle: qualquer "list"/"lista" é coagido para Quadro.
+  const VIEW_STORAGE_KEY = "atividades.view";
+  const urlView = searchParams.get("view");
+  const initialView: "list" | "calendar" | "kanban" = (() => {
+    if (urlView === "calendar" || urlView === "agenda") return "calendar";
+    if (urlView === "kanban" || urlView === "quadro") return "kanban";
+    if (urlView === "list" || urlView === "lista") return "list";
+    if (typeof window !== "undefined") {
+      const stored = window.localStorage.getItem(VIEW_STORAGE_KEY);
+      if (stored === "calendar") return "calendar";
+      if (stored === "list") return "list";
+      if (stored === "kanban") return "kanban";
+    }
+    return "kanban";
+  })();
+  const [displayMode, setDisplayModeRaw] = useState<"list" | "calendar" | "kanban">(initialView);
+  const setDisplayMode = useCallback((m: "list" | "calendar" | "kanban") => {
+    setDisplayModeRaw(m);
+    try {
+      if (typeof window !== "undefined") window.localStorage.setItem(VIEW_STORAGE_KEY, m);
+    } catch { /* ignore quota errors */ }
+  }, []);
+  // Período compartilhado (Quadro + Lista) + visibilidade de arquivadas (Lista).
+  const activityRange = useActivityRange();
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+  // Destino "Arquivados" + toast com Desfazer.
+  const [archivedOpen, setArchivedOpen] = useState(false);
+  const [archivedActivities, setArchivedActivities] = useState<Activity[]>([]);
+  const [undoToast, setUndoToast] = useState<{ message: string; ids: string[] } | null>(null);
   const [slotDate, setSlotDate] = useState<string | undefined>(undefined);
   const [slotTime, setSlotTime] = useState<string | undefined>(undefined);
+  // Toggle de criação do Quadro: "plan" (Planejar) vs "done" (Já realizada).
+  // forcedStatus pré-seleciona a coluna no "+ adicionar cartão".
+  const [modalMode, setModalMode] = useState<"plan" | "done">("plan");
+  const [modalForcedStatus, setModalForcedStatus] = useState<"scheduled" | "in_progress" | undefined>(undefined);
 
   // Handle ?date=YYYY-MM-DD from Central "+ Agendar" link
   useEffect(() => {
@@ -1033,33 +1560,119 @@ export default function AtividadesPage() {
       setEditingActivity(null);
       setModalType(undefined);
       setModalTitle(undefined);
+      setModalMode("plan");
+      setModalForcedStatus("scheduled");
       setModalOpen(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Fetch activities ──
+  // ── Fetch activities (via repository/hook) ──
+  // O hook cuida do refetch quando deps mudam. account_id é exigido;
+  // development_id continua sendo gate apenas para a tela (sem filtro adicional).
 
-  const fetchActivities = useCallback(async () => {
-    if (!supabase || !accountId || !developmentId) { setLoading(false); return; }
-    setLoading(true);
-    try {
-      let query = supabase.from("activities").select("*, clients(name), brokers(name), profiles!activities_profile_id_fkey(name, role), activity_photos(id, photo_url), activity_participants(participant_name, participant_type), third_party_property:third_party_properties!third_party_property_id(id, titulo)").eq("account_id", accountId).order("activity_date", { ascending: false }).order("start_time", { ascending: false });
-      if (isConsultant && profileId) query = query.eq("profile_id", profileId);
-      if (isManager && viewMode === "mine" && profileId) query = query.eq("profile_id", profileId);
-      if (isManager && viewMode === "team" && consultantFilter !== "all") query = query.eq("profile_id", consultantFilter);
-      const { data, error } = await query;
-      if (error) throw error;
-      setActivities((data ?? []) as Activity[]);
-    } catch (err) { console.error("Erro ao buscar atividades:", err); setActivities([]); }
-    finally { setLoading(false); }
-  }, [accountId, developmentId, profileId, isConsultant, isManager, viewMode, consultantFilter]);
+  const {
+    activities,
+    loading,
+    refetch: fetchActivities,
+    remove: removeActivity,
+    complete: completeActivityViaHook,
+    skip: skipActivityViaHook,
+    updateSchedule: updateActivityScheduleOptimistic,
+    updateCardColumn: updateCardColumnOptimistic,
+    setArchived: setArchivedOptimistic,
+    patchLocal: patchActivityLocal,
+  } = useActivities<Activity>({
+    accountId: accountId ?? "",
+    profileId,
+    viewMode,
+    consultantFilter,
+    isConsultant,
+    isManager,
+    enabled: Boolean(accountId && developmentId),
+  });
+
+  // ── Colunas livres do Quadro ──
+  const {
+    columns: boardColumns,
+    create: createBoardColumn,
+    update: updateBoardColumn,
+    remove: removeBoardColumn,
+  } = useBoardColumns({
+    accountId,
+    developmentId,
+    canManage,
+    enabled: Boolean(accountId && developmentId),
+  });
+  const orderedBoardColumns = useMemo(
+    () => [...boardColumns].sort((a, b) => a.position - b.position),
+    [boardColumns],
+  );
+  // Quadro/Lista respeitam o período; arquivadas saem do Quadro (e da Lista
+  // sem o toggle — o fetch já as exclui quando includeArchived=false).
+  const scopedActivities = useMemo(
+    () => activities.filter((a) => !a.archived_at && activityRange.inRange(a.activity_date)),
+    [activities, activityRange],
+  );
+  const listActivities = useMemo(
+    () => activities.filter((a) => activityRange.inRange(a.activity_date) && !a.archived_at),
+    [activities, activityRange],
+  );
+  // Arquivados no escopo do período (destino dedicado, fora das views).
+  const scopedArchived = useMemo(
+    () => archivedActivities.filter((a) => activityRange.inRange(a.activity_date)),
+    [archivedActivities, activityRange],
+  );
+  // Catálogo de tipos (Etapa 1 + quick-add + label/ícone do card).
+  const activityKinds = useActivityKinds({
+    accountId,
+    developmentId,
+    enabled: Boolean(accountId && developmentId),
+  });
+  const planColumnId = useMemo(
+    () => orderedBoardColumns.find((c) => !c.completes_activity)?.id ?? orderedBoardColumns[0]?.id ?? null,
+    [orderedBoardColumns],
+  );
+  const doneColumnId = useMemo(
+    () => orderedBoardColumns.find((c) => c.completes_activity)?.id ?? null,
+    [orderedBoardColumns],
+  );
+  // Coluna explícita para o card em criação (via "+ adicionar cartão").
+  const [modalForcedColumnId, setModalForcedColumnId] = useState<string | null>(null);
+  const [deletingColumn, setDeletingColumn] = useState<BoardColumnVM | null>(null);
+
+  // ── Toolbar consolidada do Quadro (filtros lifted + busca) ──
+  const [boardTypeFilter, setBoardTypeFilter] = useState<string[]>([]); // vazio = todos
+  const [boardOwnerFilter, setBoardOwnerFilter] = useState<string>("all");
+  const [boardSearch, setBoardSearch] = useState("");
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const boardPresentTypes = useMemo(() => {
+    const set = new Set<string>();
+    for (const a of activities) set.add(a.type);
+    return Array.from(set);
+  }, [activities]);
+  const boardOwners = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const a of activities) {
+      if (a.profile_id && a.profiles?.name) map.set(a.profile_id, a.profiles.name);
+    }
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [activities]);
+
+  // Templates por tipo (duração + checklist sugeridos) — carregados uma vez.
+  const [activityTemplates, setActivityTemplates] = useState<Record<string, ActivityTemplate>>({});
+  useEffect(() => {
+    if (!accountId) return;
+    let cancelled = false;
+    repoFetchTemplates(accountId).then((m) => { if (!cancelled) setActivityTemplates(m); }, () => {});
+    return () => { cancelled = true; };
+  }, [accountId]);
 
   useEffect(() => {
     // Expirar atividades atrasadas 7+ dias antes de carregar
     if (supabase && accountId) supabase.rpc("expire_overdue_activities", { p_account_id: accountId }).then(() => {}, () => {});
-    fetchActivities();
-  }, [fetchActivities, accountId]);
+  }, [accountId]);
 
   // ── Fetch team profiles (manager/director) ──
 
@@ -1087,19 +1700,10 @@ export default function AtividadesPage() {
 
       // Onda 1.3: saneamento de owner — oculta owners zerados de sempre.
       const ownerIds = scoped.filter((m) => m.role === "owner").map((m) => m.id);
-      let ownerActivityCount: Map<string, number> = new Map();
-      if (ownerIds.length > 0) {
-        const { data: ownerActs } = await supabase!
-          .from("activities")
-          .select("profile_id")
-          .eq("account_id", accountId)
-          .in("profile_id", ownerIds);
-        if (cancelled) return;
-        ownerActivityCount = new Map();
-        for (const row of (ownerActs ?? []) as { profile_id: string }[]) {
-          ownerActivityCount.set(row.profile_id, (ownerActivityCount.get(row.profile_id) ?? 0) + 1);
-        }
-      }
+      const ownerActivityCount: Map<string, number> = ownerIds.length > 0
+        ? await repoCountActivitiesByProfile({ accountId, profileIds: ownerIds })
+        : new Map();
+      if (cancelled) return;
       const filtered = scoped.filter((m) => {
         if (m.role !== "owner") return true;
         return (ownerActivityCount.get(m.id) ?? 0) > 0;
@@ -1117,12 +1721,12 @@ export default function AtividadesPage() {
     (async () => {
       const sevenDaysAgo = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
       const { data: negs } = await supabase.from("negotiations").select("id, status, client_id, updated_at, clients(name), units(quadra, lote)").eq("account_id", accountId).in("status", ["IN_PROGRESS", "OPEN"]);
-      const { data: recentActs } = await supabase.from("activities").select("client_id").eq("account_id", accountId).gte("activity_date", sevenDaysAgo);
-      const recentClientIds = new Set((recentActs ?? []).map((a: Record<string, unknown>) => a.client_id).filter(Boolean));
+      const recentClientIdsArr = await repoFetchRecentActivityClientIds({ accountId, sinceDate: sevenDaysAgo });
+      const recentClientIds = new Set(recentClientIdsArr);
       const pending = (negs ?? []).filter((n: Record<string, unknown>) => n.client_id && !recentClientIds.has(n.client_id as string)).map((n: Record<string, unknown>) => {
         const cl = (Array.isArray(n.clients) ? n.clients[0] : n.clients) as Record<string, unknown> | null;
         const un = (Array.isArray(n.units) ? n.units[0] : n.units) as Record<string, unknown> | null;
-        return { id: n.id as string, clientName: (cl?.name as string) ?? "?", quadra: (un?.quadra as string) ?? "?", lote: (un?.lote as string) ?? "?", dias: Math.floor((Date.now() - new Date(n.updated_at as string).getTime()) / 864e5) };
+        return { id: n.id as string, clientId: (n.client_id as string) ?? null, clientName: (cl?.name as string) ?? "?", quadra: (un?.quadra as string) ?? "?", lote: (un?.lote as string) ?? "?", dias: Math.floor((Date.now() - new Date(n.updated_at as string).getTime()) / 864e5) };
       });
       setPendingFollowups(pending);
     })();
@@ -1225,7 +1829,8 @@ export default function AtividadesPage() {
   }, [activities, today, memberFilter]);
 
   const kpis = useMemo(() => {
-    const base = memberFilter ? activities.filter((a) => a.profile_id === memberFilter) : activities;
+    // Demandas operacionais ficam FORA das contagens de produtividade comercial.
+    const base = (memberFilter ? activities.filter((a) => a.profile_id === memberFilter) : activities).filter((a) => a.type !== "operational");
     const todayCount = base.filter((a) => a.activity_date === today).length;
     const weekCount = base.filter((a) => a.activity_date >= weekStart).length;
     const monthActs = base.filter((a) => a.activity_date >= monthStart);
@@ -1280,7 +1885,8 @@ export default function AtividadesPage() {
   // Onda 1.6: período + dateMode vêm do hook (toggle persistido).
   const ranking = useMemo((): RankedMember[] => {
     if (isConsultant) return [];
-    const periodActs = activities.filter((a) => dateColumnFor(a) >= periodStart);
+    // Operacional fora do ranking comercial.
+    const periodActs = activities.filter((a) => a.type !== "operational" && dateColumnFor(a) >= periodStart);
     const map: Record<string, { name: string; role: string; count: number; totalMinutes: number; lastDate: string }> = {};
     // Seed com TODOS os membros do escopo (Equipe Comercial Interna).
     for (const p of teamProfiles) {
@@ -1295,8 +1901,9 @@ export default function AtividadesPage() {
       map[a.profile_id].totalMinutes += a.duration_minutes;
       if (a.activity_date > map[a.profile_id].lastDate) map[a.profile_id].lastDate = a.activity_date;
     }
-    // lastDate considera histórico inteiro pra alerta de inatividade.
+    // lastDate considera histórico inteiro pra alerta de inatividade (sem operacional).
     for (const a of activities) {
+      if (a.type === "operational") continue;
       if (map[a.profile_id] && a.activity_date > (map[a.profile_id].lastDate || "")) {
         map[a.profile_id].lastDate = a.activity_date;
       }
@@ -1309,8 +1916,8 @@ export default function AtividadesPage() {
     const s14 = d14.toISOString().slice(0, 10);
     return Object.entries(map).map(([id, d]) => {
       const inactive = d.role !== "director" && (!d.lastDate || daysDiff(d.lastDate) >= 3);
-      const last7 = activities.filter((a) => a.profile_id === id && a.activity_date > s7).length;
-      const prev7 = activities.filter((a) => a.profile_id === id && a.activity_date > s14 && a.activity_date <= s7).length;
+      const last7 = activities.filter((a) => a.type !== "operational" && a.profile_id === id && a.activity_date > s7).length;
+      const prev7 = activities.filter((a) => a.type !== "operational" && a.profile_id === id && a.activity_date > s14 && a.activity_date <= s7).length;
       return {
         id,
         name: d.name,
@@ -1347,27 +1954,231 @@ export default function AtividadesPage() {
   }, [activities, isDirector, memberFilter]);
   const chartMax = useMemo(() => Math.max(1, ...chartData.map((d) => d.count)), [chartData]);
 
-  function openModal(type?: ActivityType, title?: string) { setEditingActivity(null); setModalType(type); setModalTitle(title); setSlotDate(undefined); setSlotTime(undefined); setModalOpen(true); if (type) setTimeout(() => document.getElementById("activity-title")?.focus(), 200); }
-  function openScheduleModal(date: string, time: string) { setEditingActivity(null); setModalType(undefined); setModalTitle(undefined); setSlotDate(date); setSlotTime(time); setModalOpen(true); }
+  function openModal(type?: ActivityType, title?: string) { setEditingActivity(null); setModalType(type); setModalTitle(title); setModalNegotiationId(undefined); setModalClientId(undefined); setSlotDate(undefined); setSlotTime(undefined); setModalMode("done"); setModalForcedStatus(undefined); setModalForcedColumnId(null); setModalOpen(true); if (type) setTimeout(() => document.getElementById("activity-title")?.focus(), 200); }
+  // "+ adicionar cartão" no rodapé de uma coluna: abre o modal em "Planejar"
+  // já amarrado àquela coluna (column_id explícito).
+  function openAddCard(columnId: string) {
+    setEditingActivity(null);
+    setModalType(undefined);
+    setModalTitle(undefined);
+    setModalNegotiationId(undefined);
+    setModalClientId(undefined);
+    setSlotDate(undefined); setSlotTime(undefined);
+    setModalMode("plan");
+    setModalForcedStatus("scheduled");
+    setModalForcedColumnId(columnId);
+    setModalOpen(true);
+  }
+  function openModalForSuggestion(s: { id: string; clientId: string | null; clientName: string; quadra: string; lote: string }) {
+    setEditingActivity(null);
+    setModalType("follow_up");
+    setModalTitle(`Follow-up ${s.clientName} — Q${s.quadra} L${s.lote}`);
+    setModalNegotiationId(s.id);
+    setModalClientId(s.clientId ?? undefined);
+    setSlotDate(undefined); setSlotTime(undefined);
+    setModalMode("plan");
+    setModalForcedStatus("scheduled");
+    setModalForcedColumnId(planColumnId);
+    setModalOpen(true);
+    setTimeout(() => document.getElementById("activity-title")?.focus(), 200);
+  }
+  function openScheduleModal(date: string, time: string) { setEditingActivity(null); setModalType(undefined); setModalTitle(undefined); setSlotDate(date); setSlotTime(time); setModalMode("plan"); setModalForcedStatus("scheduled"); setModalForcedColumnId(planColumnId); setModalOpen(true); }
   function openEditModal(activity: Activity) { setEditingActivity(activity); setModalType(undefined); setModalTitle(undefined); setModalOpen(true); }
   function handleSaved() { setToast(editingActivity ? "Atividade atualizada!" : "Atividade registrada!"); fetchActivities(); }
 
+  // Recarrega participantes do card aberto (após add/remove).
+  async function reloadSelectedParticipants(activityId: string) {
+    if (!supabase) return;
+    const { data } = await supabase.from("activity_participants").select("participant_type, participant_name, participant_detail, participant_id").eq("activity_id", activityId);
+    setSelectedParticipants((data ?? []) as typeof selectedParticipants);
+  }
+  async function handleAddTeamMember(member: { id: string; name: string }) {
+    if (!selectedActivity) return;
+    try {
+      await repoAddParticipant(selectedActivity.id, { participant_id: member.id, participant_name: member.name });
+      await reloadSelectedParticipants(selectedActivity.id);
+      fetchActivities();
+    } catch { setToast("Erro ao adicionar participante"); }
+  }
+  async function handleRemoveTeamMember(participantId: string) {
+    if (!selectedActivity) return;
+    try {
+      await repoRemoveParticipant(selectedActivity.id, participantId);
+      await reloadSelectedParticipants(selectedActivity.id);
+      fetchActivities();
+    } catch { setToast("Erro ao remover participante"); }
+  }
+
+  // ── Checklist do card (detalhe) — persiste e atualiza a face do card ──
+  async function handleAddChecklist(text: string, position: number): Promise<ChecklistItem | null> {
+    if (!selectedActivity) return null;
+    try {
+      const row = await repoAddChecklistItem(selectedActivity.id, text, position);
+      fetchActivities();
+      return row;
+    } catch { setToast("Erro ao adicionar item"); return null; }
+  }
+  async function handleToggleChecklist(id: string, done: boolean) {
+    try { await repoToggleChecklistItem(id, done); fetchActivities(); } catch { setToast("Erro ao atualizar item"); }
+  }
+  async function handleRemoveChecklist(id: string) {
+    try { await repoRemoveChecklistItem(id); fetchActivities(); } catch { setToast("Erro ao remover item"); }
+  }
+  async function handleReorderChecklist(id: string, position: number) {
+    try { await repoReorderChecklistItem(id, position); fetchActivities(); } catch { /* silencioso */ }
+  }
+  async function handleEditChecklist(id: string, text: string) {
+    try { await repoUpdateChecklistText(id, text); fetchActivities(); } catch { setToast("Erro ao editar item"); }
+  }
+
+  // ── Quadro: rename inline, quick-add e add-pessoa (otimista) ──
+  async function handleRenameCard(id: string, title: string) {
+    const target = activities.find((a) => a.id === id);
+    if (!target) return;
+    const prev = target.title;
+    patchActivityLocal(id, { title } as Partial<Activity>);
+    try {
+      await repoUpdateActivity(id, { title });
+    } catch {
+      patchActivityLocal(id, { title: prev } as Partial<Activity>);
+      setToast("Erro ao renomear");
+    }
+  }
+  async function handleQuickAdd(columnId: string, parsed: QuickParsed & { title: string }) {
+    if (!accountId || !developmentId || !profileId) return;
+    const kind = parsed.kind;
+    const baseType = kind?.base_type ?? "other";
+    try {
+      const inserted = await repoInsertActivity({
+        account_id: accountId, development_id: developmentId, profile_id: profileId,
+        type: baseType, kind_id: kind?.id ?? null,
+        title: parsed.title.trim(), status: "scheduled",
+        activity_date: parsed.date ?? todayStr(), start_time: parsed.time ?? null,
+        duration_minutes: 0, column_id: columnId,
+      });
+      if (inserted?.id) {
+        logEvent(inserted.id, "created", { type: baseType, status: "scheduled", quick: true });
+        if (parsed.participant) {
+          try { await repoAddParticipant(inserted.id, { participant_id: parsed.participant.id, participant_name: parsed.participant.name }); } catch { /* ignora */ }
+        }
+      }
+      fetchActivities();
+    } catch { setToast("Erro ao criar cartão"); }
+  }
+  async function handleAddPerson(activityId: string, profile: { id: string; name: string }) {
+    try {
+      await repoAddParticipant(activityId, { participant_id: profile.id, participant_name: profile.name });
+      fetchActivities();
+    } catch { setToast("Erro ao adicionar pessoa"); }
+  }
+
+  // Trilha de eventos imutável (fire-and-forget). Nunca bloqueia a ação.
+  const logEvent = useCallback(
+    (activityId: string, action: string, details?: Record<string, unknown>) => {
+      if (!accountId) return;
+      void repoLogActivityEvent({ accountId, activityId, action, actorProfileId: profileId, details });
+    },
+    [accountId, profileId],
+  );
+
+  // ── Arquivar / desarquivar (só archived_at; status intacto) ──
+  const loadArchived = useCallback(async () => {
+    if (!accountId) { setArchivedActivities([]); return; }
+    try {
+      const data = await repoFetchActivities<Activity>({ accountId, profileId, viewMode, consultantFilter, isConsultant, isManager, archivedOnly: true });
+      setArchivedActivities(data);
+    } catch { setArchivedActivities([]); }
+  }, [accountId, profileId, viewMode, consultantFilter, isConsultant, isManager]);
+  useEffect(() => { void loadArchived(); }, [loadArchived]);
+
+  async function handleArchive(id: string) {
+    const target = activities.find((a) => a.id === id);
+    if (!target) return;
+    patchActivityLocal(id, { archived_at: new Date().toISOString() } as Partial<Activity>);
+    const ok = await setArchivedOptimistic(id, true);
+    if (!ok) { patchActivityLocal(id, { archived_at: null } as Partial<Activity>); setToast("Não foi possível arquivar"); return; }
+    logEvent(id, "archived", {});
+    setToast("Arquivada ✓");
+    void loadArchived();
+  }
+  async function handleUnarchive(id: string) {
+    patchActivityLocal(id, { archived_at: null } as Partial<Activity>);
+    const ok = await setArchivedOptimistic(id, false);
+    if (!ok) { fetchActivities(); setToast("Não foi possível desarquivar"); return; }
+    logEvent(id, "unarchived", {});
+    setToast("Desarquivada ✓");
+    void loadArchived();
+  }
+  // Restaurar a partir do painel "Arquivados" (item não está em `activities`).
+  async function handleRestoreFromArchive(id: string) {
+    const prev = archivedActivities;
+    setArchivedActivities((p) => p.filter((a) => a.id !== id));
+    const ok = await setArchivedOptimistic(id, false);
+    if (!ok) { setArchivedActivities(prev); setToast("Não foi possível restaurar"); return; }
+    logEvent(id, "unarchived", {});
+    fetchActivities();
+    setToast("Restaurada ✓");
+  }
+  async function handleDeleteFromArchive(id: string) {
+    const prev = archivedActivities;
+    setArchivedActivities((p) => p.filter((a) => a.id !== id));
+    try {
+      await repoDeleteActivity(id);
+      logEvent(id, "deleted", {});
+      setToast("Excluída definitivamente");
+    } catch { setArchivedActivities(prev); setToast("Não foi possível excluir"); }
+  }
+  // "Limpar concluídas": otimista + toast com Desfazer (sem confirm prévio).
+  async function handleBulkArchiveCompleted() {
+    const completed = scopedActivities.filter((a) => a.status === "completed");
+    if (completed.length === 0) { setToast("Nenhuma concluída no período"); return; }
+    const stamp = new Date().toISOString();
+    for (const a of completed) patchActivityLocal(a.id, { archived_at: stamp } as Partial<Activity>);
+    const oks = await Promise.all(completed.map(async (a) => {
+      const ok = await setArchivedOptimistic(a.id, true);
+      if (ok) logEvent(a.id, "archived", { bulk: true });
+      else patchActivityLocal(a.id, { archived_at: null } as Partial<Activity>);
+      return ok ? a.id : null;
+    }));
+    const archivedIds = oks.filter((x): x is string => Boolean(x));
+    void loadArchived();
+    if (archivedIds.length > 0) setUndoToast({ message: `${archivedIds.length} concluída${archivedIds.length === 1 ? "" : "s"} arquivada${archivedIds.length === 1 ? "" : "s"}`, ids: archivedIds });
+  }
+  // Desfazer o último "Limpar concluídas".
+  async function handleUndoArchive(ids: string[]) {
+    setUndoToast(null);
+    for (const id of ids) patchActivityLocal(id, { archived_at: null } as Partial<Activity>);
+    await Promise.all(ids.map(async (id) => {
+      const ok = await setArchivedOptimistic(id, false);
+      if (ok) logEvent(id, "unarchived", { undo: true });
+    }));
+    fetchActivities();
+    void loadArchived();
+    setToast("Restauradas ✓");
+  }
+
   async function handleCompleteActivity() {
-    if (!completingActivity || !supabase) return;
+    if (!completingActivity) return;
     setCompleting(true);
     try {
-      await supabase.from("activities").update({ status: "completed", duration_minutes: completeDuration, outcome: completeOutcome.trim() || null, updated_at: new Date().toISOString() }).eq("id", completingActivity.id);
-      setToast("Atividade concluída!"); setCompletingActivity(null); setCompleteOutcome(""); setCompleteDuration(60); fetchActivities();
+      await completeActivityViaHook(completingActivity.id, {
+        outcome: completeOutcome.trim() || null,
+        duration_minutes: completeDuration,
+        outcome_category: completeCategory,
+      });
+      logEvent(completingActivity.id, "completed", { outcome_category: completeCategory, duration_minutes: completeDuration });
+      setToast("Salvo com sucesso ✓"); setCompletingActivity(null); setCompleteOutcome(""); setCompleteDuration(60); setCompleteCategory(null);
     } catch { setToast("Erro ao concluir"); }
     finally { setCompleting(false); }
   }
 
   async function handleSkipActivity() {
-    if (!skippingActivity || !supabase || !skipReason) return;
+    if (!skippingActivity || !skipReason) return;
     setSkipping(true);
     try {
-      await supabase.from("activities").update({ status: "skipped", skip_reason: skipReason, updated_at: new Date().toISOString() }).eq("id", skippingActivity.id);
-      setToast("Atividade pulada"); setSkippingActivity(null); setSkipReason(""); fetchActivities();
+      await skipActivityViaHook(skippingActivity.id, { skip_reason: skipReason });
+      logEvent(skippingActivity.id, "skipped", { skip_reason: skipReason });
+      setToast("Atividade pulada"); setSkippingActivity(null); setSkipReason("");
     } catch { setToast("Erro ao pular"); }
     finally { setSkipping(false); }
   }
@@ -1375,12 +2186,40 @@ export default function AtividadesPage() {
   const showRegister = isConsultant || isManager;
   const showAuthor = !isConsultant;
 
+  // Atalhos globais do Quadro (n / busca / ? ajuda). Card-nav fica no board.
+  const anyModalOpen = modalOpen || !!completingActivity || !!skippingActivity || !!selectedActivity || !!deletingColumn;
+  const boardShortcutsEnabled = displayMode === "kanban" && !anyModalOpen && !showShortcuts && !filterPanelOpen;
+  useEffect(() => {
+    if (displayMode !== "kanban" && displayMode !== "list") return;
+    const h = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const typing = !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+      if (typing) {
+        if (e.key === "Escape" && t === searchRef.current) searchRef.current?.blur();
+        return;
+      }
+      if (e.key === "?") { e.preventDefault(); setShowShortcuts((v) => !v); return; }
+      if (e.key === "Escape") { setShowShortcuts(false); setFilterPanelOpen(false); return; }
+      if (anyModalOpen || showShortcuts) return;
+      // Filtros estilo Trello: F abre o painel, X limpa tudo.
+      if (e.key === "f" || e.key === "F") { e.preventDefault(); setFilterPanelOpen((v) => !v); return; }
+      if (e.key === "x" || e.key === "X") { e.preventDefault(); setBoardTypeFilter([]); setBoardOwnerFilter("all"); activityRange.setPreset("month"); return; }
+      if (e.key === "n" || e.key === "N") { e.preventDefault(); openModal(); }
+      else if (e.key === "/" && displayMode === "kanban") { e.preventDefault(); searchRef.current?.focus(); }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayMode, anyModalOpen, showShortcuts]);
+
   if (!accountId || !developmentId) return <div style={{ color: T.fog, padding: 40, textAlign: "center" }}>Selecione uma conta e empreendimento.</div>;
 
   return (
-    <div style={{ maxWidth: 960, margin: "0 auto" }}>
+    // Quadro: largura cheia + coluna flex de altura total (header fixo, board
+    // rola por dentro). Agenda e demais views seguem centralizadas em 960.
+    <div style={displayMode === "kanban" ? { width: "100%", height: "100%", display: "flex", flexDirection: "column", minHeight: 0 } : displayMode === "calendar" ? { width: "100%" } : { maxWidth: 960, margin: "0 auto" }}>
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: displayMode === "kanban" ? 14 : 24, flexWrap: "wrap", gap: 12, flexShrink: 0 }}>
         <div>
           {/* Onda 2.4: H1 alinhado ao Brand Book v7 — serif 24/400. */}
           <h1 style={{
@@ -1398,33 +2237,188 @@ export default function AtividadesPage() {
             <div style={{ fontSize: 13, color: T.fog, marginTop: 4 }}>{memberFilter ? `Atividades de ${ranking.find((r) => r.id === memberFilter)?.name ?? "membro"}` : `Visão gerencial · ${development?.developmentName}`}</div>
           )}
         </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          {/* View toggle */}
-          <div style={{ display: "flex", gap: 0, border: "1px solid rgba(61,58,48,0.15)", borderRadius: 8, overflow: "hidden" }}>
-            {(["list", "calendar"] as const).map((mode, i) => (
+        {/* AÇÕES (direita) — agrupadas na mesma linha do título */}
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {displayMode === "kanban" && !isMobile && <button type="button" title="Atalhos de teclado (?)" onClick={() => setShowShortcuts(true)} style={{ background: "transparent", border: `1px solid ${T.stone}`, borderRadius: 8, color: T.fog, width: 34, height: 34, cursor: "pointer", fontSize: 14, flexShrink: 0 }}>?</button>}
+          {/* Ações de arquivo agrupadas */}
+          {(displayMode === "kanban" || displayMode === "list") && canManage && (
+            <button type="button" onClick={handleBulkArchiveCompleted} title="Arquivar concluídas do período" style={{ background: "transparent", border: `1px solid ${T.stone}`, borderRadius: 8, color: T.fog, fontSize: 12, height: 34, padding: "0 12px", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>Limpar concluídas</button>
+          )}
+          <button type="button" onClick={() => setArchivedOpen(true)} title="Atividades arquivadas" style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "transparent", border: `1px solid ${T.stone}`, borderRadius: 8, color: T.fog, fontSize: 12, height: 34, padding: "0 12px", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>
+            📥 Arquivados{scopedArchived.length > 0 ? <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, background: "rgba(112,107,95,0.3)", color: T.bone, borderRadius: 10, minWidth: 16, height: 16, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{scopedArchived.length}</span> : null}
+          </button>
+          <div style={{ display: "flex", gap: 0, border: "1px solid rgba(61,58,48,0.15)", borderRadius: 8, overflow: "hidden", flexShrink: 0 }}>
+            {(["kanban", "list", "calendar"] as const).map((mode, i, arr) => (
               <button key={mode} type="button" onClick={() => setDisplayMode(mode)} style={{
-                padding: "7px 16px", fontSize: 11, fontWeight: 600, cursor: "pointer",
+                padding: "7px 14px", fontSize: 11, fontWeight: 600, cursor: "pointer",
                 border: "none",
-                borderRight: i === 0 ? "1px solid rgba(61,58,48,0.1)" : "none",
+                borderRight: i < arr.length - 1 ? "1px solid rgba(61,58,48,0.1)" : "none",
                 color: displayMode === mode ? "#4ADE80" : "#5C5647",
                 background: displayMode === mode ? "rgba(74,222,128,0.06)" : "transparent",
                 transition: "all 100ms ease",
               }}>
-                {mode === "list" ? "Lista" : "Agenda"}
+                {mode === "kanban" ? "Quadro" : mode === "list" ? "Lista" : "Agenda"}
               </button>
             ))}
           </div>
-          {showRegister && <button type="button" onClick={() => openModal()} style={{ background: T.sprout, color: T.ink, border: "none", borderRadius: 8, padding: "0 16px", height: 36, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>+ Registrar atividade</button>}
+          {showRegister && <button type="button" onClick={() => openModal()} style={{ background: T.sprout, color: T.ink, border: "none", borderRadius: 8, padding: "0 16px", height: 36, fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>+ Registrar atividade</button>}
         </div>
       </div>
 
-      {/* ═══ CALENDAR VIEW ═══ */}
-      {displayMode === "calendar" && (isMobile
-        ? <DailyCalendarMobile activities={activities} onSlotClick={openScheduleModal} onEventClick={(id) => { const found = activities.find((a) => a.id === id); if (found) setSelectedActivity(found); }} />
-        : <WeeklyCalendar activities={activities} accountId={accountId} onSlotClick={openScheduleModal} onEventClick={(id) => { const found = activities.find((a) => a.id === id); if (found) setSelectedActivity(found); }} />)}
+      {/* TOOLBAR DE FILTROS estilo Trello — botão Filtrar + painel + chips */}
+      {(displayMode === "kanban" || displayMode === "list") && (
+        <div style={{ marginBottom: displayMode === "kanban" ? 12 : 14, flexShrink: 0 }}>
+          <ActivityFilterBar
+            view={displayMode === "kanban" ? "kanban" : "list"}
+            isMobile={isMobile}
+            search={boardSearch}
+            setSearch={setBoardSearch}
+            searchRef={searchRef}
+            typeOptions={boardPresentTypes.map((t) => ({ key: t, label: badgeLabels[t] || t, color: badgeColors[t] || T.fog }))}
+            typeFilter={boardTypeFilter}
+            setTypeFilter={setBoardTypeFilter}
+            owners={boardOwners}
+            ownerFilter={boardOwnerFilter}
+            setOwnerFilter={setBoardOwnerFilter}
+            showOwner={canManage && boardOwners.length > 1}
+            preset={activityRange.preset}
+            setPreset={activityRange.setPreset}
+            customStart={activityRange.customStart}
+            setCustomStart={activityRange.setCustomStart}
+            customEnd={activityRange.customEnd}
+            setCustomEnd={activityRange.setCustomEnd}
+            open={filterPanelOpen}
+            setOpen={setFilterPanelOpen}
+          />
+        </div>
+      )}
 
-      {/* ═══ LIST VIEW (existing content) ═══ */}
-      {displayMode === "list" && (<>
+      {/* ═══ CALENDAR VIEW ═══ */}
+      {displayMode === "calendar" && (
+        <WeeklyCalendar
+          activities={activities}
+          accountId={accountId}
+          onSlotClick={openScheduleModal}
+          onEventClick={async (id) => {
+            const found = activities.find((a) => a.id === id);
+            if (found) setSelectedActivity(found);
+            if (supabase) {
+              const { data } = await supabase.from("activity_participants").select("participant_type, participant_name, participant_detail, participant_id").eq("activity_id", id);
+              setSelectedParticipants((data ?? []) as typeof selectedParticipants);
+            }
+          }}
+          onReschedule={async (id, schedule) => {
+            const target = activities.find((a) => a.id === id);
+            if (!target) return false;
+            const prev = { activity_date: target.activity_date, start_time: target.start_time };
+            patchActivityLocal(id, schedule as Partial<Activity>);
+            const ok = await updateActivityScheduleOptimistic(id, schedule);
+            if (!ok) { patchActivityLocal(id, prev as Partial<Activity>); setToast("Não foi possível reagendar"); return false; }
+            logEvent(id, "rescheduled", { old: prev, new: schedule });
+            setToast(`Reagendado para ${schedule.activity_date.split("-").reverse().slice(0, 2).join("/")} ${schedule.start_time} ✓`);
+            return true;
+          }}
+        />
+      )}
+
+      {/* ═══ KANBAN VIEW (Quadro) ═══ */}
+      {displayMode === "kanban" && (
+        <KanbanBoard
+          activities={scopedActivities}
+          columns={orderedBoardColumns}
+          suggestions={pendingFollowups as KanbanSuggestion[]}
+          suggestionsColumnId={planColumnId}
+          profileId={profileId}
+          isManager={canManage}
+          canManageColumns={canManage}
+          typeFilter={boardTypeFilter}
+          ownerFilter={boardOwnerFilter}
+          search={boardSearch}
+          keyboardEnabled={boardShortcutsEnabled}
+          onCardClick={async (a) => {
+            // KanbanActivity é subset estrutural de Activity; em runtime são os mesmos objetos.
+            const found = activities.find((x) => x.id === a.id);
+            if (found) setSelectedActivity(found);
+            if (supabase) {
+              const { data } = await supabase.from("activity_participants").select("participant_type, participant_name, participant_detail, participant_id").eq("activity_id", a.id);
+              setSelectedParticipants((data ?? []) as typeof selectedParticipants);
+            }
+          }}
+          onSuggestionClick={(s) => openModalForSuggestion({ id: s.id, clientId: s.clientId ?? null, clientName: s.clientName, quadra: s.quadra, lote: s.lote })}
+          onChangeColumn={async (id, toColumnId) => {
+            const target = activities.find((a) => a.id === id);
+            if (!target) return false;
+            const fromColumnId = target.column_id;
+            // Otimismo: muda só column_id (status independente).
+            patchActivityLocal(id, { column_id: toColumnId } as Partial<Activity>);
+            const ok = await updateCardColumnOptimistic(id, toColumnId);
+            if (!ok) {
+              patchActivityLocal(id, { column_id: fromColumnId } as Partial<Activity>);
+              return false;
+            }
+            logEvent(id, "moved", { from_column_id: fromColumnId, to_column_id: toColumnId });
+            return true;
+          }}
+          onReorderOptimistic={async (id, schedule) => {
+            const target = activities.find((a) => a.id === id);
+            if (!target) return false;
+            const prev = { activity_date: target.activity_date, start_time: target.start_time };
+            patchActivityLocal(id, schedule as Partial<Activity>);
+            const ok = await updateActivityScheduleOptimistic(id, schedule);
+            if (!ok) { patchActivityLocal(id, prev as Partial<Activity>); return false; }
+            logEvent(id, "rescheduled", { old: prev, new: schedule });
+            return true;
+          }}
+          onCompleteCard={(a) => {
+            // Ação explícita de conclusão — reusa o modal (outcome + duração + categoria).
+            setCompletingActivity(a as Activity);
+            setCompleteOutcome("");
+            setCompleteDuration(60);
+            setCompleteCategory(null);
+          }}
+          onAddCard={(columnId) => openAddCard(columnId)}
+          onRenameCard={handleRenameCard}
+          onQuickAdd={handleQuickAdd}
+          onAddPerson={handleAddPerson}
+          onArchive={handleArchive}
+          teamProfiles={teamProfiles}
+          kindsByKey={activityKinds.byKey}
+          onCreateColumn={async () => {
+            const palette = ["#9A958B", "#E0A23C", "#60A5FA", "#A78BFA", "#F97316", "#C2613A"];
+            const color = palette[orderedBoardColumns.length % palette.length];
+            await createBoardColumn("Nova coluna", color);
+            setToast("Coluna criada — renomeie no menu ⋮");
+          }}
+          onUpdateColumn={(id, patch) => { void updateBoardColumn(id, patch); }}
+          onDeleteColumn={(column) => setDeletingColumn(column)}
+          onReorderColumn={(columnId, newPosition) => { void updateBoardColumn(columnId, { position: newPosition }); }}
+          toast={(msg) => setToast(msg)}
+        />
+      )}
+
+      {/* ═══ LISTA VIEW (Trello list) ═══ */}
+      {displayMode === "list" && (
+        <ActivitiesList
+          activities={listActivities}
+          columns={orderedBoardColumns.map((c) => ({ id: c.id, name: c.name, color: c.color }))}
+          canManage={canManage}
+          profileId={profileId}
+          onRowClick={async (a) => {
+            const found = activities.find((x) => x.id === a.id);
+            if (found) setSelectedActivity(found);
+            if (supabase) {
+              const { data } = await supabase.from("activity_participants").select("participant_type, participant_name, participant_detail, participant_id").eq("activity_id", a.id);
+              setSelectedParticipants((data ?? []) as typeof selectedParticipants);
+            }
+          }}
+          onComplete={(a) => { const found = activities.find((x) => x.id === a.id); if (found) { setCompletingActivity(found); setCompleteOutcome(""); setCompleteDuration(60); setCompleteCategory(null); } }}
+          onEdit={(a) => { const found = activities.find((x) => x.id === a.id); if (found) openEditModal(found); }}
+          onArchive={handleArchive}
+        />
+      )}
+
+      {/* ═══ LIST VIEW (legado — dormente) ═══ */}
+      {false && (<>
       {/* HOJE — atrasadas + hoje + próximos dias */}
       <TodayBlock
         overdue={overdueActivities}
@@ -1433,7 +2427,7 @@ export default function AtividadesPage() {
         onClickActivity={async (a) => {
           setSelectedActivity(a);
           if (supabase) {
-            const { data } = await supabase.from("activity_participants").select("participant_type, participant_name, participant_detail").eq("activity_id", a.id);
+            const { data } = await supabase.from("activity_participants").select("participant_type, participant_name, participant_detail, participant_id").eq("activity_id", a.id);
             setSelectedParticipants((data ?? []) as typeof selectedParticipants);
           }
         }}
@@ -1831,7 +2825,7 @@ export default function AtividadesPage() {
                 border: "1px solid rgba(74,222,128,0.15)",
                 fontFamily: "var(--font-mono)", fontSize: 10, color: T.sprout,
               }}>
-                Filtrando: {sel.name}
+                Filtrando: {sel?.name}
                 <span onClick={() => setMemberFilter(null)} style={{ cursor: "pointer", opacity: 0.7, fontSize: 12, lineHeight: 1 }}>×</span>
               </div>
             );
@@ -1850,7 +2844,7 @@ export default function AtividadesPage() {
       )}
 
       {/* Member filter badge */}
-      {memberFilter && (() => { const m = ranking.find((r) => r.id === memberFilter); return m ? <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 14px", borderRadius: 8, background: T.sprout + "15", border: `1px solid ${T.sprout}30`, marginBottom: 12, fontSize: 13, color: T.sprout }}>Filtrado por: <strong>{m.name}</strong><button type="button" onClick={() => setMemberFilter(null)} style={{ background: "none", border: "none", color: T.sprout, fontSize: 16, cursor: "pointer", padding: 0, lineHeight: 1 }}>×</button></div> : null; })()}
+      {memberFilter && (() => { const m = ranking.find((r) => r.id === memberFilter); return m ? <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 14px", borderRadius: 8, background: T.sprout + "15", border: `1px solid ${T.sprout}30`, marginBottom: 12, fontSize: 13, color: T.sprout }}>Filtrado por: <strong>{m?.name}</strong><button type="button" onClick={() => setMemberFilter(null)} style={{ background: "none", border: "none", color: T.sprout, fontSize: 16, cursor: "pointer", padding: 0, lineHeight: 1 }}>×</button></div> : null; })()}
 
       {/* Onda 1.7: chips de filtros ativos sempre visíveis */}
       {(() => {
@@ -1931,7 +2925,7 @@ export default function AtividadesPage() {
           {grouped.map(([key, acts]) => (
             <div key={key}>
               <div style={{ fontSize: 11, fontWeight: 600, color: T.fog, fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8, paddingBottom: 6, borderBottom: `1px solid ${T.stone}` }}>{groupHeaderLabel(key)}</div>
-              {acts.map((a) => <ActivityCard key={a.id} activity={a} showAuthor={showAuthor} isOwner={a.profile_id === profileId} canManage={canManage} onDelete={async () => { await fetchActivities(); setToast("Atividade excluída"); }} onEdit={openEditModal} onComplete={(act) => { setCompletingActivity(act); setCompleteOutcome(""); setCompleteDuration(60); }} onSkip={(act) => { setSkippingActivity(act); setSkipReason(""); }} onClick={async (act) => { setSelectedActivity(act); if (supabase) { const { data } = await supabase.from("activity_participants").select("participant_type, participant_name, participant_detail").eq("activity_id", act.id); setSelectedParticipants((data ?? []) as typeof selectedParticipants); } }} />)}
+              {acts.map((a) => <ActivityCard key={a.id} activity={a} showAuthor={showAuthor} isOwner={a.profile_id === profileId} canManage={canManage} onDelete={async (id) => { try { await removeActivity(id); setToast("Atividade excluída"); } catch { setToast("Erro ao excluir"); } }} onEdit={openEditModal} onComplete={(act) => { setCompletingActivity(act); setCompleteOutcome(""); setCompleteDuration(60); setCompleteCategory(null); }} onSkip={(act) => { setSkippingActivity(act); setSkipReason(""); }} onClick={async (act) => { setSelectedActivity(act); if (supabase) { const { data } = await supabase.from("activity_participants").select("participant_type, participant_name, participant_detail, participant_id").eq("activity_id", act.id); setSelectedParticipants((data ?? []) as typeof selectedParticipants); } }} />)}
             </div>
           ))}
         </div>
@@ -1939,7 +2933,7 @@ export default function AtividadesPage() {
       </>)}
 
       {modalOpen && profileId && accountId && developmentId && (
-        <RegistrationModal accountId={accountId} developmentId={developmentId} profileId={profileId} initialType={modalType} initialTitle={modalTitle} initialDate={slotDate} initialStartTime={slotTime} editActivity={editingActivity} canManageDate={canManage} onClose={() => { setModalOpen(false); setModalType(undefined); setModalTitle(undefined); setSlotDate(undefined); setSlotTime(undefined); setEditingActivity(null); }} onSaved={handleSaved} />
+        <RegistrationModal accountId={accountId} developmentId={developmentId} profileId={profileId} initialType={modalType} initialTitle={modalTitle} initialDate={slotDate} initialStartTime={slotTime} editActivity={editingActivity} canManageDate={canManage} negotiationId={modalNegotiationId} clientId={modalClientId} initialMode={modalMode} forcedStatus={modalForcedStatus} forcedColumnId={modalForcedColumnId} planColumnId={planColumnId} doneColumnId={doneColumnId} templates={activityTemplates} developmentName={development?.developmentName ?? null} kinds={activityKinds} teamProfiles={teamProfiles} currentUser={profileId ? { id: profileId, name: authenticatedProfile?.fullName ?? "Eu" } : null} onClose={() => { setModalOpen(false); setModalType(undefined); setModalTitle(undefined); setModalNegotiationId(undefined); setModalClientId(undefined); setSlotDate(undefined); setSlotTime(undefined); setEditingActivity(null); setModalMode("plan"); setModalForcedStatus(undefined); setModalForcedColumnId(null); }} onSaved={handleSaved} />
       )}
       {/* Skip activity modal */}
       {skippingActivity && createPortal(
@@ -1990,8 +2984,10 @@ export default function AtividadesPage() {
               ))}
             </div>
             <label style={{ fontSize: 10, color: T.fog, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "var(--font-mono)", display: "block", marginBottom: 6 }}>Resultado</label>
-            <input value={completeOutcome} onChange={(e) => setCompleteOutcome(e.target.value)} placeholder="O que aconteceu?" style={{ width: "100%", background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "11px 14px", color: T.chalk, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 20 }} />
-            <div style={{ display: "flex", gap: 8 }}>
+            <input value={completeOutcome} onChange={(e) => setCompleteOutcome(e.target.value)} placeholder="O que aconteceu?" style={{ width: "100%", background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "11px 14px", color: T.chalk, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 12 }} />
+            <label style={{ fontSize: 10, color: T.fog, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "var(--font-mono)", display: "block", marginBottom: 8 }}>Como foi? (opcional)</label>
+            <OutcomeChips value={completeCategory} onChange={setCompleteCategory} />
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
               <button type="button" onClick={() => setCompletingActivity(null)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.bone, fontSize: 13, cursor: "pointer" }}>Cancelar</button>
               <button type="button" onClick={handleCompleteActivity} disabled={completing} style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: T.sprout, color: T.ink, fontSize: 13, fontWeight: 700, cursor: completing ? "not-allowed" : "pointer", opacity: completing ? 0.6 : 1 }}>{completing ? "Salvando..." : "✓ Concluir atividade"}</button>
             </div>
@@ -2004,14 +3000,89 @@ export default function AtividadesPage() {
         <ActivityDetailModal
           activity={selectedActivity}
           participants={selectedParticipants}
+          teamProfiles={teamProfiles}
+          onAddTeamMember={handleAddTeamMember}
+          onRemoveTeamMember={handleRemoveTeamMember}
+          checklist={(selectedActivity.activity_checklist_items ?? []) as ChecklistItem[]}
+          onAddChecklist={handleAddChecklist}
+          onToggleChecklist={handleToggleChecklist}
+          onRemoveChecklist={handleRemoveChecklist}
+          onReorderChecklist={handleReorderChecklist}
+          onEditChecklist={handleEditChecklist}
+          onRenameTitle={(t) => handleRenameCard(selectedActivity.id, t)}
+          onArchive={(archived) => { const a = selectedActivity; setSelectedActivity(null); if (archived) void handleArchive(a.id); else void handleUnarchive(a.id); }}
           onClose={() => setSelectedActivity(null)}
           canEdit={selectedActivity.profile_id === profileId || canManage}
           onEdit={() => { const a = selectedActivity; setSelectedActivity(null); openEditModal(a); }}
-          onComplete={() => { const a = selectedActivity; setSelectedActivity(null); setCompletingActivity(a); setCompleteOutcome(""); setCompleteDuration(60); }}
+          onComplete={() => { const a = selectedActivity; setSelectedActivity(null); setCompletingActivity(a); setCompleteOutcome(""); setCompleteDuration(60); setCompleteCategory(null); }}
           onSkip={() => { const a = selectedActivity; setSelectedActivity(null); setSkippingActivity(a); setSkipReason(""); }}
-          onDelete={async () => { if (!supabase) return; await supabase.from("activities").delete().eq("id", selectedActivity.id); await fetchActivities(); setSelectedActivity(null); setToast("Atividade excluída"); }}
+          onDelete={async () => { try { await removeActivity(selectedActivity.id); setSelectedActivity(null); setToast("Atividade excluída"); } catch { setToast("Erro ao excluir"); } }}
         />
       )}
+      {/* Excluir coluna — escolher destino dos cards (nunca apaga cards) */}
+      {deletingColumn && createPortal(
+        <div style={{ position: "fixed", inset: 0, zIndex: 9000 }}>
+          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)" }} onClick={() => setDeletingColumn(null)} />
+          <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 14, padding: 24, width: 420, maxWidth: "92vw", zIndex: 1 }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: T.chalk, margin: "0 0 8px" }}>Excluir "{deletingColumn.name}"</h3>
+            <div style={{ fontSize: 13, color: T.fog, marginBottom: 16 }}>Para onde mover os cards desta coluna? Os cards nunca são apagados.</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
+              {orderedBoardColumns.filter((c) => c.id !== deletingColumn.id).map((c) => (
+                <button key={c.id} type="button" onClick={async () => { const col = deletingColumn; setDeletingColumn(null); await removeBoardColumn(col.id, c.id); fetchActivities(); setToast("Coluna excluída ✓"); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.stone}`, background: T.carbon, color: T.chalk, fontSize: 13, cursor: "pointer", textAlign: "left" }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: c.color }} /> Mover para {c.name}
+                </button>
+              ))}
+              <button type="button" onClick={async () => { const col = deletingColumn; setDeletingColumn(null); await removeBoardColumn(col.id, null); fetchActivities(); setToast("Coluna excluída ✓"); }} style={{ padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 13, cursor: "pointer", textAlign: "left" }}>
+                Remover do quadro (sem coluna)
+              </button>
+            </div>
+            <button type="button" onClick={() => setDeletingColumn(null)} style={{ width: "100%", padding: "10px", borderRadius: 8, border: "none", background: "transparent", color: T.fog, fontSize: 13, cursor: "pointer" }}>Cancelar</button>
+          </div>
+        </div>,
+        document.body,
+      )}
+      {/* Atalhos de teclado (overlay) */}
+      {showShortcuts && createPortal(
+        <div style={{ position: "fixed", inset: 0, zIndex: 9000 }}>
+          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)" }} onClick={() => setShowShortcuts(false)} />
+          <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 14, padding: 24, width: 360, maxWidth: "92vw", zIndex: 1 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: T.chalk, margin: 0 }}>Atalhos do Quadro</h3>
+              <button type="button" onClick={() => setShowShortcuts(false)} style={{ background: "none", border: "none", color: T.fog, fontSize: 20, cursor: "pointer" }}>×</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {([
+                ["n", "Nova atividade"],
+                ["/", "Focar busca"],
+                ["↑ ↓ / j k", "Navegar cards"],
+                ["← → / h l", "Mudar de coluna"],
+                ["Enter", "Abrir card"],
+                ["c", "Concluir card"],
+                ["Esc", "Limpar foco"],
+                ["?", "Esta ajuda"],
+              ] as const).map(([k, label]) => (
+                <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
+                  <span style={{ color: T.bone }}>{label}</span>
+                  <kbd style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: T.sprout, background: "var(--surface-raised)", border: `1px solid ${T.stone}`, borderRadius: 6, padding: "2px 8px" }}>{k}</kbd>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+      {/* Destino "Arquivados" */}
+      {archivedOpen && (
+        <ArchivedPanel
+          activities={scopedArchived}
+          canManage={canManage}
+          onRestore={handleRestoreFromArchive}
+          onDelete={handleDeleteFromArchive}
+          onClose={() => setArchivedOpen(false)}
+        />
+      )}
+      {/* Toast com Desfazer (Limpar concluídas) */}
+      {undoToast && <UndoToast message={undoToast.message} onUndo={() => void handleUndoArchive(undoToast.ids)} onDone={() => setUndoToast(null)} />}
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
     </div>
   );
