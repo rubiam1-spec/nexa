@@ -378,7 +378,6 @@ export default function KanbanBoard({
       try {
         const ok = await onChangeColumn(aId, targetCol);
         if (ok) {
-          toast("Salvo com sucesso ✓");
           // Coluna "conclui": também dispara o fluxo de conclusão.
           if (destCompletes && card.status !== "completed") onCompleteCard(card);
         } else {

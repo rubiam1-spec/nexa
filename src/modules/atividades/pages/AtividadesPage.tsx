@@ -593,9 +593,10 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
   return createPortal(<div style={{ position: "fixed", bottom: 32, left: "50%", transform: "translateX(-50%)", background: T.sprout, color: T.ink, padding: "10px 24px", borderRadius: 8, fontSize: 13, fontWeight: 700, zIndex: 10000, boxShadow: "0 4px 16px rgba(0,0,0,0.4)" }}>{message}</div>, document.body);
 }
 
-// Toast com ação "Desfazer" (janela ~6s) — usado em "Limpar concluídas".
-function UndoToast({ message, onUndo, onDone }: { message: string; onUndo: () => void; onDone: () => void }) {
-  useEffect(() => { const t = setTimeout(onDone, 6000); return () => clearTimeout(t); }, [onDone]);
+// Toast com ação "Desfazer" — usado em "Limpar concluídas" (6s) e em
+// movimento de coluna no Quadro (8s). `duration` parametriza a janela.
+function UndoToast({ message, onUndo, onDone, duration = 6000 }: { message: string; onUndo: () => void; onDone: () => void; duration?: number }) {
+  useEffect(() => { const t = setTimeout(onDone, duration); return () => clearTimeout(t); }, [onDone, duration]);
   return createPortal(
     <div style={{ position: "fixed", bottom: 32, left: "50%", transform: "translateX(-50%)", background: "var(--surface-raised)", border: "1px solid var(--border-default)", color: "var(--text-primary)", padding: "10px 12px 10px 18px", borderRadius: 10, fontSize: 13, zIndex: 10000, boxShadow: "0 8px 24px rgba(0,0,0,0.45)", display: "flex", alignItems: "center", gap: 14 }}>
       <span>{message}</span>
@@ -1544,6 +1545,9 @@ export default function AtividadesPage() {
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [archivedActivities, setArchivedActivities] = useState<Activity[]>([]);
   const [undoToast, setUndoToast] = useState<{ message: string; ids: string[] } | null>(null);
+  // Desfazer de movimento de coluna no Quadro (Tarefa 2) — carrega o callback
+  // de restauração.
+  const [moveUndo, setMoveUndo] = useState<{ message: string; onUndo: () => void } | null>(null);
   const [slotDate, setSlotDate] = useState<string | undefined>(undefined);
   const [slotTime, setSlotTime] = useState<string | undefined>(undefined);
   // Toggle de criação do Quadro: "plan" (Planejar) vs "done" (Já realizada).
@@ -2072,6 +2076,42 @@ export default function AtividadesPage() {
     } catch { setToast("Erro ao adicionar pessoa"); }
   }
 
+  // Movimento de coluna comum (sem consequência de negócio): otimista +
+  // toast "Movida para … · Desfazer" (Tarefa 2). Colunas que concluem NÃO
+  // recebem Desfazer — passam pela confirmação leve (Tarefa 3).
+  async function handleColumnMove(id: string, toColumnId: string): Promise<boolean> {
+    const target = activities.find((a) => a.id === id);
+    if (!target) return false;
+    const fromColumnId = target.column_id;
+    patchActivityLocal(id, { column_id: toColumnId } as Partial<Activity>);
+    const ok = await updateCardColumnOptimistic(id, toColumnId);
+    if (!ok) {
+      patchActivityLocal(id, { column_id: fromColumnId } as Partial<Activity>);
+      return false;
+    }
+    logEvent(id, "moved", { from_column_id: fromColumnId, to_column_id: toColumnId });
+    const destCompletes = orderedBoardColumns.find((c) => c.id === toColumnId)?.completes_activity;
+    if (!destCompletes) {
+      const destName = orderedBoardColumns.find((c) => c.id === toColumnId)?.name ?? "coluna";
+      setMoveUndo({ message: `Movida para ${destName}`, onUndo: () => { void handleUndoColumnMove(id, fromColumnId); } });
+    }
+    return true;
+  }
+  // Desfazer: restaura a coluna anterior com a mesma mutação otimista + rollback;
+  // registra um novo `moved` na trilha (nunca apaga logs).
+  async function handleUndoColumnMove(id: string, toColumnId: string | null) {
+    setMoveUndo(null);
+    const current = activities.find((a) => a.id === id)?.column_id ?? null;
+    patchActivityLocal(id, { column_id: toColumnId } as Partial<Activity>);
+    const ok = await updateCardColumnOptimistic(id, toColumnId);
+    if (!ok) {
+      patchActivityLocal(id, { column_id: current } as Partial<Activity>);
+      setToast("Não foi possível desfazer");
+      return;
+    }
+    logEvent(id, "moved", { from_column_id: current, to_column_id: toColumnId, undo: true });
+  }
+
   // Trilha de eventos imutável (fire-and-forget). Nunca bloqueia a ação.
   const logEvent = useCallback(
     (activityId: string, action: string, details?: Record<string, unknown>) => {
@@ -2345,20 +2385,7 @@ export default function AtividadesPage() {
             }
           }}
           onSuggestionClick={(s) => openModalForSuggestion({ id: s.id, clientId: s.clientId ?? null, clientName: s.clientName, quadra: s.quadra, lote: s.lote })}
-          onChangeColumn={async (id, toColumnId) => {
-            const target = activities.find((a) => a.id === id);
-            if (!target) return false;
-            const fromColumnId = target.column_id;
-            // Otimismo: muda só column_id (status independente).
-            patchActivityLocal(id, { column_id: toColumnId } as Partial<Activity>);
-            const ok = await updateCardColumnOptimistic(id, toColumnId);
-            if (!ok) {
-              patchActivityLocal(id, { column_id: fromColumnId } as Partial<Activity>);
-              return false;
-            }
-            logEvent(id, "moved", { from_column_id: fromColumnId, to_column_id: toColumnId });
-            return true;
-          }}
+          onChangeColumn={handleColumnMove}
           onReorderOptimistic={async (id, schedule) => {
             const target = activities.find((a) => a.id === id);
             if (!target) return false;
@@ -3083,6 +3110,8 @@ export default function AtividadesPage() {
       )}
       {/* Toast com Desfazer (Limpar concluídas) */}
       {undoToast && <UndoToast message={undoToast.message} onUndo={() => void handleUndoArchive(undoToast.ids)} onDone={() => setUndoToast(null)} />}
+      {/* Toast com Desfazer (movimento de coluna no Quadro) — janela de 8s */}
+      {moveUndo && <UndoToast message={moveUndo.message} onUndo={moveUndo.onUndo} onDone={() => setMoveUndo(null)} duration={8000} />}
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
     </div>
   );
