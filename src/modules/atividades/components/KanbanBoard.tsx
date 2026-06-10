@@ -242,9 +242,12 @@ export default function KanbanBoard({
   const [editingCardId, setEditingCardId] = useState<string | null>(null);
   const [personPopoverFor, setPersonPopoverFor] = useState<KanbanActivity | null>(null);
 
+  // Física do drag (Tarefa 1): threshold 8px no ponteiro garante que clique
+  // simples abra o card e nunca inicie arrasto; long-press (250ms) no toque
+  // evita drag acidental ao rolar a coluna no mobile (padrão Trello).
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
@@ -660,7 +663,7 @@ export default function KanbanBoard({
           )}
         </div>
 
-        <DragOverlay>
+        <DragOverlay dropAnimation={{ duration: 200, easing: "cubic-bezier(0.2, 0, 0, 1)" }}>
           {activeCard ? <CardView activity={activeCard} mobile={mobile} overlay /> : null}
         </DragOverlay>
       </DndContext>
@@ -1260,7 +1263,7 @@ function CardView({
           : hovered && !mobile
           ? "0 4px 12px rgba(0,0,0,0.28)"
           : "0 1px 2px rgba(0,0,0,0.15)",
-        transform: overlay ? "rotate(2deg)" : hovered && !mobile ? "translateY(-2px)" : "none",
+        transform: overlay ? "rotate(3deg)" : hovered && !mobile ? "translateY(-2px)" : "none",
         transition: "box-shadow 0.16s ease, transform 0.16s ease, opacity 0.16s ease",
         display: "flex",
         flexDirection: "column",
