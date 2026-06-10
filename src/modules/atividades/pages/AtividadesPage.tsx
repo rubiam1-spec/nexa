@@ -7,9 +7,8 @@ import { useAuth } from "../../../app/contexts/AuthContext";
 import { supabase } from "../../../infra/supabase/supabaseClient";
 import { useIsMobile } from "../../../shared/hooks/useIsMobile";
 import { IcVisita, IcClientes, IcEmpreendimentos, IcTreinamento, IcLigacao, IcFollowUp, IcReuniao, IcImobiliarias, IcOutro } from "../../../shared/components/icons/NexaIcons";
-import ParticipantInput, { type Participant } from "../../../shared/components/ParticipantInput";
+import { type Participant } from "../../../shared/components/ParticipantInput";
 import ActivityDetailModal from "../../../shared/components/ActivityDetailModal";
-import PhotoUpload from "../../../shared/components/PhotoUpload";
 import WeeklyCalendar from "../components/WeeklyCalendar";
 import FilterChips, { type FilterChip } from "../components/FilterChips";
 import { isCommercialInternalRole } from "../constants/teamScope";
@@ -124,12 +123,6 @@ const badgeLabels: Record<string, string> = {
 const typeIcons: Record<string, React.ReactNode> = {
   visit_broker: <IcVisita size={20} color="#F87171" sw={2} />, visit_client: <IcClientes size={20} color="#A78BFA" sw={2} />, visit_development: <IcEmpreendimentos size={20} color="#FBBF24" sw={2} />, training: <IcTreinamento size={20} color="#60A5FA" sw={2} />,
   phone_call: <IcLigacao size={20} color="#F87171" sw={2} />, follow_up: <IcFollowUp size={20} color="#4ADE80" sw={2} />, meeting_internal: <IcReuniao size={20} color="#FBBF24" sw={2} />, meeting_external: <IcImobiliarias size={20} color="#60A5FA" sw={2} />, operational: <IcOutro size={20} color="#8A857B" sw={2} />, other: <IcOutro size={20} color="#9C9686" sw={2} />,
-};
-const typePlaceholders: Record<string, string> = {
-  visit_broker: "Ex: Visita Imobiliária Casa Nova", visit_client: "Ex: Visita ao cliente André",
-  visit_development: "Ex: Visita ao empreendimento Parque", training: "Ex: Treinamento equipe Imob. Horizonte",
-  phone_call: "Ex: Retorno cliente André", follow_up: "Ex: Follow-up proposta Maria",
-  meeting_internal: "Ex: Alinhamento semanal equipe", meeting_external: "Ex: Reunião com parceiro XYZ", other: "Atividade...",
 };
 const DURATIONS = [
   { label: "15min", value: 15 }, { label: "30min", value: 30 }, { label: "1h", value: 60 },
@@ -807,6 +800,29 @@ function TimePickerField({ value, onChange }: { value: string; onChange: (v: str
 
 // ── Registration Modal ──
 
+// Fallback de edição: quando a atividade não casa com nenhum kind ativo do
+// catálogo (kind desativado, type legado), sintetiza um kind a partir do tipo
+// para o form adaptativo continuar universal. id vazio = não persiste kind_id.
+function synthesizeKindForType(baseType: string): ActivityKind {
+  const sch = ACTIVITY_TYPE_SCHEMA[baseType];
+  const confeccao = sch?.branch === "confeccao";
+  const fields: string[] = ["titulo"];
+  if (sch?.needs.includes("client")) fields.push("cliente");
+  if (sch?.needs.includes("broker")) fields.push("corretor");
+  if (confeccao) fields.push("prazo", "responsaveis", "subtarefas", "observacoes");
+  else fields.push("data_hora", "participantes", "resultado", "proximo_passo", "observacoes");
+  return {
+    id: "", account_id: "", development_id: null,
+    category: sch?.group ?? "operacional",
+    base_type: baseType, key: baseType, label: sch?.label ?? baseType,
+    icon: "circle", color: null,
+    branch: confeccao ? "confeccao" : "agendamento",
+    autolink: sch?.autoLink ?? false,
+    suggested_duration_minutes: null, default_checklist: [],
+    fields, position: 0, active: true,
+  };
+}
+
 export function RegistrationModal({ accountId, developmentId, profileId, initialType, initialTitle, initialDate, initialStartTime, editActivity, canManageDate, initialMode, forcedStatus, forcedColumnId, planColumnId, doneColumnId, templates, developmentName, kinds, teamProfiles, currentUser, onClose, onSaved, thirdPartyPropertyId, thirdPartyPropertyTitle, negotiationId, clientId: propClientId }: { accountId: string; developmentId: string; profileId: string; initialType?: ActivityType; initialTitle?: string; initialDate?: string; initialStartTime?: string; editActivity?: Activity | null; canManageDate?: boolean; initialMode?: "plan" | "done"; forcedStatus?: "scheduled" | "in_progress"; forcedColumnId?: string | null; planColumnId?: string | null; doneColumnId?: string | null; templates?: Record<string, ActivityTemplate>; developmentName?: string | null; kinds?: { comercial: ActivityKind[]; interno: ActivityKind[]; operacional: ActivityKind[]; byKey: Record<string, ActivityKind>; byId: Record<string, ActivityKind> }; teamProfiles?: { id: string; name: string }[]; currentUser?: { id: string; name: string } | null; onClose: () => void; onSaved: (result?: { id: string; status: string }) => void; thirdPartyPropertyId?: string; thirdPartyPropertyTitle?: string; negotiationId?: string; clientId?: string }) {
   const isEdit = !!editActivity;
   // Criador em 2 etapas (só criação): 'type' (escolher tipo) → 'form' (adaptado).
@@ -815,21 +831,37 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
   // Kind selecionado (catálogo) — dirige a Etapa 2 na criação.
   const [selectedKind, setSelectedKind] = useState<ActivityKind | null>(null);
   const [kindSearch, setKindSearch] = useState("");
+  // Pré-preenchimento da edição: details, unidade e participantes vêm da
+  // atividade. Mantém o form adaptativo único (criação E edição).
+  const editDetails = (editActivity?.details ?? {}) as Record<string, unknown>;
   // Campos dirigidos pelo catálogo (Etapa 2 adaptativa).
-  const [clientSel, setClientSel] = useState<PickOption | null>(null);
-  const [brokerSel, setBrokerSel] = useState<PickOption | null>(null);
-  const [unitSel, setUnitSel] = useState<UnitValue>(null);
-  const [details, setDetails] = useState<{ valor?: number; canal?: string; referencia?: string; local?: string; observacoes?: string }>({});
+  const [clientSel, setClientSel] = useState<PickOption | null>(
+    editActivity?.client_id ? { id: editActivity.client_id, name: editActivity.clients?.name ?? "Cliente" } : null,
+  );
+  const [brokerSel, setBrokerSel] = useState<PickOption | null>(
+    editActivity?.broker_id ? { id: editActivity.broker_id, name: editActivity.brokers?.name ?? "Corretor" } : null,
+  );
+  const [unitSel, setUnitSel] = useState<UnitValue>(
+    editDetails.unit_id ? { id: String(editDetails.unit_id), label: String(editDetails.unit_label ?? "Unidade") } : null,
+  );
+  const [details, setDetails] = useState<{ valor?: number; canal?: string; referencia?: string; local?: string; observacoes?: string }>(() => {
+    const d: { valor?: number; canal?: string; referencia?: string; local?: string } = {};
+    if (editDetails.valor != null) d.valor = Number(editDetails.valor);
+    if (editDetails.canal != null) d.canal = String(editDetails.canal);
+    if (editDetails.referencia != null) d.referencia = String(editDetails.referencia);
+    if (editDetails.local != null) d.local = String(editDetails.local);
+    return d;
+  });
   // Toggle de criação: "plan" (Planejar → scheduled/in_progress) vs
   // "done" (Já realizada → completed). Sobrepõe decideInitialActivityStatus.
   const [mode, setMode] = useState<"plan" | "done">(initialMode ?? "done");
-  const [outcomeCategory, setOutcomeCategory] = useState<string | null>(null);
+  const [outcomeCategory, setOutcomeCategory] = useState<string | null>(editActivity?.outcome_category ?? null);
   const [type, setType] = useState<ActivityType | null>(editActivity?.type ?? initialType ?? null);
   const [title, setTitle] = useState(editActivity?.title ?? initialTitle ?? "");
   const contactName = editActivity?.contact_name ?? "";
-  const [participants, setParticipants] = useState<Participant[]>([]);
-  const [photos, setPhotos] = useState<{ file: File; preview: string }[]>([]);
-  const [photoCaption, setPhotoCaption] = useState("");
+  const [participants, setParticipants] = useState<Participant[]>(
+    (editActivity?.activity_participants ?? []).map((p) => ({ type: p.participant_type as Participant["type"], id: p.participant_id ?? null, name: p.participant_name })),
+  );
   const [activityDate, setActivityDate] = useState(editActivity?.activity_date ?? initialDate ?? todayStr());
   const [startTime, setStartTime] = useState(editActivity?.start_time?.substring(0, 5) ?? initialStartTime ?? "");
 
@@ -888,6 +920,25 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
     if (k) applyKind(k);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kinds, initialType]);
+
+  // Edição: resolve o kind da atividade (kind_id → base_type) SEM resetar os
+  // valores já pré-preenchidos. Sem match no catálogo, sintetiza pelo tipo.
+  useEffect(() => {
+    if (!isEdit || selectedKind || !kinds || !editActivity) return;
+    const all = kinds.comercial.concat(kinds.interno, kinds.operacional);
+    const k = (editActivity.kind_id ? all.find((x) => x.id === editActivity.kind_id) : null)
+      ?? all.find((x) => x.base_type === editActivity.type)
+      ?? synthesizeKindForType(editActivity.type);
+    setSelectedKind(k);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kinds, isEdit]);
+
+  // Troca de tipo na edição: re-renderiza os campos do novo kind preservando os
+  // valores compatíveis já preenchidos (cliente, data/hora, observações, etc.).
+  const switchKindForEdit = (k: ActivityKind) => {
+    setSelectedKind(k);
+    setType(k.base_type as ActivityType);
+  };
 
   // Template legado (fallback) — só quando NÃO há kind selecionado (ex.: edição).
   useEffect(() => {
@@ -948,18 +999,10 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
   const isMobile = useIsMobile();
   // planMode: criação em modo "Planejar" (não vale para edição).
   const planMode = !isEdit && mode === "plan";
-  // Esconde duração/resultado/próxima ação: em criação quando Planejar;
-  // em edição quando a atividade é futura (preserva comportamento anterior).
-  const hideCompletionFields = isEdit ? activityDate > todayStr() : planMode;
-  // Catálogo (kind) dirige a Etapa 2 na criação; schema legado serve à edição.
+  // Branch (agendamento/confecção) define rótulos do título e do botão salvar.
   const schema = type ? ACTIVITY_TYPE_SCHEMA[type] : null;
   const branch = selectedKind?.branch ?? schema?.branch;
   const isConfeccao = branch === "confeccao";
-  // Pessoas: na criação (kind) sempre mostra; na edição segue o schema legado.
-  const needsPeople = selectedKind
-    ? true
-    : (!!schema && (schema.needs.includes("client") || schema.needs.includes("broker") || schema.needs.includes("team") || schema.needs.includes("assignee")));
-  const showAutoLink = !isEdit && (selectedKind ? selectedKind.autolink : !!schema?.autoLink);
   // Kinds sem campo de título compõem o título automático no save.
   const kindHasTitleField = selectedKind ? selectedKind.fields.some((f) => fieldDef(f).toTitle) : true;
   // planMode exige horário (slot de ordem no Quadro).
@@ -972,18 +1015,67 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
     setSaving(true);
     try {
       if (isEdit && editActivity) {
-        // Update mode
+        // Edição usa o MESMO assembly da criação (identidade única de cliente,
+        // details, unidade, kind), em modo update. Título NÃO é regenerado.
+        const clientPart = participants.find((p) => p.type === "client" && p.id) ?? null;
+        const resolvedClientId = clientSel?.id ?? clientPart?.id ?? linkedNeg?.client_id ?? undefined;
+        const subjectName = (clientSel?.name ?? clientPart?.name ?? linkedNeg?.clientName ?? null) ?? brokerSel?.name ?? null;
+        const contactStr = participants.length > 0 ? participants.map((p) => p.name).join(", ") : (contactName.trim() || subjectName || null);
+        const effType = selectedKind?.base_type ?? type;
+        // id vazio = kind sintetizado (sem catálogo) → preserva o kind_id atual.
+        const effKindId = selectedKind?.id ? selectedKind.id : (editActivity.kind_id ?? null);
+        const effBrokerId = brokerSel?.id ?? null;
+        // details: preserva chaves existentes; sobrescreve as gerenciadas pelo kind.
+        const detailsOut: Record<string, unknown> = { ...(editActivity.details ?? {}) };
+        for (const dk of ["valor", "canal", "referencia", "local"] as const) {
+          const manageable = !selectedKind || selectedKind.fields.includes(dk);
+          const v = details[dk];
+          if (v !== undefined && v !== "" && manageable) detailsOut[dk] = v;
+          else if (manageable) delete detailsOut[dk];
+        }
+        if (selectedKind?.fields.includes("unidade")) {
+          if (unitSel?.id) { detailsOut.unit_id = unitSel.id; detailsOut.unit_label = unitSel.label; }
+          else { delete detailsOut.unit_id; delete detailsOut.unit_label; }
+        }
         const updateData: Record<string, unknown> = {
-          type, title: title.trim(), contact_name: contactName.trim() || null,
-          duration_minutes: duration, outcome: outcome.trim() || null,
-          next_action: nextAction.trim() || null, next_action_date: nextActionDate || null,
+          type: effType, kind_id: effKindId,
+          title: title.trim(), contact_name: contactStr,
+          client_id: resolvedClientId ?? null,
+          broker_id: effBrokerId,
+          duration_minutes: Number(duration),
+          outcome: outcome.trim() || null,
+          outcome_category: outcomeCategory,
+          next_action: nextAction.trim() || null,
+          next_action_date: nextActionDate || null,
           description: description.trim() || null,
+          details: detailsOut,
         };
         if (dateEditable) {
           updateData.activity_date = activityDate;
           updateData.start_time = startTime || null;
         }
+        // Trilha: 'rescheduled' para mudança de data/hora (mantém a semântica já
+        // usada no drag da Agenda) + 'updated' com a lista dos demais campos.
+        // Edição geral nunca cai só em 'rescheduled' silencioso: ambos os logs
+        // são independentes e fire-and-forget.
+        const startNorm = startTime || null;
+        const prevStart = editActivity.start_time ? editActivity.start_time.substring(0, 5) : null;
+        const scheduleChanged = dateEditable && (activityDate !== editActivity.activity_date || startNorm !== prevStart);
+        const changed: string[] = [];
+        const diff = (a: unknown, b: unknown, key: string) => { if (a !== b) changed.push(key); };
+        diff(effType, editActivity.type, "type");
+        diff(title.trim(), editActivity.title ?? "", "title");
+        diff(resolvedClientId ?? null, editActivity.client_id ?? null, "client_id");
+        diff(effBrokerId, editActivity.broker_id ?? null, "broker_id");
+        diff(Number(duration), Number(editActivity.duration_minutes ?? 0), "duration_minutes");
+        diff(outcome.trim() || null, editActivity.outcome ?? null, "outcome");
+        diff(outcomeCategory ?? null, editActivity.outcome_category ?? null, "outcome_category");
+        diff(nextAction.trim() || null, editActivity.next_action ?? null, "next_action");
+        diff(nextActionDate || null, editActivity.next_action_date ?? null, "next_action_date");
+        diff(description.trim() || null, editActivity.description ?? null, "description");
         await repoUpdateActivity(editActivity.id, updateData);
+        if (scheduleChanged) void repoLogActivityEvent({ accountId, activityId: editActivity.id, action: "rescheduled", actorProfileId: profileId, details: { old: { activity_date: editActivity.activity_date, start_time: editActivity.start_time }, new: { activity_date: activityDate, start_time: startNorm } } });
+        if (changed.length > 0) void repoLogActivityEvent({ accountId, activityId: editActivity.id, action: "updated", actorProfileId: profileId, details: { fields: changed } });
         onSaved(); onClose();
       } else {
         // Insert mode — o toggle Planejar/Já realizada decide explicitamente
@@ -1072,19 +1164,6 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
         if (inserted?.id && participants.length > 0) {
           await supabase.from("activity_participants").insert(participants.map((p) => ({ activity_id: inserted.id, participant_type: p.type, participant_id: p.id, participant_name: p.name, participant_detail: p.detail || null })));
         }
-        // Upload photos
-        if (inserted?.id && photos.length > 0) {
-          for (const photo of photos) {
-            const ext = photo.file.name.split(".").pop() || "jpg";
-            const path = `${inserted.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-            const { error: upErr } = await supabase.storage.from("activity-photos").upload(path, photo.file, { contentType: "image/jpeg" });
-            if (!upErr) {
-              const { data: signedData } = await supabase.storage.from("activity-photos").createSignedUrl(path, 604800); // 7 days
-              const photoUrl = signedData?.signedUrl || path;
-              await supabase.from("activity_photos").insert({ activity_id: inserted.id, photo_url: photoUrl, storage_path: path, caption: photoCaption.trim() || null, uploaded_by: profileId });
-            }
-          }
-        }
         onSaved(inserted?.id ? { id: inserted.id, status: actStatus } : undefined);
         if (isPlanned || (nextAction.trim() && nextActionDate)) { onClose(); return; }
         setStep(2);
@@ -1124,7 +1203,6 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
 
   const IS: React.CSSProperties = { background: "linear-gradient(145deg, var(--surface-raised), var(--surface-base))", border: "1px solid rgba(42,40,34,0.5)", borderRadius: 10, padding: "10px 14px", color: T.chalk, fontSize: 13, width: "100%", outline: "none", boxSizing: "border-box", fontFamily: "'DM Sans', sans-serif", transition: "border-color 0.15s" };
   const LBL: React.CSSProperties = { fontSize: 9, color: T.fog, textTransform: "uppercase", letterSpacing: "0.12em", fontFamily: "var(--font-mono)", display: "block", marginBottom: 6, fontWeight: 600 };
-  const allTypes = Object.keys(badgeLabels) as ActivityType[];
   const focusIn = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => { e.currentTarget.style.borderColor = "rgba(74,222,128,0.25)"; };
   const focusOut = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => { e.currentTarget.style.borderColor = "rgba(42,40,34,0.5)"; };
 
@@ -1286,18 +1364,20 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
         ) : (
         /* ── Step 1: Registro normal ── */
         <>
-        {!isEdit && stage === "type" ? (
-          /* ───── ETAPA 1: escolher o tipo ───── */
+        {stage === "type" ? (
+          /* ───── ETAPA 1: escolher o tipo (criação e troca de tipo na edição) ───── */
           <div style={{ animation: "nexaFadeIn 160ms ease" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontStyle: "italic", fontSize: 22, color: T.chalk, fontWeight: 400, margin: 0 }}>Registrar atividade</h2>
-              <button type="button" onClick={onClose} style={{ background: "none", border: "none", color: T.fog, fontSize: 20, cursor: "pointer" }}>&times;</button>
+              <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontStyle: "italic", fontSize: 22, color: T.chalk, fontWeight: 400, margin: 0 }}>{isEdit ? "Trocar tipo" : "Registrar atividade"}</h2>
+              <button type="button" onClick={isEdit ? () => setStage("form") : onClose} style={{ background: "none", border: "none", color: T.fog, fontSize: 20, cursor: "pointer" }}>&times;</button>
             </div>
-            <div style={{ display: "flex", gap: 0, border: `1px solid ${T.stone}`, borderRadius: 10, overflow: "hidden", marginBottom: 12 }}>
-              {([["plan", "Planejar"], ["done", "Já realizada"]] as const).map(([m, label], i) => (
-                <button key={m} type="button" onClick={() => setMode(m)} style={{ flex: 1, padding: "10px 8px", fontSize: 13, fontWeight: 600, cursor: "pointer", border: "none", borderRight: i === 0 ? `1px solid ${T.stone}` : "none", color: mode === m ? T.sprout : T.fog, background: mode === m ? "rgba(74,222,128,0.1)" : "transparent", transition: "all 120ms ease" }}>{label}</button>
-              ))}
-            </div>
+            {!isEdit && (
+              <div style={{ display: "flex", gap: 0, border: `1px solid ${T.stone}`, borderRadius: 10, overflow: "hidden", marginBottom: 12 }}>
+                {([["plan", "Planejar"], ["done", "Já realizada"]] as const).map(([m, label], i) => (
+                  <button key={m} type="button" onClick={() => setMode(m)} style={{ flex: 1, padding: "10px 8px", fontSize: 13, fontWeight: 600, cursor: "pointer", border: "none", borderRight: i === 0 ? `1px solid ${T.stone}` : "none", color: mode === m ? T.sprout : T.fog, background: mode === m ? "rgba(74,222,128,0.1)" : "transparent", transition: "all 120ms ease" }}>{label}</button>
+                ))}
+              </div>
+            )}
             <input value={kindSearch} onChange={(e) => setKindSearch(e.target.value)} placeholder="Buscar tipo de registro…" autoFocus style={{ ...IS, marginBottom: 12 }} />
             <div style={{ maxHeight: isMobile ? "50vh" : 360, overflowY: "auto", margin: "0 -4px", padding: "0 4px" }}>
               {(["comercial", "interno", "operacional"] as const).map((cat) => {
@@ -1310,7 +1390,7 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
                       const c = badgeColors[k.base_type] || T.sprout;
                       const hint = k.autolink ? "vincula negociação" : k.branch === "confeccao" ? "confecção" : "";
                       return (
-                        <button key={k.id} type="button" onClick={() => { applyKind(k); setStage("form"); setShowMore(false); setKindSearch(""); setTimeout(() => document.getElementById("activity-title")?.focus(), 60); }} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", minHeight: 44, padding: "8px 10px", borderRadius: 8, border: "1px solid transparent", background: "transparent", color: T.chalk, fontSize: 14, cursor: "pointer", textAlign: "left", transition: "background 0.12s ease, border-color 0.12s ease" }} onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-raised)"; e.currentTarget.style.borderColor = T.stone; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "transparent"; }}>
+                        <button key={k.id} type="button" onClick={() => { (isEdit ? switchKindForEdit : applyKind)(k); setStage("form"); setShowMore(false); setKindSearch(""); if (!isEdit) setTimeout(() => document.getElementById("activity-title")?.focus(), 60); }} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", minHeight: 44, padding: "8px 10px", borderRadius: 8, border: "1px solid transparent", background: "transparent", color: T.chalk, fontSize: 14, cursor: "pointer", textAlign: "left", transition: "background 0.12s ease, border-color 0.12s ease" }} onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-raised)"; e.currentTarget.style.borderColor = T.stone; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "transparent"; }}>
                           <span style={{ width: 30, height: 30, borderRadius: 8, background: c + "18", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><KindIcon name={k.icon} size={17} color={c} /></span>
                           <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{k.label}</span>
                           {hint && <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: T.slate, flexShrink: 0 }}>{hint}</span>}
@@ -1330,45 +1410,26 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
         /* ───── ETAPA 2 / edição: form adaptado pelo schema ───── */
         <div style={{ animation: !isEdit ? "nexaFadeIn 160ms ease" : undefined }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, gap: 10 }}>
-          {isEdit ? (
-            <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontStyle: "italic", fontSize: 22, color: T.chalk, fontWeight: 400, margin: 0 }}>Editar atividade</h2>
-          ) : (
-            <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-              <button type="button" onClick={() => setStage("type")} title="Trocar tipo" style={{ background: "transparent", border: `1px solid ${T.stone}`, borderRadius: 8, color: T.bone, fontSize: 15, cursor: "pointer", width: 32, height: 32, flexShrink: 0 }}>←</button>
-              {(selectedKind || type) && (() => {
-                const c = badgeColors[selectedKind?.base_type ?? type ?? "other"] || T.sprout;
-                const label = selectedKind?.label ?? (type ? badgeLabels[type] : "");
-                return (
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 20, background: c + "18", color: c, fontSize: 13, fontWeight: 700 }}>
-                    {selectedKind ? <KindIcon name={selectedKind.icon} size={16} color={c} /> : type ? <span style={{ fontSize: 16, display: "inline-flex" }}>{typeIcons[type]}</span> : null}
-                    {label}
-                  </span>
-                );
-              })()}
-            </div>
-          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+            <button type="button" onClick={() => setStage("type")} title="Trocar tipo" style={{ background: "transparent", border: `1px solid ${T.stone}`, borderRadius: 8, color: T.bone, fontSize: 15, cursor: "pointer", width: 32, height: 32, flexShrink: 0 }}>←</button>
+            {(selectedKind || type) && (() => {
+              const c = badgeColors[selectedKind?.base_type ?? type ?? "other"] || T.sprout;
+              const label = selectedKind?.label ?? (type ? badgeLabels[type] : "");
+              return (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 20, background: c + "18", color: c, fontSize: 13, fontWeight: 700 }}>
+                  {selectedKind ? <KindIcon name={selectedKind.icon} size={16} color={c} /> : type ? <span style={{ fontSize: 16, display: "inline-flex" }}>{typeIcons[type]}</span> : null}
+                  {label}
+                </span>
+              );
+            })()}
+            {isEdit && <span style={{ fontSize: 11, color: T.fog, fontFamily: "var(--font-mono)" }}>editando</span>}
+          </div>
           {thirdPartyPropertyTitle && <div style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", color: "#D97706", background: "rgba(217,119,6,0.08)", padding: "2px 6px", borderRadius: 4, fontFamily: "var(--font-mono)" }}>IMÓVEL</span><span style={{ fontSize: 12, color: T.fog }}>{thirdPartyPropertyTitle}</span></div>}
           <button type="button" onClick={onClose} style={{ background: "none", border: "none", color: T.fog, fontSize: 20, cursor: "pointer", marginLeft: "auto" }}>&times;</button>
         </div>
 
-        {/* Edição mantém a grade de tipos inline (trocar tipo como antes). */}
-        {isEdit && (
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, minmax(0, 1fr))" : "repeat(3, minmax(0, 1fr))", gap: 8, marginBottom: 18 }}>
-            {allTypes.map((k) => {
-              const isSel = type === k;
-              const c = badgeColors[k] || T.sprout;
-              return (
-                <button key={k} type="button" onClick={() => setType(k)} style={{ background: isSel ? `linear-gradient(145deg, ${c}1F, ${c}0A)` : "linear-gradient(145deg, var(--surface-raised), var(--surface-base))", border: isSel ? `2px solid ${c}66` : "1px solid rgba(42,40,34,0.5)", borderRadius: 10, padding: "12px 6px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, transition: "all 0.15s" }}>
-                  <span style={{ fontSize: 20, color: isSel ? c : T.fog }}>{typeIcons[k]}</span>
-                  <span style={{ fontSize: 11, color: isSel ? c : T.bone, fontWeight: 600 }}>{badgeLabels[k]}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {selectedKind && !isEdit ? (
-          /* Etapa 2 ADAPTATIVA — renderiza só os campos do kind, em ordem */
+        {selectedKind ? (
+          /* Etapa 2 ADAPTATIVA — renderiza só os campos do kind, em ordem (criação E edição) */
           <>
             {selectedKind.fields.filter((f) => !fieldDef(f).advanced).map((f) => renderField(f))}
             {dateHintLabel && <div style={{ fontSize: 11, color: T.fog, fontFamily: "var(--font-mono)", marginBottom: 10 }}>interpretado: {dateHintLabel}</div>}
@@ -1381,123 +1442,8 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
             )}
           </>
         ) : (
-        <>
-        <label style={LBL}>{isConfeccao ? "Demanda *" : "Título *"}</label>
-        <input id="activity-title" style={{ ...IS, marginBottom: 14 }} value={title} onChange={(e) => setTitle(e.target.value)} placeholder={isConfeccao ? "Ex: Atualizar tabela de preços" : type ? typePlaceholders[type] : "Título da atividade"} onFocus={focusIn} onBlur={focusOut} />
-
-        {(isEdit || needsPeople) && (<>
-          <label style={LBL}>{isConfeccao ? "Responsável(is)" : "Com quem"}</label>
-          <div style={{ marginBottom: 14 }}>
-            <ParticipantInput accountId={accountId} value={participants} onChange={setParticipants} />
-          </div>
-        </>)}
-
-        {!isEdit && schema?.needs.includes("development") && developmentName && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, padding: "8px 12px", borderRadius: 8, background: "var(--surface-raised)", border: `1px solid ${T.stone}` }}>
-            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", color: T.fog, fontFamily: "var(--font-mono)" }}>EMPREENDIMENTO</span>
-            <span style={{ fontSize: 12, color: T.bone }}>{developmentName}</span>
-          </div>
-        )}
-
-        {/* Auto-vínculo à negociação ativa (só tipos comerciais) */}
-        {showAutoLink && linkedNeg && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, padding: "8px 12px", borderRadius: 8, background: "rgba(74,222,128,0.08)", border: `1px solid ${T.sprout}40` }}>
-            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", color: T.sprout, fontFamily: "var(--font-mono)" }}>VINCULADO</span>
-            <span style={{ fontSize: 12, color: T.bone, flex: 1 }}>Negociação{linkedNeg.quadra ? ` Q${linkedNeg.quadra} · L${linkedNeg.lote}` : ""}{linkedNeg.clientName ? ` · ${linkedNeg.clientName}` : ""}</span>
-            <button type="button" onClick={() => { setLinkedNeg(null); setNegOptions([]); setLinkDismissed(true); }} style={{ background: "none", border: "none", color: T.fog, fontSize: 16, cursor: "pointer", lineHeight: 1 }}>×</button>
-          </div>
-        )}
-        {showAutoLink && !linkedNeg && negOptions.length > 1 && (
-          <div style={{ marginBottom: 14 }}>
-            <label style={LBL}>Qual negociação?</label>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {negOptions.map((n) => (
-                <button key={n.id} type="button" onClick={() => { setLinkedNeg(n); setNegOptions([]); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 8, border: `1px solid ${T.stone}`, background: T.carbon, color: T.chalk, fontSize: 13, cursor: "pointer", textAlign: "left", minHeight: 44 }}>
-                  {n.quadra ? `Q${n.quadra} · L${n.lote}` : "Negociação"}{n.clientName ? ` · ${n.clientName}` : ""}
-                </button>
-              ))}
-              <button type="button" onClick={() => { setNegOptions([]); setLinkDismissed(true); }} style={{ background: "none", border: "none", color: T.fog, fontSize: 12, cursor: "pointer", alignSelf: "flex-start" }}>Não vincular</button>
-            </div>
-          </div>
-        )}
-
-        <div style={{ display: "flex", gap: 12, marginBottom: dateHintLabel ? 6 : 14 }}>
-          <div style={{ flex: 1 }}>
-            <label style={LBL}>{isConfeccao ? "Prazo" : "Data"} *{!dateEditable && isEdit ? <span style={{ fontSize: 9, color: T.red, marginLeft: 4 }}>(bloqueado após 24h)</span> : ""}</label>
-            <DatePickerField value={activityDate} onChange={(v) => { dateTouched.current = true; setActivityDate(v); }} disabled={!dateEditable} />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={LBL}>Horário</label>
-            <TimePickerField value={startTime} onChange={(v) => { timeTouched.current = true; setStartTime(v); }} />
-          </div>
-        </div>
-        {!isEdit && dateHintLabel && (
-          <div style={{ fontSize: 11, color: T.fog, fontFamily: "var(--font-mono)", marginBottom: 14 }}>interpretado: {dateHintLabel}</div>
-        )}
-        {planMode && <div style={{ padding: "10px 14px", borderRadius: 8, background: T.blue + "10", border: `1px solid ${T.blue}30`, fontSize: 12, color: T.blue, marginBottom: 14 }}>📅 {forcedStatus === "in_progress" ? "Cartão entra em Em andamento" : "Cartão entra em A fazer"} — {formatWeekdayDateLongBRT(activityDate + "T12:00:00").replace(/ de \d{4}$/, "")}</div>}
-        {planMode && (
-          <div style={{ marginBottom: 14 }}>
-            <label style={LBL}>{isConfeccao ? "Subtarefas" : "Checklist"}</label>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {checklistDraft.map((item, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <input value={item} onChange={(e) => setChecklistDraft((p) => p.map((x, j) => (j === i ? e.target.value : x)))} style={{ ...IS, flex: 1, marginBottom: 0, padding: "8px 12px" }} />
-                  <button type="button" onClick={() => setChecklistDraft((p) => p.filter((_, j) => j !== i))} style={{ background: "none", border: "none", color: T.fog, fontSize: 16, cursor: "pointer", lineHeight: 1 }}>×</button>
-                </div>
-              ))}
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <input value={newChecklistText} onChange={(e) => setNewChecklistText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && newChecklistText.trim()) { e.preventDefault(); setChecklistDraft((p) => [...p, newChecklistText.trim()]); setNewChecklistText(""); } }} placeholder={isConfeccao ? "+ adicionar subtarefa" : "+ adicionar item"} style={{ ...IS, flex: 1, marginBottom: 0, padding: "8px 12px" }} />
-                {newChecklistText.trim() && <button type="button" onClick={() => { setChecklistDraft((p) => [...p, newChecklistText.trim()]); setNewChecklistText(""); }} style={{ background: "transparent", border: `1px solid ${T.sprout}40`, color: T.sprout, borderRadius: 8, padding: "8px 12px", fontSize: 13, cursor: "pointer" }}>Add</button>}
-              </div>
-            </div>
-          </div>
-        )}
-        {!hideCompletionFields && (<>
-        <label style={LBL}>Duração</label>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
-          {DURATIONS.map((d) => {
-            const act = duration === d.value;
-            return (
-              <button key={d.value} type="button" onClick={() => setDuration(d.value)} style={{ padding: "8px 14px", borderRadius: 8, background: act ? "rgba(74,222,128,0.1)" : "transparent", border: act ? "1px solid rgba(74,222,128,0.3)" : "1px solid rgba(42,40,34,0.5)", color: act ? T.sprout : T.bone, fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 600, cursor: "pointer", boxShadow: act ? "0 0 12px rgba(74,222,128,0.1)" : "none", transition: "all 0.15s" }}>{d.label}</button>
-            );
-          })}
-        </div>
-        <label style={LBL}>Resultado</label>
-        <input style={{ ...IS, marginBottom: 10 }} value={outcome} onChange={(e) => setOutcome(e.target.value)} placeholder="O que aconteceu?" onFocus={focusIn} onBlur={focusOut} />
-        <OutcomeChips value={outcomeCategory} onChange={setOutcomeCategory} />
-        </>)}
-        {!hideCompletionFields && (<>
-        <label style={LBL}>Próxima ação</label>
-        <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
-          <input style={{ ...IS, flex: 2 }} value={nextAction} onChange={(e) => setNextAction(e.target.value)} placeholder="O que fazer em seguida?" onFocus={focusIn} onBlur={focusOut} />
-          <div style={{ flex: 1 }}>
-            <DatePickerField value={nextActionDate} onChange={setNextActionDate} align="right" />
-          </div>
-        </div>
-        </>)}
-        {/* Progressive disclosure: observações/fotos recolhidos na criação. */}
-        {isEdit ? (
-          <>
-            <label style={LBL}>Observações</label>
-            <textarea rows={2} style={{ ...IS, resize: "vertical", marginBottom: 14 }} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Anotações adicionais..." onFocus={focusIn} onBlur={focusOut as unknown as React.FocusEventHandler<HTMLTextAreaElement>} />
-          </>
-        ) : (
-          <>
-            <button type="button" onClick={() => setShowMore((v) => !v)} style={{ background: "none", border: "none", color: T.fog, fontSize: 12, fontFamily: "var(--font-mono)", cursor: "pointer", padding: "2px 0", marginBottom: showMore ? 10 : 14 }}>{showMore ? "− menos opções" : "+ mais opções"}</button>
-            {showMore && (
-              <>
-                <label style={LBL}>Observações</label>
-                <textarea rows={2} style={{ ...IS, resize: "vertical", marginBottom: 14 }} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Anotações adicionais..." onFocus={focusIn} onBlur={focusOut as unknown as React.FocusEventHandler<HTMLTextAreaElement>} />
-                <label style={LBL}>Fotos (opcional)</label>
-                <div style={{ marginBottom: photos.length > 0 ? 8 : 14 }}>
-                  <PhotoUpload photos={photos} onChange={setPhotos} />
-                </div>
-                {photos.length > 0 && <input style={{ ...IS, marginBottom: 14 }} value={photoCaption} onChange={(e) => setPhotoCaption(e.target.value)} placeholder="Legenda da foto (opcional)" />}
-              </>
-            )}
-          </>
-        )}
-        </>
+          /* Sem kind resolvido ainda (transitório): placeholder enquanto o catálogo carrega */
+          <div style={{ padding: "30px 0", textAlign: "center", color: T.fog, fontSize: 13 }}>Carregando tipo…</div>
         )}
         <button type="button" onClick={handleSave} disabled={!canSave || saving} style={{ width: "100%", height: 40, background: T.sprout, color: T.ink, border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: canSave && !saving ? "pointer" : "not-allowed", opacity: canSave && !saving ? 1 : 0.5 }}>
           {saving ? "Salvando..." : isEdit ? "Salvar alterações" : isConfeccao ? "Criar demanda" : planMode ? "📅 Agendar atividade" : "Registrar atividade"}
