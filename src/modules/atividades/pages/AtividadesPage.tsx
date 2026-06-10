@@ -842,7 +842,7 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
     setStartTime(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [duration, setDuration] = useState(editActivity?.duration_minutes ?? 60);
+  const [duration, setDuration] = useState(Number(editActivity?.duration_minutes ?? 60));
   const [outcome, setOutcome] = useState(editActivity?.outcome ?? "");
   const [nextAction, setNextAction] = useState(editActivity?.next_action ?? "");
   const [nextActionDate, setNextActionDate] = useState(editActivity?.next_action_date ?? "");
@@ -865,7 +865,7 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
   const applyKind = (k: ActivityKind) => {
     setSelectedKind(k);
     setType(k.base_type as ActivityType);
-    if (k.suggested_duration_minutes) setDuration(k.suggested_duration_minutes);
+    if (k.suggested_duration_minutes) setDuration(Number(k.suggested_duration_minutes));
     setChecklistDraft(mode === "plan" ? normalizeChecklist(k.default_checklist) : []);
     setClientSel(null); setBrokerSel(null); setUnitSel(null); setDetails({});
     setLinkedNeg(null); setNegOptions([]); setLinkDismissed(false);
@@ -1192,6 +1192,16 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
               <div style={{ flex: 1 }}><DatePickerField value={activityDate} onChange={(v) => { dateTouched.current = true; setActivityDate(v); }} disabled={!dateEditable} /></div>
               <div style={{ flex: 1 }}><TimePickerField value={startTime} onChange={(v) => { timeTouched.current = true; setStartTime(v); }} /></div>
             </div>
+            {/* Duração faz parte do grupo Data/Hora — só em agendamento (data_hora),
+                nunca em confecção (prazo). Pré-selecionada com a duração do kind. */}
+            {key === "data_hora" && (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ ...LBL, marginBottom: 6 }}>Duração</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {DURATIONS.map((d) => chipBtn(Number(duration) === d.value, d.label, () => setDuration(d.value)))}
+                </div>
+              </div>
+            )}
           </div>,
         );
       case "duration":
