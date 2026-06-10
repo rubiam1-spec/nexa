@@ -807,7 +807,7 @@ function TimePickerField({ value, onChange }: { value: string; onChange: (v: str
 
 // ── Registration Modal ──
 
-export function RegistrationModal({ accountId, developmentId, profileId, initialType, initialTitle, initialDate, initialStartTime, editActivity, canManageDate, initialMode, forcedStatus, forcedColumnId, planColumnId, doneColumnId, templates, developmentName, kinds, teamProfiles, currentUser, onClose, onSaved, thirdPartyPropertyId, thirdPartyPropertyTitle, negotiationId, clientId: propClientId }: { accountId: string; developmentId: string; profileId: string; initialType?: ActivityType; initialTitle?: string; initialDate?: string; initialStartTime?: string; editActivity?: Activity | null; canManageDate?: boolean; initialMode?: "plan" | "done"; forcedStatus?: "scheduled" | "in_progress"; forcedColumnId?: string | null; planColumnId?: string | null; doneColumnId?: string | null; templates?: Record<string, ActivityTemplate>; developmentName?: string | null; kinds?: { comercial: ActivityKind[]; interno: ActivityKind[]; operacional: ActivityKind[]; byKey: Record<string, ActivityKind>; byId: Record<string, ActivityKind> }; teamProfiles?: { id: string; name: string }[]; currentUser?: { id: string; name: string } | null; onClose: () => void; onSaved: () => void; thirdPartyPropertyId?: string; thirdPartyPropertyTitle?: string; negotiationId?: string; clientId?: string }) {
+export function RegistrationModal({ accountId, developmentId, profileId, initialType, initialTitle, initialDate, initialStartTime, editActivity, canManageDate, initialMode, forcedStatus, forcedColumnId, planColumnId, doneColumnId, templates, developmentName, kinds, teamProfiles, currentUser, onClose, onSaved, thirdPartyPropertyId, thirdPartyPropertyTitle, negotiationId, clientId: propClientId }: { accountId: string; developmentId: string; profileId: string; initialType?: ActivityType; initialTitle?: string; initialDate?: string; initialStartTime?: string; editActivity?: Activity | null; canManageDate?: boolean; initialMode?: "plan" | "done"; forcedStatus?: "scheduled" | "in_progress"; forcedColumnId?: string | null; planColumnId?: string | null; doneColumnId?: string | null; templates?: Record<string, ActivityTemplate>; developmentName?: string | null; kinds?: { comercial: ActivityKind[]; interno: ActivityKind[]; operacional: ActivityKind[]; byKey: Record<string, ActivityKind>; byId: Record<string, ActivityKind> }; teamProfiles?: { id: string; name: string }[]; currentUser?: { id: string; name: string } | null; onClose: () => void; onSaved: (result?: { id: string; status: string }) => void; thirdPartyPropertyId?: string; thirdPartyPropertyTitle?: string; negotiationId?: string; clientId?: string }) {
   const isEdit = !!editActivity;
   // Criador em 2 etapas (só criação): 'type' (escolher tipo) → 'form' (adaptado).
   const [stage, setStage] = useState<"type" | "form">(isEdit || initialType ? "form" : "type");
@@ -1066,7 +1066,7 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
             }
           }
         }
-        onSaved();
+        onSaved(inserted?.id ? { id: inserted.id, status: actStatus } : undefined);
         if (isPlanned || (nextAction.trim() && nextActionDate)) { onClose(); return; }
         setStep(2);
       }
@@ -1569,6 +1569,13 @@ export default function AtividadesPage() {
   // Confirmação leve ao soltar numa coluna que conclui (Tarefa 3) — pendente
   // até o usuário decidir [Concluir]/[Cancelar].
   const [completeConfirm, setCompleteConfirm] = useState<{ id: string; title: string; toColumnId: string; fromColumnId: string; duration: number } | null>(null);
+  // Card recém-criado para rolar + destacar no Quadro (Tarefa 4). Limpa sozinho
+  // após ~2s (duração do flash).
+  const [flashCardId, setFlashCardId] = useState<string | null>(null);
+  const flashCard = useCallback((id: string) => {
+    setFlashCardId(id);
+    setTimeout(() => setFlashCardId((cur) => (cur === id ? null : cur)), 2200);
+  }, []);
   const [slotDate, setSlotDate] = useState<string | undefined>(undefined);
   const [slotTime, setSlotTime] = useState<string | undefined>(undefined);
   // Toggle de criação do Quadro: "plan" (Planejar) vs "done" (Já realizada).
@@ -2009,7 +2016,14 @@ export default function AtividadesPage() {
   }
   function openScheduleModal(date: string, time: string) { setEditingActivity(null); setModalType(undefined); setModalTitle(undefined); setSlotDate(date); setSlotTime(time); setModalMode("plan"); setModalForcedStatus("scheduled"); setModalForcedColumnId(planColumnId); setModalOpen(true); }
   function openEditModal(activity: Activity) { setEditingActivity(activity); setModalType(undefined); setModalTitle(undefined); setModalOpen(true); }
-  function handleSaved() { setToast(editingActivity ? "Atividade atualizada!" : "Atividade registrada!"); fetchActivities(); }
+  function handleSaved(result?: { id: string; status: string }) {
+    // Edição (sem result): toast simples, sem scroll/flash.
+    if (!result) { setToast(editingActivity ? "Atividade atualizada!" : "Atividade registrada!"); fetchActivities(); return; }
+    // Criação: se nasceu concluída, avisa que foi para a coluna Concluída.
+    setToast(result.status === "completed" ? "Atividade registrada como concluída" : "Atividade registrada!");
+    fetchActivities();
+    flashCard(result.id);
+  }
 
   // Recarrega participantes do card aberto (após add/remove).
   async function reloadSelectedParticipants(activityId: string) {
@@ -2088,6 +2102,7 @@ export default function AtividadesPage() {
         }
       }
       fetchActivities();
+      if (inserted?.id) flashCard(inserted.id);
     } catch { setToast("Erro ao criar cartão"); }
   }
   async function handleAddPerson(activityId: string, profile: { id: string; name: string }) {
@@ -2476,6 +2491,7 @@ export default function AtividadesPage() {
           onDeleteColumn={(column) => setDeletingColumn(column)}
           onReorderColumn={(columnId, newPosition) => { void updateBoardColumn(columnId, { position: newPosition }); }}
           toast={(msg) => setToast(msg)}
+          flashCardId={flashCardId}
         />
       )}
 

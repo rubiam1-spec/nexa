@@ -108,6 +108,8 @@ interface KanbanBoardProps {
   onDeleteColumn: (column: BoardColumnVM) => void;
   onReorderColumn: (columnId: string, newPosition: number) => void;
   toast: (msg: string) => void;
+  // Card recém-criado: rola até ele e aplica flash de destaque (Tarefa 4).
+  flashCardId?: string | null;
 }
 
 const T = {
@@ -232,6 +234,7 @@ export default function KanbanBoard({
   onDeleteColumn,
   onReorderColumn,
   toast,
+  flashCardId,
 }: KanbanBoardProps) {
   const mobile = useIsMobile();
   const [movingId, setMovingId] = useState<string | null>(null);
@@ -531,6 +534,15 @@ export default function KanbanBoard({
     document.getElementById(`kcard-${focusedCardId}`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [focusedCardId]);
 
+  // Visibilidade pós-criação (Tarefa 4): rola até o card recém-criado, no
+  // eixo vertical da coluna e horizontal do board. Depende de `activities`
+  // para reexecutar quando o card monta após o refetch.
+  useEffect(() => {
+    if (!flashCardId) return;
+    const el = document.getElementById(`kcard-${flashCardId}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+  }, [flashCardId, activities]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, height: "100%" }}>
       <DndContext
@@ -611,6 +623,7 @@ export default function KanbanBoard({
                         moving={movingId === a.id}
                         dimmed={activeId === a.id}
                         focused={focusedCardId === a.id}
+                        flash={flashCardId === a.id}
                         editing={editingCardId === a.id}
                         onEditingChange={(v) => setEditingCardId(v ? a.id : null)}
                         onRename={(title) => onRenameCard(a.id, title)}
@@ -1123,6 +1136,7 @@ function SortableCard({
   moving,
   dimmed,
   focused,
+  flash,
   editing,
   onEditingChange,
   onRename,
@@ -1138,6 +1152,7 @@ function SortableCard({
   moving: boolean;
   dimmed: boolean;
   focused: boolean;
+  flash: boolean;
   editing: boolean;
   onEditingChange: (v: boolean) => void;
   onRename: (title: string) => void;
@@ -1166,6 +1181,7 @@ function SortableCard({
         activity={activity}
         draggable={!disabled}
         focused={focused}
+        flash={flash}
         editing={editing}
         onEditingChange={onEditingChange}
         onRename={onRename}
@@ -1184,6 +1200,7 @@ function CardView({
   activity,
   draggable,
   focused,
+  flash,
   editing,
   onEditingChange,
   onRename,
@@ -1198,6 +1215,7 @@ function CardView({
   activity: KanbanActivity;
   draggable?: boolean;
   focused?: boolean;
+  flash?: boolean;
   editing?: boolean;
   onEditingChange?: (v: boolean) => void;
   onRename?: (title: string) => void;
@@ -1272,6 +1290,7 @@ function CardView({
           : "0 1px 2px rgba(0,0,0,0.15)",
         transform: overlay ? "rotate(3deg)" : hovered && !mobile ? "translateY(-2px)" : "none",
         transition: "box-shadow 0.16s ease, transform 0.16s ease, opacity 0.16s ease",
+        animation: flash ? "nexaCardFlash 2s ease" : undefined,
         display: "flex",
         flexDirection: "column",
         gap: 6,
