@@ -35,7 +35,7 @@ import {
   type ActivityTemplate,
   type ChecklistItem,
 } from "../../../infra/repositories/activitiesSupabaseRepository";
-import KanbanBoard, { type KanbanSuggestion, type BoardColumnVM } from "../components/KanbanBoard";
+import KanbanBoard, { type KanbanSuggestion, type BoardColumnVM, type KanbanActivity } from "../components/KanbanBoard";
 import { useBoardColumns } from "../hooks/useBoardColumns";
 import { useActivityKinds } from "../hooks/useActivityKinds";
 import { useActivityRange } from "../hooks/useActivityRange";
@@ -602,6 +602,24 @@ function UndoToast({ message, onUndo, onDone, duration = 6000 }: { message: stri
       <span>{message}</span>
       <button type="button" onClick={onUndo} style={{ background: "transparent", border: "none", color: T.sprout, fontSize: 13, fontWeight: 700, cursor: "pointer", padding: "4px 6px" }}>Desfazer</button>
       <button type="button" onClick={onDone} style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 16, cursor: "pointer", lineHeight: 1 }}>×</button>
+    </div>,
+    document.body,
+  );
+}
+
+// Confirmação leve (não bloqueante) ao soltar numa coluna que conclui (Tarefa
+// 3). Mesmo padrão visual do UndoToast, com duas ações. Timeout de 8s sem ação
+// equivale a Cancelar (devolve o card à origem). Sem emojis.
+function CompleteConfirmToast({ title, onConfirm, onCancel }: { title: string; onConfirm: () => void; onCancel: () => void }) {
+  const cancelRef = useRef(onCancel);
+  cancelRef.current = onCancel;
+  useEffect(() => { const t = setTimeout(() => cancelRef.current(), 8000); return () => clearTimeout(t); }, []);
+  const short = title.length > 32 ? title.slice(0, 31) + "…" : title;
+  return createPortal(
+    <div style={{ position: "fixed", bottom: 32, left: "50%", transform: "translateX(-50%)", background: "var(--surface-raised)", border: "1px solid var(--border-default)", color: "var(--text-primary)", padding: "10px 12px 10px 18px", borderRadius: 10, fontSize: 13, zIndex: 10000, boxShadow: "0 8px 24px rgba(0,0,0,0.45)", display: "flex", alignItems: "center", gap: 12, maxWidth: "92vw" }}>
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Concluir "{short}"?</span>
+      <button type="button" onClick={onConfirm} style={{ background: "var(--interactive-primary)", border: "none", color: "var(--surface-base)", fontSize: 13, fontWeight: 700, cursor: "pointer", padding: "6px 14px", borderRadius: 8 }}>Concluir</button>
+      <button type="button" onClick={onCancel} style={{ background: "transparent", border: "none", color: "var(--text-muted)", fontSize: 13, fontWeight: 600, cursor: "pointer", padding: "6px 8px" }}>Cancelar</button>
     </div>,
     document.body,
   );
@@ -1548,6 +1566,9 @@ export default function AtividadesPage() {
   // Desfazer de movimento de coluna no Quadro (Tarefa 2) — carrega o callback
   // de restauração.
   const [moveUndo, setMoveUndo] = useState<{ message: string; onUndo: () => void } | null>(null);
+  // Confirmação leve ao soltar numa coluna que conclui (Tarefa 3) — pendente
+  // até o usuário decidir [Concluir]/[Cancelar].
+  const [completeConfirm, setCompleteConfirm] = useState<{ id: string; title: string; toColumnId: string; fromColumnId: string; duration: number } | null>(null);
   const [slotDate, setSlotDate] = useState<string | undefined>(undefined);
   const [slotTime, setSlotTime] = useState<string | undefined>(undefined);
   // Toggle de criação do Quadro: "plan" (Planejar) vs "done" (Já realizada).
@@ -2112,6 +2133,40 @@ export default function AtividadesPage() {
     logEvent(id, "moved", { from_column_id: current, to_column_id: toColumnId, undo: true });
   }
 
+  // Tarefa 3 — confirmação leve ao soltar numa coluna que conclui. O card
+  // assenta na coluna destino (otimista, só local); a conclusão fica pendente.
+  function handleRequestCompleteViaColumn(a: KanbanActivity, toColumnId: string, fromColumnId: string) {
+    patchActivityLocal(a.id, { column_id: toColumnId } as Partial<Activity>);
+    setCompleteConfirm({ id: a.id, title: a.title, toColumnId, fromColumnId, duration: Number(a.duration_minutes) || 60 });
+  }
+  // [Concluir]: persiste a mudança de coluna + conclui via hook + logs.
+  async function confirmCompleteViaColumn() {
+    const c = completeConfirm;
+    setCompleteConfirm(null);
+    if (!c) return;
+    const okCol = await updateCardColumnOptimistic(c.id, c.toColumnId);
+    if (!okCol) {
+      patchActivityLocal(c.id, { column_id: c.fromColumnId } as Partial<Activity>);
+      setToast("Não foi possível mover (sem permissão)");
+      return;
+    }
+    logEvent(c.id, "moved", { from_column_id: c.fromColumnId, to_column_id: c.toColumnId });
+    try {
+      await completeActivityViaHook(c.id, { outcome: null, duration_minutes: c.duration, outcome_category: null });
+      logEvent(c.id, "completed", { via: "column_drop" });
+      setToast("Concluída ✓");
+    } catch {
+      setToast("Erro ao concluir");
+    }
+  }
+  // [Cancelar] / timeout: devolve o card à coluna de origem; nada persiste.
+  function cancelCompleteViaColumn() {
+    const c = completeConfirm;
+    setCompleteConfirm(null);
+    if (!c) return;
+    patchActivityLocal(c.id, { column_id: c.fromColumnId } as Partial<Activity>);
+  }
+
   // Trilha de eventos imutável (fire-and-forget). Nunca bloqueia a ação.
   const logEvent = useCallback(
     (activityId: string, action: string, details?: Record<string, unknown>) => {
@@ -2403,6 +2458,7 @@ export default function AtividadesPage() {
             setCompleteDuration(60);
             setCompleteCategory(null);
           }}
+          onRequestComplete={handleRequestCompleteViaColumn}
           onAddCard={(columnId) => openAddCard(columnId)}
           onRenameCard={handleRenameCard}
           onQuickAdd={handleQuickAdd}
@@ -3112,6 +3168,8 @@ export default function AtividadesPage() {
       {undoToast && <UndoToast message={undoToast.message} onUndo={() => void handleUndoArchive(undoToast.ids)} onDone={() => setUndoToast(null)} />}
       {/* Toast com Desfazer (movimento de coluna no Quadro) — janela de 8s */}
       {moveUndo && <UndoToast message={moveUndo.message} onUndo={moveUndo.onUndo} onDone={() => setMoveUndo(null)} duration={8000} />}
+      {/* Confirmação leve de conclusão ao soltar na coluna "Concluída" (8s) */}
+      {completeConfirm && <CompleteConfirmToast title={completeConfirm.title} onConfirm={() => void confirmCompleteViaColumn()} onCancel={cancelCompleteViaColumn} />}
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
     </div>
   );

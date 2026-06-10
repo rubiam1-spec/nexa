@@ -93,6 +93,9 @@ interface KanbanBoardProps {
     schedule: { activity_date: string; start_time: string },
   ) => Promise<boolean>;
   onCompleteCard: (a: KanbanActivity) => void;
+  // Soltar numa coluna que conclui dispara confirmação leve (Tarefa 3) — a
+  // regra de conclusão vive na página; o board só sinaliza a intenção.
+  onRequestComplete: (a: KanbanActivity, toColumnId: string, fromColumnId: string) => void;
   onAddCard: (columnId: string) => void;
   onRenameCard: (id: string, title: string) => void;
   onQuickAdd: (columnId: string, parsed: QuickParsed & { title: string }) => void | Promise<void>;
@@ -216,6 +219,7 @@ export default function KanbanBoard({
   onChangeColumn,
   onReorderOptimistic,
   onCompleteCard,
+  onRequestComplete,
   onAddCard,
   onRenameCard,
   onQuickAdd,
@@ -374,15 +378,17 @@ export default function KanbanBoard({
     // Drop em OUTRA coluna = muda só column_id (status independente).
     if (targetCol !== sourceCol) {
       const destCompletes = colById.get(targetCol)?.completes_activity;
+      // Coluna que conclui + card ainda não concluído → confirmação leve.
+      // O card assenta na coluna destino (otimista, na página) mas a
+      // conclusão fica pendente até o usuário decidir.
+      if (destCompletes && card.status !== "completed") {
+        onRequestComplete(card, targetCol, sourceCol);
+        return;
+      }
       setMovingId(aId);
       try {
         const ok = await onChangeColumn(aId, targetCol);
-        if (ok) {
-          // Coluna "conclui": também dispara o fluxo de conclusão.
-          if (destCompletes && card.status !== "completed") onCompleteCard(card);
-        } else {
-          toast("Não foi possível mover (sem permissão)");
-        }
+        if (!ok) toast("Não foi possível mover (sem permissão)");
       } finally {
         setMovingId(null);
       }
@@ -428,13 +434,15 @@ export default function KanbanBoard({
       return;
     }
     const destCompletes = colById.get(toColumnId)?.completes_activity;
+    if (destCompletes && a.status !== "completed") {
+      setMoveMenuFor(null);
+      onRequestComplete(a, toColumnId, a.column_id ?? "");
+      return;
+    }
     setMovingId(a.id);
     try {
       const ok = await onChangeColumn(a.id, toColumnId);
-      if (ok) {
-        toast("Salvo com sucesso ✓");
-        if (destCompletes && a.status !== "completed") onCompleteCard(a);
-      } else toast("Não foi possível mover (sem permissão)");
+      if (!ok) toast("Não foi possível mover (sem permissão)");
     } finally {
       setMovingId(null);
       setMoveMenuFor(null);
