@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import InlineEdit from "../../modules/atividades/components/InlineEdit";
+import EntityPicker from "../../modules/atividades/fields/EntityPicker";
 import { formatDateBRT, formatWeekdayDateLongBRT } from "../utils/dateUtils";
 import { useIsMobile } from "../hooks/useIsMobile";
 
@@ -10,6 +11,7 @@ interface Activity {
   outcome: string | null; description: string | null; skip_reason: string | null;
   archived_at?: string | null;
   contact_name: string | null; created_at: string; updated_at?: string | null;
+  broker_id?: string | null; brokers?: { name: string } | null;
   profiles?: { name: string; role: string } | null;
   activity_photos?: { id: string; photo_url: string }[] | null;
 }
@@ -39,11 +41,15 @@ const PCOLORS: Record<string, string> = { broker: "#4ADE80", client: "#60A5FA", 
 function fmtDuration(m: number) { if (!m) return "—"; if (m < 60) return `${m}min`; const h = Math.floor(m / 60); const r = m % 60; return r > 0 ? `${h}h${r}min` : `${h}h`; }
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 
-export default function ActivityDetailModal({ activity, participants, teamProfiles, onAddTeamMember, onRemoveTeamMember, checklist, onAddChecklist, onToggleChecklist, onRemoveChecklist, onReorderChecklist, onEditChecklist, onRenameTitle, onArchive, onClose, onEdit, onComplete, onSkip, onDelete, canEdit }: {
+export default function ActivityDetailModal({ activity, participants, teamProfiles, onAddTeamMember, onRemoveTeamMember, accountId, expectsBroker, onSetBroker, checklist, onAddChecklist, onToggleChecklist, onRemoveChecklist, onReorderChecklist, onEditChecklist, onRenameTitle, onArchive, onClose, onEdit, onComplete, onSkip, onDelete, canEdit }: {
   activity: Activity; participants: ActivityParticipant[]; onClose: () => void;
   teamProfiles?: TeamProfile[];
   onAddTeamMember?: (m: { id: string; name: string }) => void;
   onRemoveTeamMember?: (participantId: string) => void;
+  // Corretor (activities.broker_id) — NÃO é equipe nem participante.
+  accountId?: string | null;
+  expectsBroker?: boolean; // tipo espera corretor (needs broker / fields inclui "corretor")
+  onSetBroker?: (broker: { id: string; name: string } | null) => void;
   checklist?: ChecklistItem[];
   onAddChecklist?: (text: string, position: number) => Promise<ChecklistItem | null>;
   onToggleChecklist?: (id: string, done: boolean) => void;
@@ -59,6 +65,8 @@ export default function ActivityDetailModal({ activity, participants, teamProfil
   useEffect(() => { setTitleLocal(activity.title); }, [activity.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [lightbox, setLightbox] = useState<{ urls: string[]; idx: number } | null>(null);
   const [addingTeam, setAddingTeam] = useState(false);
+  const [editingBroker, setEditingBroker] = useState(false);
+  useEffect(() => { setEditingBroker(false); }, [activity.id]);
   // Checklist: estado local otimista, semeado da prop e re-semeado por card.
   const [items, setItems] = useState<ChecklistItem[]>(() => [...(checklist ?? [])].sort((a, b) => a.position - b.position));
   const [newItem, setNewItem] = useState("");
@@ -104,6 +112,9 @@ export default function ActivityDetailModal({ activity, participants, teamProfil
   const teamParticipants = participants.filter((p) => p.participant_type === "user" && p.participant_id);
   const teamIds = new Set(teamParticipants.map((p) => p.participant_id));
   const canManageTeam = Boolean(canEdit && onAddTeamMember && onRemoveTeamMember && teamProfiles);
+  // Corretor: editável só por quem tem canEdit, com accountId + handler.
+  const canManageBroker = Boolean(canEdit && onSetBroker && accountId);
+  const showBrokerSection = Boolean(activity.broker_id) || (expectsBroker && canManageBroker);
   const photos = activity.activity_photos ?? [];
   const mobile = useIsMobile();
   const st = activity.status || "completed";
@@ -176,11 +187,44 @@ export default function ActivityDetailModal({ activity, participants, teamProfil
           </div>
         )}
 
+        {/* Corretor (activities.broker_id) — não é equipe nem participante */}
+        {showBrokerSection && (
+          <div style={{ padding: "0 24px 16px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <div style={{ fontSize: 10, color: T.fog, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "var(--font-mono)" }}>CORRETOR</div>
+              {canManageBroker && !editingBroker && (
+                <button type="button" onClick={() => setEditingBroker(true)} style={{ background: "none", border: "none", color: PCOLORS.broker, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{activity.broker_id ? "Trocar" : "+ Adicionar"}</button>
+              )}
+            </div>
+            {editingBroker && canManageBroker ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <EntityPicker
+                  accountId={accountId!}
+                  entity="broker"
+                  value={null}
+                  onChange={(v) => { if (v) { onSetBroker!({ id: v.id, name: v.name }); setEditingBroker(false); } }}
+                />
+                <button type="button" onClick={() => setEditingBroker(false)} style={{ alignSelf: "flex-start", background: "none", border: "none", color: T.fog, fontSize: 12, cursor: "pointer", padding: 0 }}>Cancelar</button>
+              </div>
+            ) : activity.broker_id ? (
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 12px", borderRadius: 14, background: PCOLORS.broker + "18", border: `1px solid ${PCOLORS.broker}40` }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: PCOLORS.broker, flexShrink: 0 }} />
+                <span style={{ fontSize: 13, color: PCOLORS.broker, fontWeight: 600 }}>{activity.brokers?.name ?? "Corretor"}</span>
+                {canManageBroker && (
+                  <button type="button" title="Remover corretor" onClick={() => onSetBroker!(null)} style={{ background: "none", border: "none", color: PCOLORS.broker, fontSize: 14, cursor: "pointer", padding: 0, lineHeight: 1 }}>×</button>
+                )}
+              </div>
+            ) : (
+              <div style={{ fontSize: 13, color: T.slate, fontStyle: "italic" }}>Nenhum corretor informado</div>
+            )}
+          </div>
+        )}
+
         {/* Equipe (participantes 'user') — add/remove */}
         {canManageTeam && (
           <div style={{ padding: "0 24px 16px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-              <div style={{ fontSize: 10, color: T.fog, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "var(--font-mono)" }}>EQUIPE</div>
+              <div style={{ fontSize: 10, color: T.fog, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "var(--font-mono)" }}>EQUIPE INTERNA</div>
               <button type="button" onClick={() => setAddingTeam((v) => !v)} style={{ background: "none", border: "none", color: T.sprout, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{addingTeam ? "Fechar" : "+ Adicionar"}</button>
             </div>
             {teamParticipants.length > 0 && (

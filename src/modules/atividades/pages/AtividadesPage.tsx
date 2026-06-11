@@ -618,6 +618,19 @@ function CompleteConfirmToast({ title, onConfirm, onCancel }: { title: string; o
   );
 }
 
+// Confirmação leve genérica (mesmo padrão visual do CompleteConfirmToast), com
+// rótulos parametrizáveis. Usada p/ avisar ao salvar sem corretor. Sem emojis.
+function LightConfirmToast({ message, confirmLabel, cancelLabel, onConfirm, onCancel }: { message: string; confirmLabel: string; cancelLabel: string; onConfirm: () => void; onCancel: () => void }) {
+  return createPortal(
+    <div style={{ position: "fixed", bottom: 32, left: "50%", transform: "translateX(-50%)", background: "var(--surface-raised)", border: "1px solid var(--border-default)", color: "var(--text-primary)", padding: "10px 12px 10px 18px", borderRadius: 10, fontSize: 13, zIndex: 10000, boxShadow: "0 8px 24px rgba(0,0,0,0.45)", display: "flex", alignItems: "center", gap: 12, maxWidth: "92vw" }}>
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{message}</span>
+      <button type="button" onClick={onConfirm} style={{ background: "var(--interactive-primary)", border: "none", color: "var(--surface-base)", fontSize: 13, fontWeight: 700, cursor: "pointer", padding: "6px 14px", borderRadius: 8 }}>{confirmLabel}</button>
+      <button type="button" onClick={onCancel} style={{ background: "transparent", border: "none", color: "var(--text-muted)", fontSize: 13, fontWeight: 600, cursor: "pointer", padding: "6px 8px" }}>{cancelLabel}</button>
+    </div>,
+    document.body,
+  );
+}
+
 // ── Date & Time Pickers (v7) ──
 const PICKER_MONTHS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 const PICKER_DAYS = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -991,6 +1004,7 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
   // Date editing: within 24h or manager/director
   const dateEditable = !isEdit || canManageDate || (editActivity?.created_at ? (Date.now() - new Date(editActivity.created_at).getTime()) < 24 * 60 * 60 * 1000 : true);
   const [saving, setSaving] = useState(false);
+  const [pendingSaveNoBroker, setPendingSaveNoBroker] = useState(false);
   const [step, setStep] = useState<1 | 2>(1);
   const [followUpType, setFollowUpType] = useState<ActivityType>("follow_up");
   const [followUpNote, setFollowUpNote] = useState("");
@@ -1007,11 +1021,15 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
   const kindHasTitleField = selectedKind ? selectedKind.fields.some((f) => fieldDef(f).toTitle) : true;
   // planMode exige horário (slot de ordem no Quadro).
   const canSave = type !== null && (kindHasTitleField ? title.trim().length > 0 : true) && (!planMode || startTime.trim().length > 0);
+  // Tipo que espera corretor: kind com "corretor" nos fields OU schema needs broker.
+  const expectsBroker = selectedKind ? selectedKind.fields.includes("corretor") : (type ? !!ACTIVITY_TYPE_SCHEMA[type]?.needs.includes("broker") : false);
 
   function addDays(d: number): string { const dt = new Date(); dt.setDate(dt.getDate() + d); return dt.toISOString().slice(0, 10); }
 
-  async function handleSave() {
+  async function handleSave(skipBrokerWarn = false) {
     if (!canSave || !supabase) return;
+    // Aviso leve (não bloqueante): tipo espera corretor e nenhum foi informado.
+    if (!skipBrokerWarn && expectsBroker && !brokerSel?.id) { setPendingSaveNoBroker(true); return; }
     setSaving(true);
     try {
       if (isEdit && editActivity) {
@@ -1445,7 +1463,7 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
           /* Sem kind resolvido ainda (transitório): placeholder enquanto o catálogo carrega */
           <div style={{ padding: "30px 0", textAlign: "center", color: T.fog, fontSize: 13 }}>Carregando tipo…</div>
         )}
-        <button type="button" onClick={handleSave} disabled={!canSave || saving} style={{ width: "100%", height: 40, background: T.sprout, color: T.ink, border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: canSave && !saving ? "pointer" : "not-allowed", opacity: canSave && !saving ? 1 : 0.5 }}>
+        <button type="button" onClick={() => handleSave()} disabled={!canSave || saving} style={{ width: "100%", height: 40, background: T.sprout, color: T.ink, border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: canSave && !saving ? "pointer" : "not-allowed", opacity: canSave && !saving ? 1 : 0.5 }}>
           {saving ? "Salvando..." : isEdit ? "Salvar alterações" : isConfeccao ? "Criar demanda" : planMode ? "📅 Agendar atividade" : "Registrar atividade"}
         </button>
         </div>
@@ -1453,6 +1471,15 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
         </>
         )}
       </div>
+      {pendingSaveNoBroker && (
+        <LightConfirmToast
+          message="Salvar sem informar o corretor?"
+          confirmLabel="Continuar"
+          cancelLabel="Voltar"
+          onConfirm={() => { setPendingSaveNoBroker(false); void handleSave(true); }}
+          onCancel={() => setPendingSaveNoBroker(false)}
+        />
+      )}
     </div>,
     document.body,
   );
@@ -2056,6 +2083,25 @@ export default function AtividadesPage() {
     } catch {
       patchActivityLocal(id, { title: prev } as Partial<Activity>);
       setToast("Erro ao renomear");
+    }
+  }
+  // Definir/trocar/remover o corretor (activities.broker_id) pelo detalhe.
+  // Otimista (id + nome do join), persiste via repo, refaz fetch p/ sincronizar
+  // o join brokers(name), loga 'updated'. NÃO acessa supabase direto.
+  async function handleSetBroker(activityId: string, broker: { id: string; name: string } | null) {
+    const prev = selectedActivity;
+    const patch = { broker_id: broker?.id ?? null, brokers: broker ? { name: broker.name } : null };
+    patchActivityLocal(activityId, patch as Partial<Activity>);
+    setSelectedActivity((cur) => (cur && cur.id === activityId ? ({ ...cur, ...patch } as Activity) : cur));
+    try {
+      await repoUpdateActivity(activityId, { broker_id: broker?.id ?? null });
+      logEvent(activityId, "updated", { fields: ["broker_id"] });
+      fetchActivities();
+      setToast("Corretor atualizado ✓");
+    } catch {
+      patchActivityLocal(activityId, { broker_id: prev?.broker_id ?? null, brokers: prev?.brokers ?? null } as Partial<Activity>);
+      setSelectedActivity(prev);
+      setToast("Erro ao atualizar corretor");
     }
   }
   async function handleQuickAdd(columnId: string, parsed: QuickParsed & { title: string }) {
@@ -3077,6 +3123,9 @@ export default function AtividadesPage() {
           teamProfiles={teamProfiles}
           onAddTeamMember={handleAddTeamMember}
           onRemoveTeamMember={handleRemoveTeamMember}
+          accountId={accountId}
+          expectsBroker={!!ACTIVITY_TYPE_SCHEMA[selectedActivity.type]?.needs.includes("broker")}
+          onSetBroker={(broker) => handleSetBroker(selectedActivity.id, broker)}
           checklist={(selectedActivity.activity_checklist_items ?? []) as ChecklistItem[]}
           onAddChecklist={handleAddChecklist}
           onToggleChecklist={handleToggleChecklist}
