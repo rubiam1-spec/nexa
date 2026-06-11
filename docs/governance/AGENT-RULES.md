@@ -56,6 +56,14 @@ Toda implementação deve:
 - seguir contratos definidos
 - garantir rastreabilidade
 
+> **Nota de aderência (2026-06-11):** na evolução consolidada, a **regra de
+> negócio operacional vive nos hooks de aplicação** (`modules/*/hooks`), que
+> consomem entities/enums/rules de `domain/` — não em `domain/services` (pasta
+> opcional, hoje vazia). "Passar pelo domínio" significa usar essas
+> entities/enums/rules, não exigir uma camada de serviços. A **persistência é
+> Supabase-only**: contrato único `*SupabaseRepository` (retorna Domain Entity,
+> nunca Row); não há mocks mantidos nem paridade mock×Supabase. Decidido por Rubiam.
+
 ---
 
 ## 6. Regra de Validação

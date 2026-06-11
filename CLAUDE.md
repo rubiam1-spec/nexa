@@ -75,12 +75,12 @@ src/
 ├── domain/
 │   ├── entities/         → Negotiation, Proposal, Reservation, Sale, Unit, Client, Broker
 │   ├── enums/            → UnitStatus, NegotiationStatus, ProposalStatus, ReservationStatus, SaleStatus, UserRole
-│   ├── services/         → regras de negócio, engine de regras configurável
+│   ├── services/         → (opcional, hoje NÃO utilizado) engine de regras configurável
 │   └── rules/            → validações de transição de estado
 │
 ├── infrastructure/
 │   ├── supabase/         → client Supabase
-│   ├── repositories/     → mock + Supabase com MESMO contrato
+│   ├── repositories/     → Supabase-only (contrato único *SupabaseRepository)
 │   └── mappers/          → Row → DTO → Domain (nunca pular etapas)
 │
 ├── shared/
@@ -103,6 +103,13 @@ src/
 | `app/` | Composição global, roteamento, providers |
 
 **Nenhuma camada pode depender diretamente da estrutura de outra.**
+
+> **Nota de aderência (2026-06-11):** na evolução consolidada do projeto,
+> `domain/` concentra **entities, enums e rules**. A **regra de negócio
+> operacional** vive nos **hooks de aplicação** em `modules/*/hooks`
+> (ex.: `useActivities`) — não em `domain/services`, que é **opcional e hoje
+> não utilizado** (pasta vazia). A persistência é **Supabase-only** (ver Seção 11).
+> Isto é evolução consolidada, não defeito.
 
 ---
 
@@ -314,7 +321,10 @@ interface NegotiationRepository {
 }
 ```
 
-**Mock e Supabase implementam o mesmo contrato — nunca divergir silenciosamente.**
+**Persistência Supabase-only:** o contrato único é o `*SupabaseRepository`.
+Repositórios mock são **opcionais e não mantidos** — não há exigência de
+paridade mock×Supabase. Permanece obrigatória a regra acima: **o repositório
+retorna sempre Domain Entity, nunca Row direto.**
 
 ---
 
@@ -451,7 +461,7 @@ Uma entrega só é boa se:
 - Não cria retrabalho estrutural
 - Não joga regra para a UI
 - Não quebra fluxo existente
-- Mantém consistência entre mock e Supabase
+- Mantém a persistência Supabase-only via contrato `*SupabaseRepository` (Domain Entity, nunca Row)
 - Build passa sem erros
 - Deixa o próximo passo mais claro
 
@@ -459,3 +469,5 @@ Uma entrega só é boa se:
 
 *Este arquivo é a fonte de verdade operacional do projeto NEXA para o Claude Code.*
 *Versão: 1.0 — gerado em 2026-03-21*
+
+*Ajuste de aderência (2026-06-11): regra em hooks; Supabase-only. Decidido por Rubiam.*
