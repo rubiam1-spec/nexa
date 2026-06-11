@@ -124,7 +124,33 @@ Deno.serve(async (req) => {
       return json({ success: true, contact_id: existingClient.id, is_new: false, message: "Contato já existe, interação registrada" });
     }
 
-    // ── 5. Create new contact ──
+    // ── 5. Resolve assignee ──
+    // Round-robin com peso quando a conta tem lead_distribution_enabled=true e
+    // há participante ativo elegível para o empreendimento do webhook. Caso
+    // contrário, mantém o comportamento antigo (default_assigned_to / 'manual').
+    let assignedTo: string | null = webhook.default_assigned_to || null;
+    let consultantId: string | null = null;
+    let assignmentType: string | null = assignedTo ? "manual" : null;
+
+    const { data: settings } = await supabase
+      .from("account_settings")
+      .select("lead_distribution_enabled")
+      .eq("account_id", accountId)
+      .maybeSingle();
+
+    if (settings?.lead_distribution_enabled) {
+      const { data: picked, error: rrErr } = await supabase.rpc("assign_next_lead_consultant", {
+        p_account_id: accountId,
+        p_development_id: webhook.default_development_id ?? null,
+      });
+      if (!rrErr && picked) {
+        assignedTo = picked as string;
+        consultantId = picked as string;
+        assignmentType = "round_robin";
+      }
+    }
+
+    // ── 6. Create new contact ──
     const { data: newClient, error: insertErr } = await supabase.from("clients").insert({
       account_id: accountId,
       name: name || "Lead sem nome",
@@ -135,8 +161,10 @@ Deno.serve(async (req) => {
       origin: webhook.source,
       origin_detail: sourceDetail || webhook.name,
       observations: observations || null,
-      assigned_to: webhook.default_assigned_to || null,
-      assigned_at: webhook.default_assigned_to ? new Date().toISOString() : null,
+      assigned_to: assignedTo,
+      consultant_id: consultantId,
+      assignment_type: assignmentType,
+      assigned_at: assignedTo ? new Date().toISOString() : null,
       development_id: webhook.default_development_id || null,
     }).select("id").single();
 
@@ -161,7 +189,7 @@ Deno.serve(async (req) => {
       }).eq("id", webhook.id);
     });
 
-    return json({ success: true, contact_id: newClient.id, is_new: true, assigned_to: webhook.default_assigned_to || null });
+    return json({ success: true, contact_id: newClient.id, is_new: true, assigned_to: assignedTo, assignment_type: assignmentType });
   } catch (err) {
     return json({ error: "Erro interno", detail: err instanceof Error ? err.message : String(err) }, 500);
   }

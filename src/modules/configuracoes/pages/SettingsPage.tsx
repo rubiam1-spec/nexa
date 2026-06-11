@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { canPerformAction, PermissionAction } from "../../../app/authorization/permissions";
 import { useAccount } from "../../../app/contexts/AccountContext";
 import { usePermissions } from "../../../shared/hooks/usePermissions";
@@ -6,6 +6,9 @@ import { useDevelopment } from "../../../app/contexts/DevelopmentContext";
 import { getUserRoleLabel } from "../../../shared/types/role";
 import { formatDateBRT } from "../../../shared/utils/dateUtils";
 import { useCommercialSettings } from "../hooks/useCommercialSettings";
+import { useLeadDistributionAdmin } from "../hooks/useLeadDistributionAdmin";
+import { useDocumentRequirements } from "../../empreendimentos/hooks/useDocumentRequirements";
+import type { PartyRole, RequirementCellState } from "../../../shared/types/documentRequirement";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
 import { supabase } from "../../../infra/supabase/supabaseClient";
 import UploadImagem from "../../../shared/components/UploadImagem";
@@ -14,11 +17,6 @@ import PermissionsPanel from "../components/PermissionsPanel";
 import { useUnits } from "../../units/hooks/useUnits";
 
 type Aba = "marca" | "empreendimento" | "documentos" | "operacao" | "materiais" | "leads" | "cadencia" | "checklist" | "permissoes";
-
-interface DocTypeConfig {
-  id: string; name: string; label: string | null; description: string | null;
-  required: boolean; active: boolean; sort_order: number; person_type: string;
-}
 
 const INPUT: React.CSSProperties = { width: "100%", boxSizing: "border-box", background: "var(--color-ink)", border: "1px solid var(--color-stone)", borderRadius: 8, padding: "10px 14px", color: "var(--color-bone)", fontSize: 14 };
 
@@ -51,60 +49,6 @@ export default function SettingsPage() {
   }, [actx.account?.accountId, dctx.development?.developmentId, cadenceLoaded]);
 
   // Checklist document type configs
-  const [docConfigs, setDocConfigs] = useState<DocTypeConfig[]>([]);
-  const [docConfigsLoaded, setDocConfigsLoaded] = useState(false);
-  const [docConfigSaving, setDocConfigSaving] = useState(false);
-  const [newDocName, setNewDocName] = useState("");
-  const [newDocDesc, setNewDocDesc] = useState("");
-  const [newDocPerson, setNewDocPerson] = useState<"both" | "fisica" | "juridica">("both");
-  const [newDocRequired, setNewDocRequired] = useState(true);
-
-  const loadDocConfigs = useCallback(async () => {
-    if (!supabase || !actx.account?.accountId) return;
-    const { data } = await supabase.from("document_type_configs").select("*").eq("account_id", actx.account.accountId).order("sort_order", { ascending: true });
-    setDocConfigs((data ?? []) as DocTypeConfig[]);
-    setDocConfigsLoaded(true);
-  }, [actx.account?.accountId]);
-
-  useEffect(() => { if (!docConfigsLoaded && aba === "checklist") void loadDocConfigs(); }, [aba, docConfigsLoaded, loadDocConfigs]);
-
-  async function addDocConfig() {
-    if (!supabase || !actx.account?.accountId || !newDocName.trim()) return;
-    setDocConfigSaving(true);
-    const key = newDocName.trim().toLowerCase().replace(/[^a-z0-9áéíóúàãõçê]/g, "_").replace(/_+/g, "_");
-    const maxOrder = docConfigs.reduce((m, c) => Math.max(m, c.sort_order), 0);
-    const { error } = await supabase.from("document_type_configs").insert({
-      account_id: actx.account.accountId, name: key, label: newDocName.trim(),
-      description: newDocDesc.trim() || null, required: newDocRequired,
-      active: true, sort_order: maxOrder + 1, person_type: newDocPerson,
-    });
-    setDocConfigSaving(false);
-    if (error) { setMsg(`Erro: ${error.message}`); } else {
-      setNewDocName(""); setNewDocDesc(""); setNewDocPerson("both"); setNewDocRequired(true);
-      setMsg("Tipo de documento adicionado ✓");
-    }
-    await loadDocConfigs();
-    setTimeout(() => setMsg(null), 3000);
-  }
-
-  async function toggleDocConfig(id: string, field: "active" | "required", value: boolean) {
-    if (!supabase) return;
-    await supabase.from("document_type_configs").update({ [field]: value, updated_at: new Date().toISOString() }).eq("id", id);
-    await loadDocConfigs();
-  }
-
-  async function moveDocConfig(id: string, direction: "up" | "down") {
-    if (!supabase) return;
-    const idx = docConfigs.findIndex((c) => c.id === id);
-    if (idx < 0) return;
-    const swapIdx = direction === "up" ? idx - 1 : idx + 1;
-    if (swapIdx < 0 || swapIdx >= docConfigs.length) return;
-    const a = docConfigs[idx], b = docConfigs[swapIdx];
-    await supabase.from("document_type_configs").update({ sort_order: b.sort_order }).eq("id", a.id);
-    await supabase.from("document_type_configs").update({ sort_order: a.sort_order }).eq("id", b.id);
-    await loadDocConfigs();
-  }
-
   async function saveCadence() {
     if (!supabase || !actx.account?.accountId || !dctx.development?.developmentId) return;
     setCadenceSaving(true);
@@ -713,87 +657,14 @@ export default function SettingsPage() {
             </div>
           ) : null}
 
-          {/* ═══ CHECKLIST DOCS ═══ */}
+          {/* CHECKLIST DOCS — document_requirements (papel x documento) + catalogo */}
           {aba === "checklist" ? (
-            <div>
-              <PageTitle title="Checklist de Documentos" sub="Configure quais documentos são exigidos dos clientes nesta conta" />
-
-              <Card>
-                <Sec title="Tipos de documento ativos" sub="Documentos que aparecem na aba de documentos de cada cliente" />
-                {!docConfigsLoaded ? <div style={{ fontSize: 13, color: "var(--color-fog)" }}>Carregando...</div> : docConfigs.length === 0 ? <div style={{ fontSize: 13, color: "var(--color-fog)" }}>Nenhum tipo configurado.</div> : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {docConfigs.map((cfg, idx) => (
-                      <div key={cfg.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: cfg.active ? "var(--surface-base)" : "transparent", border: `1px solid ${cfg.active ? "var(--border-default)" : "var(--border-subtle)"}`, borderRadius: 10, opacity: cfg.active ? 1 : 0.5, transition: "all 150ms" }}>
-                        {/* Reorder arrows */}
-                        {canUpd && (
-                          <div style={{ display: "flex", flexDirection: "column", gap: 0, flexShrink: 0 }}>
-                            <button type="button" disabled={idx === 0} onClick={() => void moveDocConfig(cfg.id, "up")} style={{ background: "none", border: "none", color: idx === 0 ? "var(--text-disabled)" : "var(--text-muted)", cursor: idx === 0 ? "default" : "pointer", fontSize: 10, padding: 0, lineHeight: 1 }}>▲</button>
-                            <button type="button" disabled={idx === docConfigs.length - 1} onClick={() => void moveDocConfig(cfg.id, "down")} style={{ background: "none", border: "none", color: idx === docConfigs.length - 1 ? "var(--text-disabled)" : "var(--text-muted)", cursor: idx === docConfigs.length - 1 ? "default" : "pointer", fontSize: 10, padding: 0, lineHeight: 1 }}>▼</button>
-                          </div>
-                        )}
-                        {/* Info */}
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-secondary)" }}>{cfg.label || cfg.name}</div>
-                          <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
-                            {cfg.description && <span style={{ fontSize: 10, color: "var(--text-disabled)" }}>{cfg.description}</span>}
-                            <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--text-disabled)", padding: "1px 5px", borderRadius: 3, background: "var(--surface-overlay)" }}>{cfg.person_type === "fisica" ? "PF" : cfg.person_type === "juridica" ? "PJ" : "PF/PJ"}</span>
-                          </div>
-                        </div>
-                        {/* Required toggle */}
-                        {canUpd && (
-                          <div style={{ textAlign: "center", flexShrink: 0 }}>
-                            <div style={{ fontSize: 8, fontFamily: "var(--font-mono)", color: "var(--text-disabled)", letterSpacing: "0.1em", marginBottom: 2 }}>OBRIG.</div>
-                            <button type="button" onClick={() => void toggleDocConfig(cfg.id, "required", !cfg.required)} style={{ width: 36, height: 20, borderRadius: 10, border: "none", cursor: "pointer", background: cfg.required ? "var(--interactive-primary)" : "var(--surface-hover)", position: "relative", transition: "background 150ms ease" }}>
-                              <div style={{ width: 16, height: 16, borderRadius: "50%", background: "#fff", position: "absolute", top: 2, left: cfg.required ? 18 : 2, transition: "left 150ms ease", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
-                            </button>
-                          </div>
-                        )}
-                        {/* Active toggle */}
-                        {canUpd && (
-                          <div style={{ textAlign: "center", flexShrink: 0 }}>
-                            <div style={{ fontSize: 8, fontFamily: "var(--font-mono)", color: "var(--text-disabled)", letterSpacing: "0.1em", marginBottom: 2 }}>ATIVO</div>
-                            <button type="button" onClick={() => void toggleDocConfig(cfg.id, "active", !cfg.active)} style={{ width: 36, height: 20, borderRadius: 10, border: "none", cursor: "pointer", background: cfg.active ? "var(--interactive-primary)" : "var(--surface-hover)", position: "relative", transition: "background 150ms ease" }}>
-                              <div style={{ width: 16, height: 16, borderRadius: "50%", background: "#fff", position: "absolute", top: 2, left: cfg.active ? 18 : 2, transition: "left 150ms ease", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </Card>
-
-              {canUpd && (
-                <Card>
-                  <Sec title="Adicionar tipo de documento" sub="Novos tipos serão exigidos para clientes criados a partir de agora" />
-                  <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
-                    <F label="Nome do documento *"><input style={INPUT} value={newDocName} onChange={(e) => setNewDocName(e.target.value)} placeholder="Ex: Certidão Negativa" /></F>
-                    <F label="Descrição"><input style={INPUT} value={newDocDesc} onChange={(e) => setNewDocDesc(e.target.value)} placeholder="Descrição opcional" /></F>
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginTop: 12 }}>
-                    <F label="Tipo de pessoa">
-                      <select style={INPUT} value={newDocPerson} onChange={(e) => setNewDocPerson(e.target.value as "both" | "fisica" | "juridica")}>
-                        <option value="both">Ambos (PF e PJ)</option>
-                        <option value="fisica">Pessoa Física</option>
-                        <option value="juridica">Pessoa Jurídica</option>
-                      </select>
-                    </F>
-                    <div style={{ display: "flex", alignItems: "flex-end", gap: 12 }}>
-                      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--color-bone)", cursor: "pointer" }}>
-                        <input type="checkbox" checked={newDocRequired} onChange={(e) => setNewDocRequired(e.target.checked)} /> Obrigatório
-                      </label>
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
-                    <button type="button" disabled={!newDocName.trim() || docConfigSaving} onClick={() => void addDocConfig()} style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: !newDocName.trim() || docConfigSaving ? "var(--color-stone)" : "var(--color-sprout)", color: !newDocName.trim() || docConfigSaving ? "var(--color-fog)" : "var(--color-ink)", fontSize: 13, fontWeight: 700, cursor: !newDocName.trim() || docConfigSaving ? "not-allowed" : "pointer" }}>{docConfigSaving ? "Salvando..." : "Adicionar"}</button>
-                  </div>
-                </Card>
-              )}
-
-              <div style={{ marginTop: 16, padding: "10px 14px", background: "var(--surface-overlay)", borderRadius: 8, fontSize: 11, color: "var(--color-fog)", lineHeight: 1.6 }}>
-                Ao adicionar ou desativar tipos de documento, a alteração afeta apenas novos clientes criados a partir deste momento. Clientes existentes mantêm seus documentos atuais.
-              </div>
-            </div>
+            <DocumentChecklistPanel
+              accountId={actx.account?.accountId ?? null}
+              developmentId={dctx.development?.developmentId ?? null}
+              developmentName={dctx.development?.developmentName ?? null}
+              canEdit={canUpd}
+            />
           ) : null}
 
           {/* ═══ PERMISSÕES ═══ */}
@@ -1039,142 +910,197 @@ function WebhooksPanel({ accountId, isMobile, setMsg }: { accountId: string | nu
 
 // ── Lead Distribution Panel ──
 
-type DistSlot = { id: string; consultant_id: string; active: boolean; weight: number; current_count: number; last_assigned_at: string | null; name: string; role: string };
-
 function LeadDistributionPanel({ accountId, developmentId, canEdit }: { accountId: string | null; developmentId: string | null; canEdit: boolean }) {
-  const [slots, setSlots] = useState<DistSlot[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const d = useLeadDistributionAdmin(accountId, developmentId);
+  const [showAdd, setShowAdd] = useState(false);
 
-  const loadSlots = useCallback(async () => {
-    if (!supabase || !accountId) { setLoading(false); return; }
-    setLoading(true);
-    try {
-      // Load existing distribution slots
-      const { data: existing } = await supabase.from("lead_distribution").select("id, consultant_id, active, weight, current_count, last_assigned_at").eq("account_id", accountId);
-      // Load team members (consultants + brokers)
-      const { data: team } = await supabase.from("user_account_access").select("user_id, role, profiles!inner(id, name)").eq("account_id", accountId).in("role", ["commercial_consultant", "broker", "director", "manager"]);
-      const members = (team ?? []).map((t: Record<string, unknown>) => {
-        const p = (Array.isArray(t.profiles) ? t.profiles[0] : t.profiles) as Record<string, unknown>;
-        return { userId: t.user_id as string, name: (p?.name as string) ?? "—", role: t.role as string };
-      });
-      const existingMap = new Map((existing ?? []).map((s: Record<string, unknown>) => [s.consultant_id as string, s]));
-      // Merge: show all team members, with existing config or defaults
-      const merged: DistSlot[] = members.map((m) => {
-        const ex = existingMap.get(m.userId) as Record<string, unknown> | undefined;
-        return {
-          id: (ex?.id as string) ?? "",
-          consultant_id: m.userId,
-          active: ex ? (ex.active as boolean) : false,
-          weight: ex ? Number(ex.weight ?? 1) : 1,
-          current_count: ex ? Number(ex.current_count ?? 0) : 0,
-          last_assigned_at: (ex?.last_assigned_at as string) ?? null,
-          name: m.name,
-          role: m.role,
-        };
-      });
-      setSlots(merged.sort((a, b) => a.name.localeCompare(b.name)));
-    } finally { setLoading(false); }
-  }, [accountId]);
+  const ROLE_LABELS: Record<string, string> = { commercial_consultant: "Consultor", broker: "Corretor", director: "Diretor", manager: "Gestor", owner: "Dono", administrative: "Administrativo" };
+  const ROLE_OPTIONS: { key: string; label: string }[] = [
+    { key: "commercial_consultant", label: "Consultor" },
+    { key: "broker", label: "Corretor" },
+    { key: "manager", label: "Gestor" },
+    { key: "director", label: "Diretor" },
+  ];
+  const activeCount = d.participants.filter((p) => p.active).length;
 
-  useEffect(() => { void loadSlots(); }, [loadSlots]);
-
-  const handleToggle = async (slot: DistSlot) => {
-    if (!supabase || !accountId || saving) return;
-    setSaving(true);
-    try {
-      if (slot.id) {
-        await supabase.from("lead_distribution").update({ active: !slot.active }).eq("id", slot.id);
-      } else {
-        await supabase.from("lead_distribution").insert({ account_id: accountId, development_id: developmentId, consultant_id: slot.consultant_id, active: true, weight: slot.weight, current_count: 0 });
-      }
-      await loadSlots();
-    } finally { setSaving(false); }
+  const toggleRole = (key: string) => {
+    if (!canEdit) return;
+    const next = d.eligibleRoles.includes(key) ? d.eligibleRoles.filter((r) => r !== key) : [...d.eligibleRoles, key];
+    if (next.length === 0) return; // mantém ao menos um papel elegível
+    void d.saveEligibleRoles(next);
   };
 
-  const handleWeight = async (slot: DistSlot, w: number) => {
-    if (!supabase || !accountId || saving || w < 1 || w > 10) return;
-    setSaving(true);
-    try {
-      if (slot.id) {
-        await supabase.from("lead_distribution").update({ weight: w }).eq("id", slot.id);
-      } else {
-        await supabase.from("lead_distribution").insert({ account_id: accountId, development_id: developmentId, consultant_id: slot.consultant_id, active: true, weight: w, current_count: 0 });
-      }
-      await loadSlots();
-    } finally { setSaving(false); }
-  };
-
-  const handleResetCounts = async () => {
-    if (!supabase || !accountId || !confirm("Resetar contagem de todos?")) return;
-    setSaving(true);
-    try {
-      await supabase.from("lead_distribution").update({ current_count: 0, last_assigned_at: null }).eq("account_id", accountId);
-      await loadSlots();
-    } finally { setSaving(false); }
-  };
-
-  const ROLE_LABELS: Record<string, string> = { commercial_consultant: "Consultora", broker: "Corretor", director: "Diretor", manager: "Gestor" };
-  const activeCount = slots.filter((s) => s.active).length;
-
-  if (loading) return <div className="nexa-card" style={{ padding: 20 }}><div style={{ fontSize: 13, color: "var(--color-fog)" }}>Carregando distribuição...</div></div>;
+  if (d.loading) return <div className="nexa-card" style={{ padding: 20 }}><div style={{ fontSize: 13, color: "var(--color-fog)" }}>Carregando distribuição...</div></div>;
 
   return (
     <div className="nexa-card" style={{ padding: 20 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <div>
           <div className="nexa-label" style={{ margin: 0 }}>Distribuição de Leads</div>
-          <div style={{ fontSize: 11, color: "var(--color-fog)", marginTop: 2 }}>Novos contatos sem responsável são distribuídos automaticamente para a equipe ativa.</div>
+          <div style={{ fontSize: 11, color: "var(--color-fog)", marginTop: 2 }}>Novos contatos sem responsável são distribuídos automaticamente por rodízio com peso.</div>
         </div>
-        <div style={{ fontSize: 12, fontFamily: "var(--font-mono)", color: activeCount > 0 ? "var(--color-sprout)" : "var(--color-slate)", padding: "4px 10px", borderRadius: 6, background: activeCount > 0 ? "var(--color-sprout-muted)" : "transparent", border: `1px solid ${activeCount > 0 ? "var(--color-sprout)" : "var(--color-stone)"}`, fontWeight: 600 }}>
-          {activeCount > 0 ? `${activeCount} ativo${activeCount !== 1 ? "s" : ""}` : "Inativa"}
+        <div style={{ fontSize: 12, fontFamily: "var(--font-mono)", color: d.enabled ? "var(--color-sprout)" : "var(--color-slate)", padding: "4px 10px", borderRadius: 6, background: d.enabled ? "var(--color-sprout-muted)" : "transparent", border: `1px solid ${d.enabled ? "var(--color-sprout)" : "var(--color-stone)"}`, fontWeight: 600 }}>
+          {d.enabled ? `Ativa · ${activeCount}` : "Desligada"}
         </div>
       </div>
 
-      {slots.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "24px 0", color: "var(--color-fog)", fontSize: 13 }}>Nenhum membro encontrado. Adicione consultores ou corretores à conta.</div>
+      {d.error ? <div style={{ marginBottom: 12, fontSize: 12, color: "var(--color-terracotta)" }}>{d.error}</div> : null}
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", background: "var(--surface-base)", border: "1px solid var(--border-default)", borderRadius: 10, marginBottom: 14 }}>
+        <div style={{ minWidth: 0, paddingRight: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-secondary)" }}>Rodízio automático</div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Quando ligado, leads recebidos sem responsável são atribuídos ao próximo participante ativo.</div>
+        </div>
+        <button type="button" disabled={!canEdit || d.busy} onClick={() => void d.toggleEnabled(!d.enabled)} style={{ width: 40, height: 22, borderRadius: 11, border: "none", cursor: canEdit ? "pointer" : "default", background: d.enabled ? "var(--interactive-primary)" : "var(--surface-hover)", position: "relative", flexShrink: 0, opacity: canEdit ? 1 : 0.6 }}>
+          <div style={{ width: 18, height: 18, borderRadius: "50%", background: "#fff", position: "absolute", top: 2, left: d.enabled ? 20 : 2, transition: "left 150ms ease", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
+        </button>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-disabled)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>Papéis elegíveis</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {ROLE_OPTIONS.map((r) => {
+            const on = d.eligibleRoles.includes(r.key);
+            return (
+              <button key={r.key} type="button" disabled={!canEdit || d.busy} onClick={() => toggleRole(r.key)} style={{ padding: "6px 12px", borderRadius: 16, minHeight: 32, border: `1px solid ${on ? "var(--interactive-primary)" : "var(--border-default)"}`, background: on ? "rgba(74,222,128,0.12)" : "transparent", color: on ? "var(--interactive-primary)" : "var(--text-muted)", fontSize: 12, fontWeight: 600, cursor: canEdit ? "pointer" : "default" }}>{r.label}</button>
+            );
+          })}
+        </div>
+      </div>
+
+      {d.participants.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "20px 0", color: "var(--color-fog)", fontSize: 13 }}>Nenhum participante no rodízio. Adicione abaixo.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {slots.map((slot) => (
-            <div key={slot.consultant_id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: slot.active ? "var(--surface-base)" : "transparent", border: `1px solid ${slot.active ? "var(--border-default)" : "var(--border-subtle)"}`, borderRadius: 10, opacity: slot.active ? 1 : 0.6, transition: "all 150ms ease" }}>
-              {/* Avatar */}
-              <div style={{ width: 34, height: 34, borderRadius: "50%", background: slot.active ? "var(--status-sprout-muted)" : "var(--surface-overlay)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: slot.active ? "var(--interactive-primary)" : "var(--text-disabled)", flexShrink: 0 }}>
-                {slot.name.charAt(0).toUpperCase()}
-              </div>
-              {/* Name + role */}
+          {d.participants.map((p) => (
+            <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: p.active ? "var(--surface-base)" : "transparent", border: `1px solid ${p.active ? "var(--border-default)" : "var(--border-subtle)"}`, borderRadius: 10, opacity: p.active ? 1 : 0.6 }}>
+              <div style={{ width: 34, height: 34, borderRadius: "50%", background: p.active ? "var(--status-sprout-muted)" : "var(--surface-overlay)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: p.active ? "var(--interactive-primary)" : "var(--text-disabled)", flexShrink: 0 }}>{p.name.charAt(0).toUpperCase()}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{slot.name}</div>
-                <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--text-disabled)", letterSpacing: "0.08em", textTransform: "uppercase" }}>{ROLE_LABELS[slot.role] ?? slot.role}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--text-disabled)", letterSpacing: "0.08em", textTransform: "uppercase" }}>{ROLE_LABELS[p.role] ?? p.role}</div>
               </div>
-              {/* Toggle */}
               {canEdit && (
-                <button type="button" onClick={() => void handleToggle(slot)} disabled={saving} style={{ width: 36, height: 20, borderRadius: 10, border: "none", cursor: "pointer", background: slot.active ? "var(--interactive-primary)" : "var(--surface-hover)", position: "relative", transition: "background 150ms ease", flexShrink: 0 }}>
-                  <div style={{ width: 16, height: 16, borderRadius: "50%", background: "#fff", position: "absolute", top: 2, left: slot.active ? 18 : 2, transition: "left 150ms ease", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
+                <button type="button" onClick={() => void d.toggleActive(p.id, !p.active)} disabled={d.busy} title={p.active ? "Desativar" : "Ativar"} style={{ width: 36, height: 20, borderRadius: 10, border: "none", cursor: "pointer", background: p.active ? "var(--interactive-primary)" : "var(--surface-hover)", position: "relative", flexShrink: 0 }}>
+                  <div style={{ width: 16, height: 16, borderRadius: "50%", background: "#fff", position: "absolute", top: 2, left: p.active ? 18 : 2, transition: "left 150ms ease", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
                 </button>
               )}
-              {/* Weight */}
               <div style={{ textAlign: "center", width: 56, flexShrink: 0 }}>
                 <div style={{ fontFamily: "var(--font-mono)", fontSize: 8, color: "var(--text-disabled)", letterSpacing: "0.1em", marginBottom: 2 }}>PESO</div>
-                <input type="number" min={1} max={10} value={slot.weight} disabled={!canEdit || saving} onChange={(e) => { const w = Number(e.target.value); if (w >= 1 && w <= 10) void handleWeight(slot, w); }} style={{ width: 40, textAlign: "center", padding: "4px", borderRadius: 6, border: "1px solid var(--border-default)", background: "var(--surface-raised)", color: "var(--text-primary)", fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 700 }} />
+                <input type="number" min={1} max={10} value={p.weight} disabled={!canEdit || d.busy} onChange={(e) => { const w = Number(e.target.value); if (w >= 1 && w <= 10) void d.setWeight(p.id, w); }} style={{ width: 40, textAlign: "center", padding: "4px", borderRadius: 6, border: "1px solid var(--border-default)", background: "var(--surface-raised)", color: "var(--text-primary)", fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 700 }} />
               </div>
-              {/* Stats */}
-              <div style={{ textAlign: "center", width: 60, flexShrink: 0 }}>
+              <div style={{ textAlign: "center", width: 54, flexShrink: 0 }}>
                 <div style={{ fontFamily: "var(--font-mono)", fontSize: 8, color: "var(--text-disabled)", letterSpacing: "0.1em" }}>LEADS</div>
-                <div style={{ fontFamily: "var(--font-mono)", fontSize: 15, fontWeight: 700, color: "var(--text-secondary)" }}>{slot.current_count}</div>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 15, fontWeight: 700, color: "var(--text-secondary)" }}>{p.currentCount}</div>
               </div>
+              {canEdit && (
+                <button type="button" onClick={() => void d.remove(p.id)} disabled={d.busy} title="Remover" style={{ background: "none", border: "none", color: "var(--text-disabled)", fontSize: 16, cursor: "pointer", flexShrink: 0, lineHeight: 1, padding: "0 2px" }}>×</button>
+              )}
             </div>
           ))}
         </div>
       )}
 
-      {canEdit && slots.some((s) => s.current_count > 0) && (
-        <button type="button" onClick={() => void handleResetCounts()} disabled={saving} style={{ marginTop: 12, background: "none", border: "none", color: "var(--text-disabled)", fontSize: 12, cursor: "pointer", textDecoration: "underline", padding: 0 }}>
-          Resetar contagem
-        </button>
+      {canEdit && (
+        <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+          {showAdd ? (
+            <select disabled={d.busy} defaultValue="" onChange={(e) => { const v = e.target.value; if (v) { void d.add(v); setShowAdd(false); } }} style={{ minHeight: 36, padding: "0 12px", borderRadius: 8, border: "1px solid var(--border-default)", background: "var(--surface-raised)", color: "var(--text-primary)", fontSize: 13 }}>
+              <option value="" disabled>Escolher pessoa…</option>
+              {d.addable.map((p) => <option key={p.userId} value={p.userId}>{p.name} · {ROLE_LABELS[p.role] ?? p.role}</option>)}
+            </select>
+          ) : (
+            <button type="button" onClick={() => setShowAdd(true)} disabled={d.busy || d.addable.length === 0} style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid var(--border-strong)", background: "transparent", color: "var(--text-secondary)", fontSize: 13, fontWeight: 600, cursor: d.addable.length === 0 ? "default" : "pointer", opacity: d.addable.length === 0 ? 0.5 : 1 }}>+ Adicionar participante</button>
+          )}
+          {showAdd && <button type="button" onClick={() => setShowAdd(false)} style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 13, cursor: "pointer" }}>Cancelar</button>}
+          {d.participants.some((p) => p.currentCount > 0) && (
+            <button type="button" onClick={() => void d.reset()} disabled={d.busy} style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--text-disabled)", fontSize: 12, cursor: "pointer", textDecoration: "underline", padding: 0 }}>Zerar contadores</button>
+          )}
+        </div>
       )}
 
       <div style={{ marginTop: 14, padding: "10px 14px", background: "var(--surface-base)", borderRadius: 8, fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }}>
-        Quando um novo contato é criado sem responsável, o sistema atribui automaticamente ao próximo membro ativo da lista. Membros com peso maior recebem proporcionalmente mais leads.
+        O próximo lead vai para o participante ativo com menor carga relativa (leads ÷ peso). Peso maior recebe proporcionalmente mais. Participantes são vinculados ao empreendimento ativo.
+      </div>
+    </div>
+  );
+}
+
+// Matriz de documentos exigidos (document_requirements + catálogo) por
+// empreendimento e papel. Substitui o editor antigo de document_type_configs.
+// Reaproveita o hook useDocumentRequirements; persistência via repositório.
+const CHECKLIST_ROLES: { key: PartyRole; label: string }[] = [
+  { key: "primary_buyer", label: "Comprador" },
+  { key: "spouse", label: "Cônjuge" },
+  { key: "co_obligor", label: "Coobrigado" },
+  { key: "attorney_in_fact", label: "Procurador" },
+];
+
+function DocumentChecklistPanel({ accountId, developmentId, developmentName, canEdit }: { accountId: string | null; developmentId: string | null; developmentName: string | null; canEdit: boolean }) {
+  const dr = useDocumentRequirements(developmentId, accountId);
+
+  const cellState = (role: PartyRole, typeId: string): RequirementCellState => {
+    const r = dr.requirements.find((x) => x.partyRole === role && x.documentTypeId === typeId);
+    return !r ? "missing" : r.isRequired ? "required" : "optional";
+  };
+  const cellStyle = (st: RequirementCellState): React.CSSProperties =>
+    st === "required"
+      ? { background: "rgba(74,222,128,0.14)", color: "var(--interactive-primary)", border: "1px solid rgba(74,222,128,0.35)" }
+      : st === "optional"
+      ? { background: "rgba(96,165,250,0.12)", color: "#60A5FA", border: "1px solid rgba(96,165,250,0.35)" }
+      : { background: "transparent", color: "var(--text-disabled)", border: "1px solid var(--border-default)" };
+  const cellText = (st: RequirementCellState) => (st === "required" ? "Obrig." : st === "optional" ? "Opc." : "—");
+
+  if (!developmentId) {
+    return <div style={{ fontSize: 13, color: "var(--color-fog)" }}>Selecione um empreendimento ativo para configurar o checklist de documentos.</div>;
+  }
+  if (dr.isLoading && dr.catalog.length === 0) {
+    return <div className="nexa-card" style={{ padding: 20 }}><div style={{ fontSize: 13, color: "var(--color-fog)" }}>Carregando checklist...</div></div>;
+  }
+
+  return (
+    <div>
+      <div style={{ marginBottom: 4, fontSize: 18, fontWeight: 700, color: "var(--color-bone)" }}>Checklist de Documentos</div>
+      <div style={{ fontSize: 12, color: "var(--color-fog)", marginBottom: 16 }}>Documentos exigidos por papel — {developmentName ?? "empreendimento ativo"}. O checklist de cada cliente é semeado a partir do papel "Comprador".</div>
+      {dr.errorMessage ? <div style={{ marginBottom: 12, fontSize: 12, color: "var(--color-terracotta)" }}>{dr.errorMessage}</div> : null}
+
+      <div className="nexa-card" style={{ padding: 20 }}>
+        <div style={{ fontSize: 12, color: "var(--color-fog)", marginBottom: 14 }}>Clique numa célula para alternar: vazio → obrigatório → opcional.</div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ borderCollapse: "separate", borderSpacing: 0, width: "100%", minWidth: 520 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", padding: "8px 10px", fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--text-disabled)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Documento</th>
+                {CHECKLIST_ROLES.map((r) => (
+                  <th key={r.key} style={{ textAlign: "center", padding: "8px 6px", fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--text-disabled)", letterSpacing: "0.06em", textTransform: "uppercase", minWidth: 84 }}>{r.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {dr.catalog.map((t) => (
+                <tr key={t.id}>
+                  <td style={{ padding: "8px 10px", fontSize: 13, color: "var(--text-secondary)", borderTop: "1px solid var(--border-subtle)", whiteSpace: "nowrap" }}>{t.label}</td>
+                  {CHECKLIST_ROLES.map((r) => {
+                    const st = cellState(r.key, t.id);
+                    const busy = dr.mutatingCell === `${r.key}:${t.id}`;
+                    return (
+                      <td key={r.key} style={{ textAlign: "center", padding: "6px", borderTop: "1px solid var(--border-subtle)" }}>
+                        <button type="button" disabled={!canEdit || busy} onClick={() => void dr.toggleRequirement(r.key, t.id, st)} style={{ minWidth: 64, padding: "5px 8px", borderRadius: 8, fontSize: 11, fontWeight: 600, fontFamily: "var(--font-mono)", cursor: canEdit ? "pointer" : "default", opacity: busy ? 0.5 : 1, ...cellStyle(st) }}>{cellText(st)}</button>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {canEdit && (
+          <div style={{ marginTop: 14 }}>
+            <button type="button" onClick={() => void dr.restoreDefaults()} disabled={dr.isLoading} style={{ background: "none", border: "none", color: "var(--text-disabled)", fontSize: 12, cursor: "pointer", textDecoration: "underline", padding: 0 }}>Restaurar padrão do empreendimento</button>
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: 16, padding: "10px 14px", background: "var(--surface-overlay)", borderRadius: 8, fontSize: 11, color: "var(--color-fog)", lineHeight: 1.6 }}>
+        Estes requisitos alimentam o checklist semeado para novos clientes (papel Comprador) e a ficha de documentos. Clientes existentes mantêm seus documentos atuais.
       </div>
     </div>
   );

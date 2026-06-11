@@ -1,9 +1,12 @@
 import { useState, useMemo, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAccount } from "../../../app/contexts/AccountContext";
 import { useAuth } from "../../../app/contexts/AuthContext";
+import { usePermissions } from "../../../shared/hooks/usePermissions";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
 import { useContatos, type ContatoFilters } from "../hooks/useContatos";
+import { useLeadDistribution } from "../hooks/useLeadDistribution";
 import { useClientFilter } from "../../../shared/hooks/useClientFilter";
 import { podeVerTodasNegociacoes } from "../../../shared/utils/permissoes";
 import { supabase } from "../../../infra/supabase/supabaseClient";
@@ -56,6 +59,10 @@ export default function ContatosPage() {
   const userId = authenticatedProfile?.id ?? null;
   const canSeeAll = podeVerTodasNegociacoes(userRole);
   const clientFilter = useClientFilter();
+  const { role: accountRole } = usePermissions();
+  const canDistribute = accountRole === "owner" || accountRole === "director" || accountRole === "manager";
+  const { distribute, distributingId } = useLeadDistribution();
+  const [distToast, setDistToast] = useState<string | null>(null);
 
   const initialTab = qp.get("tab") ?? "all";
   const [filters, setFilters] = useState<ContatoFilters>({});
@@ -88,7 +95,18 @@ export default function ContatosPage() {
   }, [filters, searchDebounced]);
 
   const ownerFilter = !canSeeAll && userId ? clientFilter : undefined;
-  const { contatos: allContatos, isLoading, status, errorMessage } = useContatos(accountId, effectiveFilters, ownerFilter);
+  const { contatos: allContatos, isLoading, status, errorMessage, refetch } = useContatos(accountId, effectiveFilters, ownerFilter);
+
+  async function handleDistribute(clientId: string) {
+    const res = await distribute(clientId);
+    if (res.ok) {
+      setDistToast("Lead distribuído ✓");
+      refetch();
+    } else {
+      setDistToast(res.error);
+    }
+    setTimeout(() => setDistToast(null), 3500);
+  }
 
   const contatos = useMemo(() => {
     let result = allContatos;
@@ -318,12 +336,24 @@ export default function ContatosPage() {
                 {!isMobile && <Badge label={CLIENT_STATUS_LABELS[c.status] ?? c.status} color={CLIENT_STATUS_COLORS[c.status] ?? "#6B7280"} />}
                 {!isMobile && c.score > 0 && <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 600, color: c.score >= 70 ? "#4ADE80" : c.score >= 40 ? "#FBBF24" : "var(--text-muted)", minWidth: 32, textAlign: "center" }}>{c.score}</div>}
                 {!isMobile && <div style={{ fontSize: 12, color: c.assignedToName ? "var(--text-muted)" : "var(--text-disabled)", minWidth: 80, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.assignedToName ?? c.brokerName ?? "—"}</div>}
+                {canDistribute && !c.assignedTo && !c.brokerName && (
+                  <button type="button" onClick={(e) => { e.stopPropagation(); void handleDistribute(c.id); }} disabled={distributingId === c.id} style={{ flexShrink: 0, padding: "6px 12px", borderRadius: 8, border: "1px solid var(--interactive-primary)", background: "rgba(74,222,128,0.08)", color: "var(--interactive-primary)", fontSize: 12, fontWeight: 700, cursor: distributingId === c.id ? "wait" : "pointer", whiteSpace: "nowrap" }}>
+                    {distributingId === c.id ? "..." : "Distribuir"}
+                  </button>
+                )}
                 {isOverdue && <span title="Follow-up atrasado" style={{ fontSize: 14, flexShrink: 0 }}>⚠</span>}
                 {isMobile && <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}><Badge label={CLIENT_STATUS_LABELS[c.status] ?? c.status} color={CLIENT_STATUS_COLORS[c.status] ?? "#6B7280"} /></div>}
               </div>
             );
           })}
         </div>
+      )}
+
+      {distToast && createPortal(
+        <div style={{ position: "fixed", bottom: 32, left: "50%", transform: "translateX(-50%)", background: "var(--surface-raised)", border: "1px solid var(--border-default)", color: "var(--text-primary)", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 600, zIndex: 10000, boxShadow: "0 8px 24px rgba(0,0,0,0.45)" }}>
+          {distToast}
+        </div>,
+        document.body,
       )}
     </div>
   );
