@@ -237,7 +237,7 @@ export async function createClient(input: {
   if (!data) throw new Error("Contato não retornado após criação.");
 
   // Document checklist is seeded automatically by DB trigger (trg_seed_client_documents)
-  // based on document_type_configs for the account
+  // from document_requirements (primary_buyer) + document_type_catalog
 
   return mapRow(data as unknown as Record<string, unknown>);
 }

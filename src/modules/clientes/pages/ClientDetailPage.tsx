@@ -6,7 +6,7 @@ import { useDevelopment } from "../../../app/contexts/DevelopmentContext";
 import { useAuth } from "../../../app/contexts/AuthContext";
 import { supabase } from "../../../infra/supabase/supabaseClient";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
-import { createNotificationWithEmail, createNotificationsWithEmail } from "../../../shared/utils/notificationHelper";
+import { useClientDocuments, type ClientDoc } from "../hooks/useClientDocuments";
 import { getNegotiationStatusLabel } from "../../../domain/negociacao/NegotiationStatusLabel";
 import { timeAgo } from "../../../shared/utils/timeAgo";
 import { formatDateBRT, formatTimeBRT, formatDateLongBRT, getTodayDateStringBRT } from "../../../shared/utils/dateUtils";
@@ -50,18 +50,8 @@ const STATUS_COLORS: Record<string, string> = { new: "#60A5FA", contacted: "#A78
 const TEMP_CFG: Record<string, { label: string; color: string; bg: string }> = { hot: { label: "Quente", color: "#F87171", bg: "rgba(248,113,113,0.12)" }, warm: { label: "Morno", color: "#F59E0B", bg: "rgba(245,158,11,0.12)" }, cold: { label: "Frio", color: "#60A5FA", bg: "rgba(96,165,250,0.12)" } };
 const SOURCE_LABELS: Record<string, string> = { website: "Website", instagram: "Instagram", facebook: "Facebook", google_ads: "Google Ads", whatsapp: "WhatsApp", phone: "Telefone", referral: "Indicação", broker_indication: "Indicação corretor", event: "Evento", walk_in: "Presencial", landing_page: "Landing Page", rd_station: "RD Station", import: "Importação", other: "Outro" };
 
-interface ClientDoc {
-  id: string; document_type: string; file_url: string; file_name: string;
-  file_size: number | null; file_size_bytes: number | null; mime_type: string | null;
-  storage_path: string | null; uploaded_by: string | null;
-  status: string; rejection_reason: string | null; created_at: string;
-  is_required: boolean; label: string | null;
-}
+// ClientDoc vem do repositório (fonte única do shape de client_documents).
 
-interface DocTypeConfig {
-  id: string; name: string; label: string | null; description: string | null;
-  required: boolean; active: boolean; sort_order: number; person_type: string;
-}
 
 interface ClientNeg { id: string; status: string; score: number | null; updated_at: string; unit_quadra: string | null; unit_lote: string | null; unit_valor: number | null; broker_name: string | null }
 interface ClientAct { id: string; type: string; title: string; status: string; activity_date: string; outcome: string | null; duration_minutes: number }
@@ -191,10 +181,7 @@ export default function ClientDetailPage() {
   const [client, setClient] = useState<ClientData | null>(null);
   const [negotiations, setNegotiations] = useState<ClientNeg[]>([]);
   const [activities, setActivities] = useState<ClientAct[]>([]);
-  const [documents, setDocuments] = useState<ClientDoc[]>([]);
-  const [docTypeConfigs, setDocTypeConfigs] = useState<DocTypeConfig[]>([]);
   const [loading, setLoading] = useState(true);
-  const [approvingAll, setApprovingAll] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [tab, setTab] = useState<"interacoes" | "dados" | "endereco" | "interesse" | "documentos" | "historico">("interacoes");
@@ -208,12 +195,30 @@ export default function ClientDetailPage() {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<Partial<ClientData>>({});
   const fileRef = useRef<HTMLInputElement>(null);
-  const [uploadingDocType, setUploadingDocType] = useState<string | null>(null);
   const [activityModalOpen, setActivityModalOpen] = useState(false);
   const [rejectTarget, setRejectTarget] = useState<ClientDoc | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; onConfirm: () => void; variant?: "default" | "danger" } | null>(null);
   const [downloadingZip, setDownloadingZip] = useState(false);
+
+  // Documentos do cliente: regra/persistência no hook (checklist canônico via
+  // document_requirements + catálogo; upload/revisão/lote/remoção). O
+  // componente só renderiza e dispara ações.
+  const cd = useClientDocuments({
+    clientId: id ?? null,
+    accountId,
+    developmentId: ((client as { development_id?: string | null } | null)?.development_id) ?? null,
+    userId,
+    clientName: client?.full_name || client?.name || "Cliente",
+    accountName: account?.accountName ?? null,
+    developmentName: development?.developmentName ?? null,
+    onToast: setToast,
+  });
+  const { documents, checklistTypes, uploadingDocType, setUploadingDocType, approvingAll } = cd;
+  const uploadDocument = cd.upload;
+  const reviewDoc = cd.review;
+  const approveAllDocs = cd.approveAll;
+  const removeDocument = cd.remove;
   // Follow-up
   const [showFollowUpForm, setShowFollowUpForm] = useState(false);
   const [fuDate, setFuDate] = useState("");
@@ -294,11 +299,7 @@ export default function ClientDetailPage() {
       setNegotiations((negs ?? []).map((n: Record<string, unknown>) => { const u = (Array.isArray(n.units) ? n.units[0] : n.units) as Record<string, unknown> | null; const b = (Array.isArray(n.brokers) ? n.brokers[0] : n.brokers) as Record<string, unknown> | null; return { id: n.id as string, status: n.status as string, score: n.score as number | null, updated_at: n.updated_at as string, unit_quadra: u?.quadra as string | null, unit_lote: u?.lote as string | null, unit_valor: u?.valor as number | null, broker_name: b?.name as string | null }; }));
       const { data: acts } = await supabase.from("activities").select("id, type, title, status, activity_date, outcome, duration_minutes").eq("client_id", id).eq("account_id", accountId).order("activity_date", { ascending: false }).limit(10);
       setActivities((acts ?? []) as ClientAct[]);
-      const { data: docs } = await supabase.from("client_documents").select("id, document_type, file_url, file_name, file_size, file_size_bytes, mime_type, storage_path, uploaded_by, status, rejection_reason, created_at, is_required, label").eq("client_id", id).order("created_at", { ascending: false });
-      setDocuments((docs ?? []) as ClientDoc[]);
-      // Load document type configs for this account
-      const { data: dtConfigs } = await supabase.from("document_type_configs").select("id, name, label, description, required, active, sort_order, person_type").eq("account_id", accountId).eq("active", true).order("sort_order", { ascending: true });
-      setDocTypeConfigs((dtConfigs ?? []) as DocTypeConfig[]);
+      // Documentos e checklist são carregados pelo hook useClientDocuments.
       const { data: ints } = await supabase.from("contact_interactions").select("id, type, direction, title, description, performed_by, performed_at, profiles(name)").eq("client_id", id).order("performed_at", { ascending: false }).limit(50);
       setContactInteractions((ints ?? []) as unknown as typeof contactInteractions);
       // Load team members for assignment
@@ -356,139 +357,6 @@ export default function ClientDetailPage() {
       const data = await res.json();
       if (!data.erro) { setF("endereco", data.logradouro || ""); setF("bairro", data.bairro || ""); setF("city", data.localidade || ""); setF("uf", data.uf || ""); }
     } catch {}
-  }
-
-  async function uploadDocument(file: File, docType: string) {
-    if (!supabase || !id || !accountId || !userId) return;
-    setUploadingDocType(docType);
-    try {
-      const ext = file.name.split(".").pop() || "pdf";
-      const path = `${accountId}/${id}/${docType}_${Date.now()}.${ext}`;
-      const { error: upErr } = await supabase.storage.from("client-documents").upload(path, file);
-      if (upErr) throw upErr;
-      const { data: signedUrl } = await supabase.storage.from("client-documents").createSignedUrl(path, 60 * 60 * 24 * 365);
-      await supabase.from("client_documents").insert({ client_id: id, account_id: accountId, document_type: docType, file_url: signedUrl?.signedUrl || path, storage_path: path, file_name: file.name, file_size: file.size, file_size_bytes: file.size, mime_type: file.type, status: "sent", uploaded_by: userId, uploaded_at: new Date().toISOString() });
-      // Optimistic: update local state immediately
-      setDocuments((prev) => {
-        const existing = prev.find((d) => d.document_type === docType);
-        const newDoc: ClientDoc = { id: existing?.id || crypto.randomUUID(), document_type: docType, file_url: signedUrl?.signedUrl || path, file_name: file.name, file_size: file.size, file_size_bytes: file.size, mime_type: file.type, storage_path: path, uploaded_by: userId, status: "sent", rejection_reason: null, created_at: new Date().toISOString(), is_required: existing?.is_required ?? true, label: existing?.label ?? null };
-        if (existing) return prev.map((d) => d.document_type === docType ? { ...d, ...newDoc } : d);
-        return [...prev, newDoc];
-      });
-      setToast("Documento enviado");
-      load(true); // silent refetch to sync
-    } catch (e) { console.error(e); setToast("Erro no upload"); load(true); }
-    finally { setUploadingDocType(null); }
-  }
-
-  async function reviewDoc(docId: string, action: "approved" | "rejected", reason?: string) {
-    if (!supabase || !userId || !id || !accountId) return;
-    // Optimistic update
-    setDocuments((prev) => prev.map((d) => d.id === docId ? { ...d, status: action, rejection_reason: reason || null } : d));
-    await supabase.from("client_documents").update({ status: action, rejection_reason: reason || null, reviewed_by: userId, reviewed_at: new Date().toISOString() }).eq("id", docId);
-
-    // Find the doc to get uploaded_by and type for notification
-    const doc = documents.find((d) => d.id === docId);
-    const cfgLabel = docTypeConfigs.find((c) => c.name === doc?.document_type)?.label;
-    const fallbackLabel = DOC_TYPES.find((d) => d.key === doc?.document_type)?.label;
-    const docLabel = doc ? (cfgLabel || fallbackLabel || doc.document_type) : "Documento";
-    const clientName = client?.full_name || client?.name || "Cliente";
-
-    // Notify uploader (fire-and-forget, with email for rejections)
-    if (doc) {
-      supabase!.from("client_documents").select("uploaded_by").eq("id", docId).maybeSingle().then(({ data: docRow }) => {
-        if (docRow?.uploaded_by && docRow.uploaded_by !== userId) {
-          void createNotificationWithEmail({
-            account_id: accountId!, recipient_id: docRow.uploaded_by, sender_id: userId,
-            type: action === "approved" ? "doc_approved" : "doc_rejected",
-            title: action === "approved" ? `Documento aprovado: ${docLabel}` : `Documento recusado: ${docLabel}`,
-            message: action === "approved" ? `${docLabel} de ${clientName} foi aprovado.` : `${docLabel} de ${clientName} foi recusado. Motivo: ${reason || "Não informado"}. Por favor reenvie.`,
-            action_url: `/contatos/${id}?tab=documentos`,
-            metadata: { account_name: account?.accountName, development_name: development?.developmentName },
-          });
-        }
-      });
-    }
-
-    // Recalculate doc_status after review
-    const { data: allDocs } = await supabase.from("client_documents").select("status").eq("client_id", id);
-    if (allDocs && allDocs.length > 0) {
-      const approved = allDocs.filter((d: Record<string, unknown>) => d.status === "approved").length;
-      const rejected = allDocs.filter((d: Record<string, unknown>) => d.status === "rejected").length;
-      const total = allDocs.length;
-      const newStatus = approved === total ? "approved" : rejected > 0 ? "needs_resubmission" : "in_review";
-      await supabase.from("clients").update({ doc_status: newStatus }).eq("id", id);
-
-      // If ALL docs approved → notify managers (with email)
-      if (approved === total) {
-        supabase.from("user_account_access").select("user_id").eq("account_id", accountId).in("role", ["owner", "director", "manager"]).then(({ data: managers }) => {
-          const notifs = (managers || []).filter((m: Record<string, unknown>) => m.user_id !== userId).map((m: Record<string, unknown>) => ({
-            account_id: accountId!, recipient_id: m.user_id as string, sender_id: userId,
-            type: "client_ready_for_contract", title: "Cliente pronto para contrato",
-            message: `Todos os documentos de ${clientName} foram aprovados. Pronto para minuta.`,
-            action_url: `/contatos/${id}`,
-            metadata: { account_name: account?.accountName, development_name: development?.developmentName },
-          }));
-          if (notifs.length > 0) void createNotificationsWithEmail(notifs);
-        });
-      }
-    }
-
-    setToast(action === "approved" ? "Documento aprovado" : "Documento rejeitado"); load(true);
-  }
-
-  async function approveAllDocs() {
-    if (!supabase || !userId || !id || !accountId) return;
-    const uploadedDocs = documents.filter((d) => d.status === "uploaded" || d.status === "sent");
-    if (uploadedDocs.length === 0) return;
-    setApprovingAll(true);
-    // Optimistic: mark all uploaded as approved immediately
-    const uploadedIds = new Set(uploadedDocs.map((d) => d.id));
-    setDocuments((prev) => prev.map((d) => uploadedIds.has(d.id) ? { ...d, status: "approved", rejection_reason: null } : d));
-    try {
-      await supabase.from("client_documents").update({ status: "approved", reviewed_by: userId, reviewed_at: new Date().toISOString(), rejection_reason: null }).in("id", uploadedDocs.map((d) => d.id));
-      // Recalculate doc_status
-      const { data: allDocs } = await supabase.from("client_documents").select("status").eq("client_id", id);
-      if (allDocs) {
-        const approved = allDocs.filter((d: Record<string, unknown>) => d.status === "approved").length;
-        const total = allDocs.length;
-        const newStatus = approved === total ? "approved" : "in_review";
-        await supabase.from("clients").update({ doc_status: newStatus }).eq("id", id);
-        if (approved === total) {
-          const clientName = client?.full_name || client?.name || "Cliente";
-          supabase.from("user_account_access").select("user_id").eq("account_id", accountId).in("role", ["owner", "director", "manager"]).then(({ data: managers }) => {
-            const notifs = (managers || []).filter((m: Record<string, unknown>) => m.user_id !== userId).map((m: Record<string, unknown>) => ({
-              account_id: accountId!, recipient_id: m.user_id as string, sender_id: userId,
-              type: "client_ready_for_contract", title: "Cliente pronto para contrato",
-              message: `Todos os documentos de ${clientName} foram aprovados. Pronto para minuta.`,
-              action_url: `/contatos/${id}`,
-              metadata: { account_name: account?.accountName, development_name: development?.developmentName },
-            }));
-            if (notifs.length > 0) void createNotificationsWithEmail(notifs);
-          });
-        }
-      }
-      setToast(`${uploadedDocs.length} documento(s) aprovado(s)`); load(true);
-    } catch (e) { console.error(e); setToast("Erro ao aprovar documentos"); load(true); }
-    finally { setApprovingAll(false); }
-  }
-
-  async function removeDocument(docId: string, storagePath: string | null) {
-    if (!supabase || !id) return;
-    // Optimistic: reset to pending immediately
-    setDocuments((prev) => prev.map((d) => d.id === docId ? { ...d, status: "pending", storage_path: null, file_url: "", file_name: "", file_size: null, file_size_bytes: null, mime_type: null, rejection_reason: null } : d));
-    setToast("Arquivo removido");
-    try {
-      if (storagePath) {
-        await supabase.storage.from("client-documents").remove([storagePath]);
-      }
-      await supabase.from("client_documents").update({
-        storage_path: null, file_url: null, file_name: null, file_size: null,
-        file_size_bytes: null, mime_type: null, uploaded_by: null, uploaded_at: null,
-        reviewed_by: null, reviewed_at: null, rejection_reason: null, status: "pending",
-      }).eq("id", docId);
-      load(true);
-    } catch (e) { console.error(e); setToast("Erro ao remover"); load(true); }
   }
 
   const canRemoveDoc = (doc: ClientDoc) => {
@@ -578,9 +446,10 @@ export default function ClientDetailPage() {
   if (loading) return <div style={{ padding: 32 }}><div style={{ fontSize: 13, color: T.fog, fontFamily: "var(--font-mono)" }}>Carregando...</div></div>;
   if (!client) return <div style={{ padding: 32 }}><div style={{ fontSize: 14, color: T.red }}>Cliente não encontrado.</div><button type="button" onClick={() => navigate("/contatos")} style={{ marginTop: 16, background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "8px 16px", color: T.bone, fontSize: 13, cursor: "pointer" }}>← Voltar</button></div>;
 
-  // Dynamic doc types: prefer configs from DB, fallback to hardcoded DOC_TYPES
-  const effectiveDocTypes: { key: string; label: string; required: boolean; description?: string | null }[] = docTypeConfigs.length > 0
-    ? docTypeConfigs.map((c) => ({ key: c.name, label: c.label || c.name, required: c.required, description: c.description }))
+  // Checklist canônico vindo de document_requirements + catálogo (via hook);
+  // fallback para a lista mínima caso a conta/empreendimento não tenha requisitos.
+  const effectiveDocTypes: { key: string; label: string; required: boolean; description?: string | null }[] = checklistTypes.length > 0
+    ? checklistTypes
     : DOC_TYPES.map((d) => ({ ...d, required: d.key !== "certidao_casamento" }));
   const docsByType: Record<string, ClientDoc> = {}; documents.forEach((d) => { if (!docsByType[d.document_type] || d.created_at > docsByType[d.document_type].created_at) docsByType[d.document_type] = d; });
   const docApproved = effectiveDocTypes.filter((dt) => docsByType[dt.key]?.status === "approved").length;
