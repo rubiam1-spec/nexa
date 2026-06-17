@@ -8,6 +8,8 @@ import { getSupabaseClientOrThrow, unwrapSupabaseListResult } from "./baseReposi
 const dbStatusToEnum: Record<string, NegotiationStatusType> = {
   open: NegotiationStatus.OPEN,
   in_progress: NegotiationStatus.IN_PROGRESS,
+  proposal: NegotiationStatus.PROPOSAL,
+  reservation: NegotiationStatus.RESERVATION,
   won: NegotiationStatus.WON,
   lost: NegotiationStatus.LOST,
   cancelled: NegotiationStatus.CANCELLED,
@@ -16,6 +18,10 @@ const dbStatusToEnum: Record<string, NegotiationStatusType> = {
 const enumToDbStatus: Record<NegotiationStatusType, string> = {
   [NegotiationStatus.OPEN]: "open",
   [NegotiationStatus.IN_PROGRESS]: "in_progress",
+  // PROPOSAL/RESERVATION são produzidos pela importação e gravados em UPPERCASE
+  // (compatível com o CHECK negotiations_status_check).
+  [NegotiationStatus.PROPOSAL]: "PROPOSAL",
+  [NegotiationStatus.RESERVATION]: "RESERVATION",
   [NegotiationStatus.WON]: "won",
   [NegotiationStatus.LOST]: "lost",
   [NegotiationStatus.CANCELLED]: "cancelled",

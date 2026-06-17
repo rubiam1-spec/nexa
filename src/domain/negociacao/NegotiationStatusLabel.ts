@@ -7,6 +7,10 @@ export function getNegotiationStatusLabel(status: NegotiationStatusType) {
       return "Aberta";
     case NegotiationStatus.IN_PROGRESS:
       return "Em negociação";
+    case NegotiationStatus.PROPOSAL:
+      return "Proposta";
+    case NegotiationStatus.RESERVATION:
+      return "Reserva";
     case NegotiationStatus.WON:
       return "Ganha";
     case NegotiationStatus.LOST:

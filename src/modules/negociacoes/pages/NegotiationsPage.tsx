@@ -5,6 +5,7 @@ import { useAccount } from "../../../app/contexts/AccountContext";
 import { UnidadeStatus } from "../../../domain/unidade/UnidadeStatus";
 import { getNegotiationStatusLabel } from "../../../domain/negociacao/NegotiationStatusLabel";
 import { useNegotiationsOverview } from "../hooks/useNegotiationsOverview";
+import NegotiationImportWizard from "../components/NegotiationImportWizard";
 import { EmptyState } from "../../../shared/components/EmptyState";
 import { SearchableSelect } from "../../../shared/components/SearchableSelect";
 import { createClient } from "../../../infra/repositories/clientsSupabaseRepository";
@@ -16,6 +17,8 @@ const STATUS_PILLS = [
   { value: "all", label: "Todos" },
   { value: "OPEN", label: "Aberta" },
   { value: "IN_PROGRESS", label: "Em negociação" },
+  { value: "PROPOSAL", label: "Proposta" },
+  { value: "RESERVATION", label: "Reserva" },
   { value: "WON", label: "Ganhas" },
   { value: "LOST", label: "Perdidas" },
   { value: "CANCELLED", label: "Canceladas" },
@@ -24,6 +27,8 @@ const STATUS_PILLS = [
 const STATUS_COLOR: Record<string, { fg: string; bg: string }> = {
   OPEN: { fg: "#60A5FA", bg: "rgba(96,165,250,0.1)" },
   IN_PROGRESS: { fg: "#4ADE80", bg: "rgba(74,222,128,0.1)" },
+  PROPOSAL: { fg: "#A78BFA", bg: "rgba(167,139,250,0.1)" },
+  RESERVATION: { fg: "#60A5FA", bg: "rgba(96,165,250,0.1)" },
   WON: { fg: "#22C55E", bg: "rgba(34,197,94,0.1)" },
   LOST: { fg: "#F87171", bg: "rgba(248,113,113,0.1)" },
   CANCELLED: { fg: "#706B5F", bg: "rgba(112,107,95,0.1)" },
@@ -94,6 +99,7 @@ export default function NegotiationsPage() {
   } = useNegotiationsOverview();
 
   const [showForm, setShowForm] = useState(!!preselectedUnitId);
+  const [showImport, setShowImport] = useState(false);
   const [selectedUnitId, setSelectedUnitId] = useState(preselectedUnitId ?? "");
   const [selectedClientId, setSelectedClientId] = useState("");
   const [selectedBrokerId, setSelectedBrokerId] = useState("");
@@ -110,6 +116,8 @@ export default function NegotiationsPage() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [sortBy, setSortBy] = useState<"date" | "score">("date");
   const canFilter = getPermissions(account?.role ?? null).canViewFullDashboard;
+  // Importar negociações é restrito a MANAGER_ROLES (owner/director/manager).
+  const canImport = ["owner", "director", "manager"].includes(account?.role ?? "");
 
   useEffect(() => {
     if (showForm) firstInputRef.current?.focus();
@@ -209,11 +217,27 @@ export default function NegotiationsPage() {
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <a href="/pipeline" style={{ ...btnSecondary, fontSize: 12, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>Pipeline</a>
+          {canImport && (
+            <button type="button" onClick={() => setShowImport(true)} style={btnSecondary}>
+              Importar negociações
+            </button>
+          )}
           <button type="button" onClick={() => setShowForm((p) => !p)} style={showForm ? btnSecondary : btnPrimary}>
             {showForm ? "Cancelar" : "Nova negociação"}
           </button>
         </div>
       </div>
+
+      {canImport && (
+        <NegotiationImportWizard
+          open={showImport}
+          onClose={() => setShowImport(false)}
+          accountId={account?.accountId ?? null}
+          developmentId={development?.developmentId ?? null}
+          developmentName={development?.developmentName ?? null}
+          onImported={refetchClients}
+        />
+      )}
 
       {successMsg ? (
         <div style={{ background: "var(--color-sprout-muted)", border: "1px solid var(--color-sprout)", borderRadius: 8, padding: "10px 16px", marginBottom: 16, fontSize: 13, color: "var(--color-sprout)", display: "flex", alignItems: "center", gap: 8 }}>
