@@ -300,3 +300,127 @@ export async function gerarPdfEstoque(cfg: { period: string; contaNome: string; 
   footer(doc, ff, t);
   doc.save(`relatorio_estoque_${Date.now()}.pdf`);
 }
+
+// ══════════════════════════════════════════
+// INDIVIDUAL (atividades + negócios por pessoa)
+// ══════════════════════════════════════════
+
+export interface IndividualPdfData {
+  atividades: {
+    total: number;
+    concluidas: number;
+    taxaConclusao: number;
+    pendentes: number;
+    porTipo: { label: string; count: number }[];
+    porSemana: { semana: string; count: number }[];
+  };
+  negocios: {
+    porStatus: { label: string; count: number }[];
+    total: number;
+    ativas: number;
+    propostas: number;
+    reservas: number;
+    vendas: number;
+    conversao: number;
+    semDono: number;
+  };
+}
+
+// Barras horizontais simples reaproveitando o estilo das demais seções.
+function drawBars(
+  doc: jsPDF,
+  ff: string,
+  t: (s: string) => string,
+  y: number,
+  items: { label: string; count: number }[],
+  color: string,
+): number {
+  const max = Math.max(...items.map((i) => i.count), 1);
+  const labelW = 40;
+  const barX = mg + labelW + 4;
+  const barMax = cw - labelW - 4 - 14;
+  for (const it of items) {
+    y = newPage(doc, y, 8);
+    doc.setFont(ff, "normal"); doc.setFontSize(8.5); doc.setTextColor(...hex(TLight.textSecondary));
+    doc.text(t(it.label), mg + labelW, y, { align: "right" });
+    doc.setFillColor(...hex(TLight.borderLight)); doc.roundedRect(barX, y - 2.6, barMax, 3, 1, 1, "F");
+    doc.setFillColor(...hex(color)); doc.roundedRect(barX, y - 2.6, Math.max((it.count / max) * barMax, 1.5), 3, 1, 1, "F");
+    doc.setFont(ff, "bold"); doc.setFontSize(8.5); doc.setTextColor(...hex(TLight.textPrimary));
+    doc.text(`${it.count}`, W - mg, y, { align: "right" });
+    y += 8;
+  }
+  return y + 4;
+}
+
+export async function gerarPdfRelatorioIndividual(
+  cfg: { membroNome: string; period: string; contaNome: string; empreendimentoNome: string },
+  d: IndividualPdfData,
+) {
+  const { doc, t, ff, y: sy } = await setupDoc(
+    "Relatorio Individual",
+    `${cfg.membroNome} · ${cfg.empreendimentoNome} · ${cfg.contaNome}`,
+    cfg.period,
+  );
+  let y = sy;
+
+  // ── Atividades ──
+  y = secLabel(doc, ff, t, "Atividades", y);
+  y = drawKpis(doc, ff, t, y, [
+    { label: "Atividades", value: `${d.atividades.total}`, sub: "no periodo" },
+    { label: "Concluidas", value: `${d.atividades.concluidas}`, color: TLight.teal },
+    { label: "Taxa", value: `${d.atividades.taxaConclusao}%`, sub: "conclusao", color: TLight.blue },
+    { label: "Pendentes", value: `${d.atividades.pendentes}`, color: TLight.amber },
+  ]);
+
+  if (d.atividades.porTipo.length > 0) {
+    y = newPage(doc, y, 20 + d.atividades.porTipo.length * 8);
+    y = secLabel(doc, ff, t, "Distribuicao por tipo", y);
+    y = drawBars(doc, ff, t, y, d.atividades.porTipo, TLight.sprout);
+  }
+
+  if (d.atividades.porSemana.length > 0) {
+    y = newPage(doc, y, 20 + d.atividades.porSemana.length * 8);
+    y = secLabel(doc, ff, t, "Evolucao semanal", y);
+    y = drawBars(doc, ff, t, y, d.atividades.porSemana.map((s) => ({ label: s.semana, count: s.count })), TLight.blue);
+  }
+
+  if (d.atividades.total === 0) {
+    doc.setFont(ff, "normal"); doc.setFontSize(9); doc.setTextColor(...hex(TLight.textTertiary));
+    doc.text(t("Sem atividades no periodo."), mg, y); y += 10;
+  }
+
+  // ── Negócios ── (apenas contagens — negotiations sem valor confiável, sem VGV)
+  y = newPage(doc, y, 40);
+  y = secLabel(doc, ff, t, "Negocios", y);
+  y = drawKpis(doc, ff, t, y, [
+    { label: "Ativas", value: `${d.negocios.ativas}`, color: TLight.blue },
+    { label: "Propostas", value: `${d.negocios.propostas}`, color: TLight.purple },
+    { label: "Reservas", value: `${d.negocios.reservas}`, color: TLight.amber },
+    { label: "Vendas", value: `${d.negocios.vendas}`, color: TLight.teal },
+  ]);
+  doc.setFont(ff, "normal"); doc.setFontSize(8); doc.setTextColor(...hex(TLight.textTertiary));
+  doc.text(t(`Conversao: ${d.negocios.conversao}%  ·  Total no periodo: ${d.negocios.total}`), mg, y);
+  y += 10;
+
+  if (d.negocios.porStatus.length > 0) {
+    y = newPage(doc, y, 20 + d.negocios.porStatus.length * 8);
+    y = secLabel(doc, ff, t, "Funil pessoal por status", y);
+    y = drawBars(doc, ff, t, y, d.negocios.porStatus, TLight.purple);
+  } else {
+    doc.setFont(ff, "normal"); doc.setFontSize(9); doc.setTextColor(...hex(TLight.textTertiary));
+    doc.text(t("Sem negocios no periodo."), mg, y); y += 10;
+  }
+
+  if (d.negocios.semDono > 0) {
+    y = newPage(doc, y, 12);
+    doc.setFont(ff, "normal"); doc.setFontSize(8); doc.setTextColor(...hex(TLight.textTertiary));
+    doc.text(
+      t(`${d.negocios.semDono} negociacoes sem responsavel atribuido nao foram contabilizadas.`),
+      mg,
+      y,
+    );
+  }
+
+  footer(doc, ff, t);
+  doc.save(`relatorio_individual_${Date.now()}.pdf`);
+}

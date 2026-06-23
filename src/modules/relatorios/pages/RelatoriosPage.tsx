@@ -2,8 +2,10 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { useAccount } from "../../../app/contexts/AccountContext";
 import { useDevelopment } from "../../../app/contexts/DevelopmentContext";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
+import { usePermissions } from "../../../shared/hooks/usePermissions";
 import { supabase } from "../../../infra/supabase/supabaseClient";
 import { gerarPdfVendas, gerarPdfEquipe, gerarPdfEstoque } from "../utils/gerarPdfRelatorio";
+import RelatorioIndividual from "../components/RelatorioIndividual";
 import { IcRelatorios, IcClientes, IcCorretores, IcImobiliarias, IcEstoque, IcMedal } from "../../../shared/components/icons/NexaIcons";
 import { NEXA_LOGO_HEADER, NEXA_LOGO_FOOTER } from "../../../shared/utils/pdfLogos";
 import { formatDateBRT, formatTimeBRT } from "../../../shared/utils/dateUtils";
@@ -43,10 +45,11 @@ function Sec({ children }: { children: React.ReactNode }) {
 export default function RelatoriosPage() {
   const { account } = useAccount();
   const { development } = useDevelopment();
+  const { can } = usePermissions();
   const screen = useScreen();
   const accountId = account?.accountId ?? null;
   const developmentId = development?.developmentId ?? null;
-  const [active, setActive] = useState<"menu" | "vendas" | "equipeInterna" | "corretores" | "imobiliarias" | "estoque" | "contatos" | "negociacoes">("menu");
+  const [active, setActive] = useState<"menu" | "vendas" | "equipeInterna" | "corretores" | "imobiliarias" | "estoque" | "contatos" | "negociacoes" | "individual">("menu");
   const [period, setPeriod] = useState("30d");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
@@ -102,7 +105,9 @@ export default function RelatoriosPage() {
     finally { setLoading(false); }
   }, [accountId, developmentId, period, customStart, customEnd]);
 
-  useEffect(() => { if (active !== "menu") fetchData(); }, [active, fetchData]);
+  // O relatório individual busca seus próprios dados (hook dedicado) — não
+  // depende do fetchData de equipe desta página.
+  useEffect(() => { if (active !== "menu" && active !== "individual") fetchData(); }, [active, fetchData]);
 
   // ── Computed ──
   const byQuadra = useMemo(() => {
@@ -182,15 +187,19 @@ export default function RelatoriosPage() {
 
   // ── MENU ──
   if (active === "menu") {
+    // Relatórios de EQUIPE exigem can_view_team_ranking (manager/director/owner).
+    // O Relatório Individual fica disponível para qualquer um com can_view_reports
+    // (consultor vê só a si — o recorte por pessoa é travado no próprio componente).
     const cards = [
-      { id: "vendas" as const, icon: <IcRelatorios size={22} color={T.sprout} />, title: "Relatório de Vendas", desc: "VGV, funil e conversão por período" },
-      { id: "equipeInterna" as const, icon: <IcClientes size={22} color={T.blue} />, title: "Equipe Interna", desc: "Consultoras, atividades e gestão" },
-      { id: "corretores" as const, icon: <IcCorretores size={22} color={T.purple} />, title: "Corretores", desc: "Ranking, vendas e simulações" },
-      { id: "imobiliarias" as const, icon: <IcImobiliarias size={22} color={T.amber} />, title: "Imobiliárias", desc: "Volume por imobiliária parceira" },
-      { id: "estoque" as const, icon: <IcEstoque size={22} color={T.fog} />, title: "Estoque de Unidades", desc: "Mapa de calor e quadras" },
-      { id: "negociacoes" as const, icon: <IcRelatorios size={22} color="#F97316" />, title: "Negociações", desc: "Funil, conversão, gargalos e paradas" },
-      { id: "contatos" as const, icon: <IcClientes size={22} color="#F59E0B" />, title: "Contatos", desc: "Funil, origens, temperatura e performance" },
-    ];
+      { id: "individual" as const, teamOnly: false, icon: <IcClientes size={22} color={T.sprout} />, title: "Relatório Individual", desc: "Atividades e negócios por pessoa" },
+      { id: "vendas" as const, teamOnly: true, icon: <IcRelatorios size={22} color={T.sprout} />, title: "Relatório de Vendas", desc: "VGV, funil e conversão por período" },
+      { id: "equipeInterna" as const, teamOnly: true, icon: <IcClientes size={22} color={T.blue} />, title: "Equipe Interna", desc: "Consultoras, atividades e gestão" },
+      { id: "corretores" as const, teamOnly: true, icon: <IcCorretores size={22} color={T.purple} />, title: "Corretores", desc: "Ranking, vendas e simulações" },
+      { id: "imobiliarias" as const, teamOnly: true, icon: <IcImobiliarias size={22} color={T.amber} />, title: "Imobiliárias", desc: "Volume por imobiliária parceira" },
+      { id: "estoque" as const, teamOnly: true, icon: <IcEstoque size={22} color={T.fog} />, title: "Estoque de Unidades", desc: "Mapa de calor e quadras" },
+      { id: "negociacoes" as const, teamOnly: true, icon: <IcRelatorios size={22} color="#F97316" />, title: "Negociações", desc: "Funil, conversão, gargalos e paradas" },
+      { id: "contatos" as const, teamOnly: true, icon: <IcClientes size={22} color="#F59E0B" />, title: "Contatos", desc: "Funil, origens, temperatura e performance" },
+    ].filter((c) => !c.teamOnly || can("can_view_team_ranking"));
     return (
       <div style={{ maxWidth: 960, margin: "0 auto" }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, color: "#E8E5DE", margin: "0 0 3px" }}>Relatórios</h1>
@@ -206,6 +215,23 @@ export default function RelatoriosPage() {
           ))}
         </div>
       </div>
+    );
+  }
+
+  // ── RELATÓRIO INDIVIDUAL ── (seção dedicada; busca própria via hook)
+  if (active === "individual") {
+    const { start, end } = periodRange(period, customStart, customEnd);
+    return (
+      <RelatorioIndividual
+        fromDate={start.slice(0, 10)}
+        toDate={end.slice(0, 10)}
+        fromISO={start}
+        toISO={end}
+        periodoLabel={pLabel}
+        filter={<Filter />}
+        back={<Back />}
+        isMobile={screen.isMobile}
+      />
     );
   }
 
