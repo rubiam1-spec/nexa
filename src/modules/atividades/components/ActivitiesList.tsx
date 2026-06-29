@@ -3,6 +3,7 @@ import { ACTIVITY_COLORS } from "../../../shared/utils/activityColors";
 import { useIsMobile } from "../../../shared/hooks/useIsMobile";
 import ParticipantAvatar from "./ParticipantAvatar";
 import KindIcon from "./KindIcon";
+import InlineEdit from "./InlineEdit";
 
 export interface ListActivity {
   id: string;
@@ -29,6 +30,9 @@ interface Props {
   onArchive: (id: string) => void;
   canManage: boolean;
   profileId: string | null;
+  // Coerência entre lentes: editar título inline e trocar tipo igual ao Quadro.
+  onRename?: (id: string, title: string) => void;
+  onChangeType?: (a: ListActivity) => void;
 }
 
 const T = {
@@ -72,7 +76,7 @@ function fmtDay(date: string): string {
 type SortKey = "date" | "type" | "status";
 type GroupKey = "date" | "column" | "none";
 
-export default function ActivitiesList({ activities, columns, onRowClick, onComplete, onEdit, onArchive }: Props) {
+export default function ActivitiesList({ activities, columns, onRowClick, onComplete, onEdit, onArchive, onRename, onChangeType }: Props) {
   const mobile = useIsMobile();
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [groupKey, setGroupKey] = useState<GroupKey>("date");
@@ -136,14 +140,31 @@ export default function ActivitiesList({ activities, columns, onRowClick, onComp
                   onClick={() => onRowClick(a)}
                   style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 44, padding: "6px 10px 6px 0", borderBottom: `1px solid ${T.stone}`, cursor: "pointer", opacity: archived ? 0.55 : 1, background: isHover ? "var(--surface-hover)" : "transparent", borderRadius: 6 }}>
                   <div style={{ width: 4, alignSelf: "stretch", borderRadius: 2, background: color, flexShrink: 0, marginRight: 4 }} />
-                  {!mobile && (
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, minWidth: 130, color, fontSize: 11, fontWeight: 600, fontFamily: MONO }}>
-                      <KindIcon name={a.activity_kinds?.icon ?? a.type} size={13} color={color} sw={1.8} />
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{kindLabel}</span>
-                    </span>
-                  )}
+                  {/* Chip de tipo — toque troca categoria (mesma leitura do Quadro) */}
+                  <button
+                    type="button"
+                    onClick={onChangeType ? (e) => { e.stopPropagation(); onChangeType(a); } : undefined}
+                    onPointerDown={onChangeType ? (e) => e.stopPropagation() : undefined}
+                    disabled={!onChangeType}
+                    title={onChangeType ? "Mudar tipo" : kindLabel}
+                    aria-label={onChangeType ? `Tipo: ${kindLabel} — tocar para mudar` : kindLabel}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 5, minWidth: mobile ? 44 : 130, justifyContent: mobile ? "center" : "flex-start", height: 44, padding: "0 8px", border: onChangeType ? `1px solid ${color}33` : "none", background: "transparent", borderRadius: 8, color, fontSize: 11, fontWeight: 600, fontFamily: MONO, cursor: onChangeType ? "pointer" : "default", flexShrink: 0 }}
+                  >
+                    <KindIcon name={a.activity_kinds?.icon ?? a.type} size={mobile ? 16 : 13} color={color} sw={1.8} />
+                    {!mobile && <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{kindLabel}</span>}
+                  </button>
                   <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: T.chalk, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {a.title}
+                    {onRename ? (
+                      <InlineEdit
+                        value={a.title}
+                        onSave={(v) => onRename(a.id, v)}
+                        ariaLabel="Título da atividade"
+                        textStyle={{ fontSize: 13, color: T.chalk, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block", cursor: "text" }}
+                        inputStyle={{ fontSize: 13, color: T.chalk, fontWeight: 500, width: "100%", boxSizing: "border-box", background: "var(--surface-raised)", border: `1px solid ${T.sprout}`, borderRadius: 6, padding: "4px 8px", outline: "none" }}
+                      />
+                    ) : (
+                      a.title
+                    )}
                     {archived && <span style={{ marginLeft: 8, fontSize: 9, fontFamily: MONO, color: T.slate, border: `1px solid ${T.stone}`, borderRadius: 4, padding: "1px 5px" }}>ARQUIVADA</span>}
                   </span>
                   {/* Participantes */}
@@ -159,9 +180,9 @@ export default function ActivitiesList({ activities, columns, onRowClick, onComp
                   {!mobile && <span style={{ minWidth: 84 }}>{oc && <span style={{ fontSize: 10, fontWeight: 600, fontFamily: MONO, color: oc.color }}>{oc.label}</span>}</span>}
                   {/* Ações no hover */}
                   <span style={{ display: "flex", gap: 2, width: mobile ? "auto" : 96, justifyContent: "flex-end", visibility: isHover || mobile ? "visible" : "hidden" }} onClick={(e) => e.stopPropagation()}>
-                    {a.status !== "completed" && <RowBtn title="Concluir" onClick={() => onComplete(a)}>✓</RowBtn>}
-                    <RowBtn title="Editar" onClick={() => onEdit(a)}>✎</RowBtn>
-                    <RowBtn title="Arquivar" onClick={() => onArchive(a.id)}>📥</RowBtn>
+                    {a.status !== "completed" && <RowBtn title="Concluir" onClick={() => onComplete(a)} size={mobile ? 44 : 28}>✓</RowBtn>}
+                    <RowBtn title="Editar" onClick={() => onEdit(a)} size={mobile ? 44 : 28}>✎</RowBtn>
+                    <RowBtn title="Arquivar" onClick={() => onArchive(a.id)} size={mobile ? 44 : 28}>📥</RowBtn>
                   </span>
                 </div>
               );
@@ -206,9 +227,9 @@ function PillDropdown({ label, value, options, onChange }: { label: string; valu
   );
 }
 
-function RowBtn({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
+function RowBtn({ title, onClick, children, size = 28 }: { title: string; onClick: () => void; children: React.ReactNode; size?: number }) {
   return (
-    <button type="button" title={title} onClick={onClick} style={{ width: 28, height: 28, borderRadius: 6, border: "none", background: "transparent", color: "var(--text-secondary)", fontSize: 12, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+    <button type="button" title={title} onClick={onClick} style={{ width: size, height: size, borderRadius: 6, border: "none", background: "transparent", color: "var(--text-secondary)", fontSize: 12, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
       onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(112,107,95,0.18)"; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
       {children}

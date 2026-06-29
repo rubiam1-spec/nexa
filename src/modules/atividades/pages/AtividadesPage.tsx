@@ -45,6 +45,9 @@ import { fetchActivities as repoFetchActivities, deleteActivity as repoDeleteAct
 import { type ActivityKind, normalizeChecklist } from "../../../infra/repositories/activityKindsRepository";
 import { type QuickParsed } from "../config/quickParse";
 import KindIcon from "../components/KindIcon";
+import QuickCaptureSheet from "../components/QuickCaptureSheet";
+import TypeSheet from "../components/TypeSheet";
+import { BottomSheet } from "../components/mobileKit";
 import { fieldDef, defaultOffsetDays } from "../fields/fieldRegistry";
 import EntityPicker from "../fields/EntityPicker";
 import UnitPicker, { type UnitValue } from "../fields/UnitPicker";
@@ -161,6 +164,8 @@ function OutcomeChips({ value, onChange }: { value: string | null; onChange: (v:
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 function yesterdayStr() { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); }
+function addDaysIso(n: number) { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }
+function nextFridayIso() { const d = new Date(); let add = (5 - d.getDay() + 7) % 7; if (add === 0) add = 7; d.setDate(d.getDate() + add); return d.toISOString().slice(0, 10); }
 function startOfWeek() { const d = new Date(); const diff = d.getDay() === 0 ? -6 : 1 - d.getDay(); const m = new Date(d); m.setDate(d.getDate() + diff); return m.toISOString().slice(0, 10); }
 function startOfMonth() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; }
 function daysDiff(dateStr: string) { return Math.floor((Date.now() - new Date(dateStr + "T12:00:00").getTime()) / 864e5); }
@@ -1345,8 +1350,26 @@ export function RegistrationModal({ accountId, developmentId, profileId, initial
 
   return createPortal(
     <div style={{ position: "fixed", inset: 0, zIndex: 9000 }}>
-      <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)" }} onClick={onClose} />
-      <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 14, width: isMobile ? "95vw" : 520, maxHeight: "90vh", overflowY: "auto", zIndex: 1, padding: 24 }}>
+      <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)" }} onClick={isMobile ? undefined : onClose} />
+      <div
+        style={
+          isMobile
+            ? { position: "absolute", inset: 0, width: "100vw", height: "100dvh", background: T.ink, overflowY: "auto", zIndex: 1, padding: "0 18px 24px", WebkitOverflowScrolling: "touch" }
+            : { position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 14, width: 520, maxHeight: "90vh", overflowY: "auto", zIndex: 1, padding: 24 }
+        }
+      >
+        {/* Header full-screen no mobile: Cancelar / título / Salvar */}
+        {isMobile && (
+          <div style={{ position: "sticky", top: 0, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, margin: "0 -18px 12px", padding: "12px 16px", paddingTop: "max(12px, env(safe-area-inset-top))", background: T.ink, borderBottom: `1px solid ${T.stone}` }}>
+            <button type="button" onClick={onClose} style={{ background: "none", border: "none", color: T.fog, fontSize: 14, fontWeight: 600, cursor: "pointer", minHeight: 44, padding: "0 4px" }}>Cancelar</button>
+            <span style={{ fontSize: 14, fontWeight: 600, color: T.chalk, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{isEdit ? "Editar atividade" : "Nova atividade"}</span>
+            {stage === "form" && step === 1 ? (
+              <button type="button" onClick={() => handleSave()} disabled={!canSave || saving} style={{ background: "none", border: "none", color: canSave && !saving ? T.sprout : T.fog, fontSize: 14, fontWeight: 700, cursor: canSave && !saving ? "pointer" : "not-allowed", minHeight: 44, padding: "0 4px" }}>{saving ? "…" : "Salvar"}</button>
+            ) : (
+              <span style={{ width: 64 }} />
+            )}
+          </div>
+        )}
         {step === 2 ? (
           /* ── Step 2: Próximo passo ── */
           <>
@@ -1584,6 +1607,10 @@ export default function AtividadesPage() {
   // forcedStatus pré-seleciona a coluna no "+ adicionar cartão".
   const [modalMode, setModalMode] = useState<"plan" | "done">("plan");
   const [modalForcedStatus, setModalForcedStatus] = useState<"scheduled" | "in_progress" | undefined>(undefined);
+  // Onda 1 (mobile): troca de tipo (chip), reagendar (swipe) e captura rápida (FAB / "+" coluna).
+  const [typeSheetFor, setTypeSheetFor] = useState<{ id: string; currentKey: string | null } | null>(null);
+  const [reschedulingActivity, setReschedulingActivity] = useState<Activity | null>(null);
+  const [capture, setCapture] = useState<{ open: boolean; mode: "plan" | "done"; columnId: string | null; columnName: string | null }>({ open: false, mode: "done", columnId: null, columnName: null });
 
   // Handle ?date=YYYY-MM-DD from Central "+ Agendar" link
   useEffect(() => {
@@ -1614,6 +1641,7 @@ export default function AtividadesPage() {
     skip: skipActivityViaHook,
     updateSchedule: updateActivityScheduleOptimistic,
     updateCardColumn: updateCardColumnOptimistic,
+    setStatus: setActivityStatusOptimistic,
     setArchived: setArchivedOptimistic,
     patchLocal: patchActivityLocal,
   } = useActivities<Activity>({
@@ -1992,6 +2020,12 @@ export default function AtividadesPage() {
   // "+ adicionar cartão" no rodapé de uma coluna: abre o modal em "Planejar"
   // já amarrado àquela coluna (column_id explícito).
   function openAddCard(columnId: string) {
+    // Mobile: converge no bottom sheet de captura, herdando a coluna (status plan).
+    if (isMobile) {
+      const col = orderedBoardColumns.find((c) => c.id === columnId);
+      setCapture({ open: true, mode: "plan", columnId, columnName: col?.name ?? null });
+      return;
+    }
     setEditingActivity(null);
     setModalType(undefined);
     setModalTitle(undefined);
@@ -2003,6 +2037,8 @@ export default function AtividadesPage() {
     setModalForcedColumnId(columnId);
     setModalOpen(true);
   }
+  // FAB (mobile): captura rápida sem coluna (vai pra coluna padrão por modo).
+  function openCaptureFab() { setCapture({ open: true, mode: "done", columnId: null, columnName: null }); }
   function openModalForSuggestion(s: { id: string; clientId: string | null; clientName: string; quadra: string; lote: string }) {
     setEditingActivity(null);
     setModalType("follow_up");
@@ -2125,6 +2161,81 @@ export default function AtividadesPage() {
       fetchActivities();
       if (inserted?.id) flashCard(inserted.id);
     } catch { setToast("Erro ao criar cartão"); }
+  }
+  // Captura rápida do bottom sheet (FAB / "+" coluna) — respeita o modo
+  // (Planejar → scheduled, Já feita → completed) e a coluna herdada.
+  async function handleQuickCapture(parsed: QuickParsed & { title: string }, mode: "plan" | "done", columnId: string | null) {
+    if (!accountId || !developmentId || !profileId) return;
+    const kind = parsed.kind;
+    const baseType = kind?.base_type ?? "other";
+    const status = mode === "plan" ? "scheduled" : "completed";
+    const col = columnId ?? (mode === "plan" ? planColumnId : (doneColumnId ?? planColumnId));
+    try {
+      const inserted = await repoInsertActivity({
+        account_id: accountId, development_id: developmentId, profile_id: profileId,
+        type: baseType, kind_id: kind?.id ?? null,
+        title: parsed.title.trim(), status,
+        activity_date: parsed.date ?? todayStr(), start_time: parsed.time ?? null,
+        duration_minutes: mode === "done" ? 30 : 0, column_id: col,
+      });
+      if (inserted?.id) {
+        logEvent(inserted.id, "created", { type: baseType, status, quick: true });
+        if (parsed.participant) {
+          try { await repoAddParticipant(inserted.id, { participant_id: parsed.participant.id, participant_name: parsed.participant.name }); } catch { /* ignora */ }
+        }
+      }
+      fetchActivities();
+      if (inserted?.id) flashCard(inserted.id);
+      setToast(mode === "plan" ? "Atividade planejada ✓" : "Atividade registrada ✓");
+    } catch { setToast("Erro ao criar atividade"); }
+  }
+  // Conclusão rápida (botão Concluir mobile + swipe-direita): otimista + Desfazer.
+  async function handleQuickComplete(a: Activity) {
+    const prev = a.status;
+    patchActivityLocal(a.id, { status: "completed" } as Partial<Activity>);
+    const ok = await setActivityStatusOptimistic(a.id, "completed");
+    if (!ok) { patchActivityLocal(a.id, { status: prev } as Partial<Activity>); setToast("Não foi possível concluir"); return; }
+    logEvent(a.id, "completed", { via: "swipe" });
+    setMoveUndo({
+      message: "Concluída",
+      onUndo: () => {
+        patchActivityLocal(a.id, { status: prev } as Partial<Activity>);
+        void setActivityStatusOptimistic(a.id, prev || "scheduled");
+      },
+    });
+  }
+  // Troca de categoria (chip do card/lista) — preserva título/dados, só type+kind.
+  async function handleChangeType(id: string, kind: ActivityKind) {
+    const target = activities.find((a) => a.id === id);
+    if (!target) return;
+    const prev = { type: target.type, kind_id: target.kind_id ?? null, activity_kinds: target.activity_kinds ?? null };
+    patchActivityLocal(id, {
+      type: kind.base_type as Activity["type"],
+      kind_id: kind.id,
+      activity_kinds: { id: kind.id, label: kind.label, icon: kind.icon, color: kind.color, base_type: kind.base_type },
+    } as Partial<Activity>);
+    setTypeSheetFor(null);
+    try {
+      await repoUpdateActivity(id, { type: kind.base_type, kind_id: kind.id });
+      logEvent(id, "updated", { fields: ["type"] });
+      setToast("Tipo atualizado ✓");
+    } catch {
+      patchActivityLocal(id, prev as Partial<Activity>);
+      setToast("Não foi possível mudar o tipo");
+    }
+  }
+  // Reagendar rápido (swipe-esquerda) → grava nova data mantendo a hora.
+  async function handleQuickReschedule(id: string, date: string) {
+    const target = activities.find((a) => a.id === id);
+    if (!target) return;
+    const prev = { activity_date: target.activity_date, start_time: target.start_time };
+    const schedule = { activity_date: date, start_time: target.start_time ?? "09:00" };
+    patchActivityLocal(id, schedule as Partial<Activity>);
+    setReschedulingActivity(null);
+    const ok = await updateActivityScheduleOptimistic(id, schedule);
+    if (!ok) { patchActivityLocal(id, prev as Partial<Activity>); setToast("Não foi possível reagendar"); return; }
+    logEvent(id, "rescheduled", { old: prev, new: schedule });
+    setToast(`Reagendado para ${date.split("-").reverse().slice(0, 2).join("/")} ✓`);
   }
   async function handleAddPerson(activityId: string, profile: { id: string; name: string }) {
     try {
@@ -2500,6 +2611,9 @@ export default function AtividadesPage() {
           onQuickAdd={handleQuickAdd}
           onAddPerson={handleAddPerson}
           onArchive={handleArchive}
+          onReschedule={(a) => { const found = activities.find((x) => x.id === a.id); if (found) setReschedulingActivity(found); }}
+          onChipClick={(a) => setTypeSheetFor({ id: a.id, currentKey: a.activity_kinds?.base_type ?? a.type })}
+          onQuickComplete={(a) => { const found = activities.find((x) => x.id === a.id); if (found) void handleQuickComplete(found); }}
           teamProfiles={teamProfiles}
           kindsByKey={activityKinds.byKey}
           onCreateColumn={async () => {
@@ -2534,6 +2648,8 @@ export default function AtividadesPage() {
           onComplete={(a) => { const found = activities.find((x) => x.id === a.id); if (found) { setCompletingActivity(found); setCompleteOutcome(""); setCompleteDuration(60); setCompleteCategory(null); } }}
           onEdit={(a) => { const found = activities.find((x) => x.id === a.id); if (found) openEditModal(found); }}
           onArchive={handleArchive}
+          onRename={handleRenameCard}
+          onChangeType={(a) => setTypeSheetFor({ id: a.id, currentKey: a.activity_kinds?.base_type ?? a.type })}
         />
       )}
 
@@ -3054,6 +3170,72 @@ export default function AtividadesPage() {
 
       {modalOpen && profileId && accountId && developmentId && (
         <RegistrationModal accountId={accountId} developmentId={developmentId} profileId={profileId} initialType={modalType} initialTitle={modalTitle} initialDate={slotDate} initialStartTime={slotTime} editActivity={editingActivity} canManageDate={canManage} negotiationId={modalNegotiationId} clientId={modalClientId} initialMode={modalMode} forcedStatus={modalForcedStatus} forcedColumnId={modalForcedColumnId} planColumnId={planColumnId} doneColumnId={doneColumnId} templates={activityTemplates} developmentName={development?.developmentName ?? null} kinds={activityKinds} teamProfiles={teamProfiles} currentUser={profileId ? { id: profileId, name: authenticatedProfile?.fullName ?? "Eu" } : null} onClose={() => { setModalOpen(false); setModalType(undefined); setModalTitle(undefined); setModalNegotiationId(undefined); setModalClientId(undefined); setSlotDate(undefined); setSlotTime(undefined); setEditingActivity(null); setModalMode("plan"); setModalForcedStatus(undefined); setModalForcedColumnId(null); }} onSaved={handleSaved} />
+      )}
+
+      {/* FAB de captura (mobile) — zona do polegar, Quadro e Lista */}
+      {isMobile && (displayMode === "kanban" || displayMode === "list") && (showRegister || canManage) &&
+        !modalOpen && !capture.open && !selectedActivity && !completingActivity && !skippingActivity && !reschedulingActivity && !typeSheetFor && !archivedOpen && (
+        <button
+          type="button"
+          onClick={openCaptureFab}
+          aria-label="Nova atividade"
+          style={{ position: "fixed", right: 18, bottom: "calc(env(safe-area-inset-bottom, 0px) + 18px)", width: 56, height: 56, borderRadius: "50%", background: T.sprout, color: T.ink, border: "none", boxShadow: "0 8px 24px rgba(0,0,0,0.4)", fontSize: 30, lineHeight: 1, cursor: "pointer", zIndex: 8000, display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          +
+        </button>
+      )}
+
+      {/* Captura rápida unificada (FAB / "+" coluna no mobile) */}
+      <QuickCaptureSheet
+        open={capture.open}
+        onClose={() => setCapture((c) => ({ ...c, open: false }))}
+        kinds={activityKinds}
+        teamProfiles={teamProfiles}
+        initialMode={capture.mode}
+        columnName={capture.columnName}
+        onCreate={(parsed, mode) => handleQuickCapture(parsed, mode, capture.columnId)}
+        onMoreOptions={(prefill) => {
+          const colId = capture.columnId;
+          const mode = prefill.mode;
+          setCapture((c) => ({ ...c, open: false }));
+          setEditingActivity(null);
+          setModalType((prefill.kind?.base_type as ActivityType | undefined) ?? undefined);
+          setModalTitle(prefill.title || undefined);
+          setModalNegotiationId(undefined); setModalClientId(undefined);
+          setSlotDate(undefined); setSlotTime(undefined);
+          setModalMode(mode);
+          setModalForcedStatus(mode === "plan" ? "scheduled" : undefined);
+          setModalForcedColumnId(colId);
+          setModalOpen(true);
+        }}
+      />
+
+      {/* Trocar tipo em um toque (chip do card/lista) */}
+      <TypeSheet
+        open={!!typeSheetFor}
+        onClose={() => setTypeSheetFor(null)}
+        kinds={activityKinds}
+        selectedKey={typeSheetFor?.currentKey ?? null}
+        onPick={(k) => { if (typeSheetFor) void handleChangeType(typeSheetFor.id, k); }}
+      />
+
+      {/* Reagendar rápido (swipe-esquerda) */}
+      {reschedulingActivity && (
+        <BottomSheet open onClose={() => setReschedulingActivity(null)} title={`Reagendar · ${reschedulingActivity.title}`}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {([["Hoje", todayStr()], ["Amanhã", addDaysIso(1)], ["Sexta", nextFridayIso()], ["Próxima semana", addDaysIso(7)]] as const).map(([label, date]) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => void handleQuickReschedule(reschedulingActivity.id, date)}
+                style={{ minHeight: 48, borderRadius: 10, border: `1px solid ${T.stone}`, background: "var(--surface-raised)", color: T.chalk, fontSize: 14, fontWeight: 600, cursor: "pointer", textAlign: "left", padding: "0 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+              >
+                <span>{label}</span>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: T.fog }}>{date.split("-").reverse().slice(0, 2).join("/")}</span>
+              </button>
+            ))}
+          </div>
+        </BottomSheet>
       )}
       {/* Skip activity modal */}
       {skippingActivity && createPortal(

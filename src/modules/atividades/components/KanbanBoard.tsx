@@ -22,12 +22,14 @@ import {
   horizontalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { computeSlotDateTime, agingLevel, daysSinceUpdate } from "../../../domain/atividade/ActivityScheduling";
+import { computeSlotDateTime, agingLevel } from "../../../domain/atividade/ActivityScheduling";
 import { useIsMobile } from "../../../shared/hooks/useIsMobile";
 import InlineEdit from "./InlineEdit";
 import KindIcon from "./KindIcon";
 import ParticipantAvatar, { MoreAvatar } from "./ParticipantAvatar";
 import { parseQuickCapture, type QuickParsed } from "../config/quickParse";
+import { useHorizontalSwipe } from "./mobileKit";
+import { getActivityColors } from "../../../shared/utils/activityColors";
 import type { ActivityKind } from "../../../infra/repositories/activityKindsRepository";
 
 // Shape mínimo que o quadro precisa — espelha o consumido pela AtividadesPage.
@@ -101,6 +103,12 @@ interface KanbanBoardProps {
   onQuickAdd: (columnId: string, parsed: QuickParsed & { title: string }) => void | Promise<void>;
   onAddPerson: (activityId: string, profile: { id: string; name: string }) => void;
   onArchive: (id: string) => void;
+  // Swipe-esquerda (mobile) → reagendar; chip de tipo → trocar categoria.
+  onReschedule?: (a: KanbanActivity) => void;
+  onChipClick?: (a: KanbanActivity) => void;
+  // Conclusão rápida (mobile + swipe-direita) — otimista c/ desfazer. Distinto
+  // do onCompleteCard (modal com resultado/duração, usado no hover desktop).
+  onQuickComplete?: (a: KanbanActivity) => void;
   teamProfiles: { id: string; name: string }[];
   kindsByKey: Record<string, ActivityKind>;
   onCreateColumn: () => void;
@@ -131,19 +139,6 @@ const T = {
 
 const MONO = "var(--font-mono)";
 
-const badgeColors: Record<string, string> = {
-  visit_broker: T.blue,
-  visit_client: T.sprout,
-  visit_development: T.purple,
-  training: T.blue,
-  phone_call: T.purple,
-  follow_up: T.orange,
-  meeting_internal: T.amber,
-  meeting_external: T.amber,
-  operational: "#8A857B",
-  other: T.fog,
-};
-
 const badgeLabels: Record<string, string> = {
   visit_broker: "Visita corretor",
   visit_client: "Visita cliente",
@@ -161,14 +156,12 @@ const COLUMN_PALETTE = ["#9A958B", "#E0A23C", "#4ADE80", "#60A5FA", "#A78BFA", "
 const DONE_RENDER_CAP = 25;
 const COL_PREFIX = "col:";
 
-// Temperatura (negociação tem prioridade sobre cliente) → barra esquerda fina.
+// Temperatura da negociação → dot 8px ao lado do vínculo (não mais a barra).
 const TEMP_COLORS: Record<string, string> = {
   hot: "#C75B4A",
   warm: "#E0A23C",
   cold: "#5B8DB8",
 };
-
-const AGING_AMBER = "#E0A23C";
 
 function fmtDayMonth(dateStr: string) {
   const [, m, d] = dateStr.split("-");
@@ -227,6 +220,9 @@ export default function KanbanBoard({
   onQuickAdd,
   onAddPerson,
   onArchive,
+  onReschedule,
+  onChipClick,
+  onQuickComplete,
   teamProfiles,
   kindsByKey,
   onCreateColumn,
@@ -633,6 +629,9 @@ export default function KanbanBoard({
                         onClick={() => onCardClick(a)}
                         onMoveMenu={() => setMoveMenuFor(a)}
                         onComplete={() => onCompleteCard(a)}
+                        onQuickComplete={onQuickComplete ? () => onQuickComplete(a) : undefined}
+                        onReschedule={onReschedule ? () => onReschedule(a) : undefined}
+                        onChipClick={onChipClick ? () => onChipClick(a) : undefined}
                       />
                     ))}
                   </SortableContext>
@@ -1146,6 +1145,9 @@ function SortableCard({
   onClick,
   onMoveMenu,
   onComplete,
+  onQuickComplete,
+  onReschedule,
+  onChipClick,
 }: {
   activity: KanbanActivity;
   disabled: boolean;
@@ -1162,6 +1164,9 @@ function SortableCard({
   onClick: () => void;
   onMoveMenu: () => void;
   onComplete: () => void;
+  onQuickComplete?: () => void;
+  onReschedule?: () => void;
+  onChipClick?: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: activity.id,
@@ -1191,6 +1196,9 @@ function SortableCard({
         onClick={onClick}
         onMoveMenu={onMoveMenu}
         onComplete={!disabled ? onComplete : undefined}
+        onQuickComplete={!disabled ? onQuickComplete : undefined}
+        onReschedule={!disabled ? onReschedule : undefined}
+        onChipClick={onChipClick}
       />
     </div>
   );
@@ -1210,6 +1218,9 @@ function CardView({
   onClick,
   onMoveMenu,
   onComplete,
+  onQuickComplete,
+  onReschedule,
+  onChipClick,
   overlay,
 }: {
   activity: KanbanActivity;
@@ -1225,10 +1236,15 @@ function CardView({
   onClick?: () => void;
   onMoveMenu?: () => void;
   onComplete?: () => void;
+  onQuickComplete?: () => void;
+  onReschedule?: () => void;
+  onChipClick?: () => void;
   overlay?: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
-  const typeColor = badgeColors[activity.type] || T.fog;
+  // Uma cor = uma leitura: a trilha esquerda é SEMPRE o tipo (mesma fonte da
+  // Lista via getActivityColors). Temperatura saiu da barra (vira dot no vínculo).
+  const typeColor = getActivityColors(activity.type).color;
   // Label/ícone vêm do catálogo (kind) quando disponível; fallback no type.
   const kind = activity.activity_kinds;
   const typeLabel = kind?.label || badgeLabels[activity.type] || activity.type;
@@ -1244,193 +1260,191 @@ function CardView({
   const checklist = activity.activity_checklist_items ?? [];
   const checklistDone = checklist.filter((c) => c.done).length;
 
-  // Temperatura: negociação tem prioridade sobre cliente → barra esquerda.
-  const temp = activity.negotiations?.temperature ?? activity.clients?.temperature ?? null;
-  const tempColor = temp ? TEMP_COLORS[temp] ?? null : null;
-  const leftColor = tempColor ?? (overdue ? T.red : null);
+  // Temperatura só quando há negociação vinculada → dot 8px ao lado do vínculo.
+  const negTemp = activity.negotiations?.temperature ?? null;
+  const tempColor = negTemp ? TEMP_COLORS[negTemp] ?? null : null;
 
-  // Aging: só cards não concluídos (e nunca no overlay de drag).
+  // Aging: só esmaece o card (sem texto gritando) — detalhe textual fica na ficha.
   const aging = completed || overlay ? "none" : agingLevel(activity.updated_at);
-  const stale = aging === "stale";
   const baseOpacity = completed ? 0.68 : aging === "stale" ? 0.6 : aging === "soft" ? 0.82 : 1;
   const showActions = hovered && !mobile && !overlay && draggable && !editing;
+
+  // Conclusão rápida (mobile/swipe) cai no quick-complete; sem ele, no modal.
+  const quickComplete = onQuickComplete ?? onComplete;
+  // Swipe (mobile, arrastável, não concluído): direita = concluir, esquerda = reagendar.
+  const swipeEnabled = !!mobile && !overlay && !editing && !!draggable && !completed;
+  const { dx, swiping, handlers } = useHorizontalSwipe({
+    enabled: swipeEnabled,
+    onRight: () => quickComplete?.(),
+    onLeft: () => onReschedule?.(),
+  });
+
   const titleStyle: React.CSSProperties = {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: 600,
     color: completed ? T.fog : T.chalk,
-    lineHeight: 1.3,
+    lineHeight: 1.25,
     textDecoration: completed ? "line-through" : "none",
     textDecorationColor: "rgba(112,107,95,0.4)",
     display: "block",
   };
+  const chipClickable = !!onChipClick && !overlay;
 
   return (
-    <div
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      role="button"
-      tabIndex={0}
-      aria-disabled={!draggable}
-      style={{
-        position: "relative",
-        background: "var(--surface-base)",
-        border: `1px solid ${focused ? T.sprout : T.stone}`,
-        borderLeft: leftColor ? `4px solid ${leftColor}` : `1px solid ${focused ? T.sprout : T.stone}`,
-        borderRadius: 10,
-        padding: 12,
-        cursor: draggable ? "grab" : "pointer",
-        opacity: overlay ? 1 : baseOpacity,
-        boxShadow: overlay
-          ? "0 10px 28px rgba(0,0,0,0.5)"
-          : focused
-          ? "0 0 0 2px var(--interactive-primary)"
-          : hovered && !mobile
-          ? "0 4px 12px rgba(0,0,0,0.28)"
-          : "0 1px 2px rgba(0,0,0,0.15)",
-        transform: overlay ? "rotate(3deg)" : hovered && !mobile ? "translateY(-2px)" : "none",
-        transition: "box-shadow 0.16s ease, transform 0.16s ease, opacity 0.16s ease",
-        animation: flash ? "nexaCardFlash 2s ease" : undefined,
-        display: "flex",
-        flexDirection: "column",
-        gap: 6,
-        minHeight: mobile ? 88 : 0,
-        touchAction: "manipulation",
-      }}
-    >
-      {/* Hover quick-actions (desktop) */}
-      {showActions && (
-        <div style={{ position: "absolute", top: 6, right: 6, display: "flex", gap: 2, background: "var(--surface-raised)", border: `1px solid ${T.stone}`, borderRadius: 8, padding: 2, zIndex: 2, boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}>
-          {onRename && <ActionBtn title="Editar título (e)" onClick={() => onEditingChange?.(true)}>✎</ActionBtn>}
-          {onAddPersonClick && <ActionBtn title="Adicionar pessoa (m)" onClick={onAddPersonClick}>+</ActionBtn>}
-          {!completed && onComplete && <ActionBtn title="Concluir (c)" onClick={onComplete} accent>✓</ActionBtn>}
-          {onArchive && <ActionBtn title="Arquivar" onClick={onArchive}>📥</ActionBtn>}
-          {onMoveMenu && <ActionBtn title="Mover" onClick={onMoveMenu}>⋮</ActionBtn>}
-        </div>
+    <div style={{ position: "relative" }}>
+      {/* Trilhos de ação revelados no swipe */}
+      {swipeEnabled && dx !== 0 && (
+        <>
+          <div style={{ position: "absolute", inset: 0, borderRadius: 10, display: "flex", alignItems: "center", paddingLeft: 16, fontFamily: MONO, fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: T.sprout, background: "rgba(74,222,128,0.12)", opacity: dx > 0 ? 1 : 0 }}>CONCLUIR</div>
+          <div style={{ position: "absolute", inset: 0, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "flex-end", paddingRight: 16, fontFamily: MONO, fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: T.amber, background: "rgba(224,162,60,0.12)", opacity: dx < 0 ? 1 : 0 }}>REAGENDAR</div>
+        </>
       )}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
-        <span
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 5,
-            padding: "2px 8px",
-            borderRadius: 4,
-            fontSize: 9,
-            fontWeight: 700,
-            textTransform: "uppercase",
-            letterSpacing: "0.06em",
-            fontFamily: MONO,
-            background: typeColor + "18",
-            color: typeColor,
-            maxWidth: "70%",
-          }}
-        >
-          {iconName && <KindIcon name={iconName} size={12} color={typeColor} sw={1.8} />}
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{typeLabel}</span>
-        </span>
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          {overdue && !showActions && (
-            <span
-              style={{
-                padding: "2px 8px",
-                borderRadius: 4,
-                fontSize: 9,
-                fontWeight: 700,
-                fontFamily: MONO,
-                background: "rgba(248,113,113,0.15)",
-                color: T.red,
-              }}
-            >
-              Atrasada
-            </span>
-          )}
-          {completed && <span title="Concluída" style={{ color: T.sprout, fontSize: 13, fontWeight: 700 }}>✓</span>}
-          {/* Mobile: concluir sempre acessível (sem hover) */}
-          {!completed && mobile && !overlay && onComplete && (
-            <button
-              type="button"
-              title="Concluir"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => { e.stopPropagation(); onComplete(); }}
-              style={{ width: 24, height: 24, borderRadius: "50%", border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 12, cursor: "pointer", lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}
-            >
-              ✓
-            </button>
-          )}
-        </div>
-      </div>
-      {overlay || !draggable ? (
-        <div style={titleStyle}>{activity.title}</div>
-      ) : (
-        <InlineEdit
-          value={activity.title}
-          onSave={(v) => onRename?.(v)}
-          editing={editing}
-          onEditingChange={onEditingChange}
-          ariaLabel="Título do cartão"
-          textStyle={titleStyle}
-          inputStyle={{ ...titleStyle, width: "100%", boxSizing: "border-box", background: "var(--surface-raised)", border: `1px solid ${T.sprout}`, borderRadius: 6, padding: "4px 8px", outline: "none", textDecoration: "none" }}
-        />
-      )}
-      {bond && (
-        <div
-          style={{
-            fontFamily: MONO,
-            fontSize: 10,
-            color: T.fog,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {bond}
-        </div>
-      )}
-      {/* Avatares — linha própria abaixo do título (não encostam no texto) */}
-      <AvatarRow owner={owner} participants={teamParticipants.map((p) => p.participant_name)} />
-      {/* Meta — checklist + data, alinhado à direita */}
-      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginTop: 2 }}>
-        {checklist.length > 0 && (
-          <span title="Checklist" style={{ fontFamily: MONO, fontSize: 10, fontWeight: 600, color: checklistDone === checklist.length ? T.sprout : T.fog }}>
-            ✓ {checklistDone}/{checklist.length}
-          </span>
+      <div
+        onClick={onClick}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        {...(swipeEnabled ? handlers : {})}
+        role="button"
+        tabIndex={0}
+        aria-disabled={!draggable}
+        style={{
+          position: "relative",
+          background: "var(--surface-base)",
+          border: `1px solid ${focused ? T.sprout : T.stone}`,
+          borderLeft: `4px solid ${typeColor}`,
+          borderRadius: 10,
+          padding: 12,
+          cursor: draggable ? "grab" : "pointer",
+          opacity: overlay ? 1 : baseOpacity,
+          boxShadow: overlay
+            ? "0 10px 28px rgba(0,0,0,0.5)"
+            : focused
+            ? "0 0 0 2px var(--interactive-primary)"
+            : hovered && !mobile
+            ? "0 4px 12px rgba(0,0,0,0.28)"
+            : "0 1px 2px rgba(0,0,0,0.15)",
+          transform: dx !== 0 ? `translateX(${dx}px)` : overlay ? "rotate(3deg)" : hovered && !mobile ? "translateY(-2px)" : "none",
+          transition: swiping ? "none" : "box-shadow 0.16s ease, transform 0.16s ease, opacity 0.16s ease",
+          animation: flash ? "nexaCardFlash 2s ease" : undefined,
+          display: "flex",
+          flexDirection: "column",
+          gap: 6,
+          minHeight: mobile ? 88 : 0,
+          touchAction: swipeEnabled ? "pan-y" : "manipulation",
+        }}
+      >
+        {/* Hover quick-actions (desktop) */}
+        {showActions && (
+          <div style={{ position: "absolute", top: 6, right: 6, display: "flex", gap: 2, background: "var(--surface-raised)", border: `1px solid ${T.stone}`, borderRadius: 8, padding: 2, zIndex: 2, boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}>
+            {onRename && <ActionBtn title="Editar título (e)" onClick={() => onEditingChange?.(true)}>✎</ActionBtn>}
+            {onAddPersonClick && <ActionBtn title="Adicionar pessoa (m)" onClick={onAddPersonClick}>+</ActionBtn>}
+            {!completed && onComplete && <ActionBtn title="Concluir (c)" onClick={onComplete} accent>✓</ActionBtn>}
+            {onArchive && <ActionBtn title="Arquivar" onClick={onArchive}>📥</ActionBtn>}
+            {onMoveMenu && <ActionBtn title="Mover" onClick={onMoveMenu}>⋮</ActionBtn>}
+          </div>
         )}
-        <span style={{ fontFamily: MONO, fontSize: 10, color: overdue ? T.red : T.bone, fontWeight: 600 }}>
-          {dayLabel}
-          {time ? ` · ${time}` : ""}
-        </span>
-      </div>
-      {stale && (
-        <div style={{ fontFamily: MONO, fontSize: 10, color: AGING_AMBER, fontWeight: 600, marginTop: 2 }}>
-          parado há {daysSinceUpdate(activity.updated_at)}d
+
+        {/* Linha 1 — título herói (InlineEdit) */}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {overlay || !draggable ? (
+              <div style={titleStyle}>{activity.title}</div>
+            ) : (
+              <InlineEdit
+                value={activity.title}
+                onSave={(v) => onRename?.(v)}
+                editing={editing}
+                onEditingChange={onEditingChange}
+                ariaLabel="Título do cartão"
+                textStyle={{ ...titleStyle, cursor: "text", borderBottom: "1px solid transparent", transition: "border-color 0.12s ease" }}
+                inputStyle={{ ...titleStyle, width: "100%", boxSizing: "border-box", background: "var(--surface-raised)", border: `1px solid ${T.sprout}`, borderRadius: 6, padding: "4px 8px", outline: "none", textDecoration: "none" }}
+              />
+            )}
+          </div>
+          {completed && <span title="Concluída" style={{ color: T.sprout, fontSize: 14, fontWeight: 700, flexShrink: 0 }}>✓</span>}
         </div>
-      )}
-      {mobile && draggable && onMoveMenu && (
-        <button
-          type="button"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            onMoveMenu();
-          }}
-          style={{
-            marginTop: 6,
-            alignSelf: "flex-end",
-            background: "transparent",
-            border: `1px solid ${T.stone}`,
-            borderRadius: 8,
-            padding: "4px 10px",
-            color: T.bone,
-            fontFamily: MONO,
-            fontSize: 10,
-            cursor: "pointer",
-            minHeight: 32,
-          }}
-        >
-          Mover para…
-        </button>
-      )}
+
+        {/* Linha 2 — chip de tipo (toque troca categoria) + hora */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button
+            type="button"
+            onPointerDown={chipClickable ? (e) => e.stopPropagation() : undefined}
+            onClick={chipClickable ? (e) => { e.stopPropagation(); onChipClick?.(); } : undefined}
+            title={chipClickable ? "Mudar tipo" : undefined}
+            aria-label={chipClickable ? `Tipo: ${typeLabel} — tocar para mudar` : undefined}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              padding: "3px 9px",
+              minHeight: chipClickable && mobile ? 32 : undefined,
+              borderRadius: 6,
+              fontSize: 9,
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+              fontFamily: MONO,
+              background: typeColor + "18",
+              color: typeColor,
+              border: chipClickable ? `1px solid ${typeColor}33` : "none",
+              cursor: chipClickable ? "pointer" : "default",
+              maxWidth: "70%",
+            }}
+          >
+            {iconName && <KindIcon name={iconName} size={12} color={typeColor} sw={1.8} />}
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{typeLabel}</span>
+          </button>
+          <span style={{ marginLeft: "auto", fontFamily: MONO, fontSize: 10, fontWeight: 600, color: overdue ? T.red : T.bone, whiteSpace: "nowrap" }}>
+            {dayLabel}{time ? ` · ${time}` : ""}{overdue ? " · atrasada" : ""}
+          </span>
+        </div>
+
+        {/* Vínculo + dot de temperatura (só com negociação vinculada) */}
+        {(bond || tempColor) && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+            {tempColor && <span title="Temperatura da negociação" style={{ width: 8, height: 8, borderRadius: "50%", background: tempColor, flexShrink: 0 }} />}
+            {bond && <span style={{ fontFamily: MONO, fontSize: 10, color: T.fog, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{bond}</span>}
+          </div>
+        )}
+
+        {/* Avatares + checklist — discretos, na mesma linha */}
+        {(teamParticipants.length > 0 || owner !== "—" || checklist.length > 0) && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 2 }}>
+            <AvatarRow owner={owner} participants={teamParticipants.map((p) => p.participant_name)} />
+            {checklist.length > 0 && (
+              <span title="Checklist" style={{ fontFamily: MONO, fontSize: 10, fontWeight: 600, color: checklistDone === checklist.length ? T.sprout : T.fog, flexShrink: 0 }}>
+                ✓ {checklistDone}/{checklist.length}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Ações mobile — alvos ≥44px (swipe é atalho, não única via) */}
+        {mobile && !overlay && draggable && (
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            {!completed && quickComplete && (
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); quickComplete(); }}
+                style={{ flex: 1, minHeight: 44, borderRadius: 8, border: `1px solid ${T.sprout}55`, background: "rgba(74,222,128,0.08)", color: T.sprout, fontFamily: MONO, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+              >
+                Concluir
+              </button>
+            )}
+            {onMoveMenu && (
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); onMoveMenu(); }}
+                style={{ flex: completed ? 1 : "0 0 auto", minHeight: 44, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.bone, fontFamily: MONO, fontSize: 12, cursor: "pointer" }}
+              >
+                Mover
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
