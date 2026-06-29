@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ACTIVITY_COLORS } from "../../../shared/utils/activityColors";
+import { getActivityColors } from "../../../shared/utils/activityColors";
 import { useIsMobile } from "../../../shared/hooks/useIsMobile";
 import ParticipantAvatar from "./ParticipantAvatar";
 import KindIcon from "./KindIcon";
 import InlineEdit from "./InlineEdit";
+import { useHorizontalSwipe } from "./mobileKit";
 
 export interface ListActivity {
   id: string;
@@ -33,6 +34,9 @@ interface Props {
   // Coerência entre lentes: editar título inline e trocar tipo igual ao Quadro.
   onRename?: (id: string, title: string) => void;
   onChangeType?: (a: ListActivity) => void;
+  // Swipe no mobile (mesma lógica do card): concluir / reagendar.
+  onReschedule?: (a: ListActivity) => void;
+  onQuickComplete?: (a: ListActivity) => void;
 }
 
 const T = {
@@ -76,11 +80,10 @@ function fmtDay(date: string): string {
 type SortKey = "date" | "type" | "status";
 type GroupKey = "date" | "column" | "none";
 
-export default function ActivitiesList({ activities, columns, onRowClick, onComplete, onEdit, onArchive, onRename, onChangeType }: Props) {
+export default function ActivitiesList({ activities, columns, onRowClick, onComplete, onEdit, onArchive, onRename, onChangeType, onReschedule, onQuickComplete }: Props) {
   const mobile = useIsMobile();
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [groupKey, setGroupKey] = useState<GroupKey>("date");
-  const [hovered, setHovered] = useState<string | null>(null);
   const colMap = useMemo(() => { const m = new Map<string, ColumnInfo>(); for (const c of columns) m.set(c.id, c); return m; }, [columns]);
 
   const sorted = useMemo(() => {
@@ -126,71 +129,162 @@ export default function ActivitiesList({ activities, columns, onRowClick, onComp
             </div>
           )}
           <div style={{ display: "flex", flexDirection: "column" }}>
-            {items.map((a) => {
-              const color = (ACTIVITY_COLORS[a.type] || ACTIVITY_COLORS.other).color;
-              const kindLabel = a.activity_kinds?.label || TYPE_LABELS[a.type] || a.type;
-              const st = STATUS_BADGE[a.status || "scheduled"] ?? STATUS_BADGE.scheduled;
-              const oc = a.outcome_category ? OUTCOME_BADGE[a.outcome_category] : null;
-              const team = (a.activity_participants ?? []).filter((p) => p.participant_type === "user");
-              const archived = !!a.archived_at;
-              const isHover = hovered === a.id;
-              return (
-                <div key={a.id}
-                  onMouseEnter={() => setHovered(a.id)} onMouseLeave={() => setHovered(null)}
-                  onClick={() => onRowClick(a)}
-                  style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 44, padding: "6px 10px 6px 0", borderBottom: `1px solid ${T.stone}`, cursor: "pointer", opacity: archived ? 0.55 : 1, background: isHover ? "var(--surface-hover)" : "transparent", borderRadius: 6 }}>
-                  <div style={{ width: 4, alignSelf: "stretch", borderRadius: 2, background: color, flexShrink: 0, marginRight: 4 }} />
-                  {/* Chip de tipo — toque troca categoria (mesma leitura do Quadro) */}
-                  <button
-                    type="button"
-                    onClick={onChangeType ? (e) => { e.stopPropagation(); onChangeType(a); } : undefined}
-                    onPointerDown={onChangeType ? (e) => e.stopPropagation() : undefined}
-                    disabled={!onChangeType}
-                    title={onChangeType ? "Mudar tipo" : kindLabel}
-                    aria-label={onChangeType ? `Tipo: ${kindLabel} — tocar para mudar` : kindLabel}
-                    style={{ display: "inline-flex", alignItems: "center", gap: 5, minWidth: mobile ? 44 : 130, justifyContent: mobile ? "center" : "flex-start", height: 44, padding: "0 8px", border: onChangeType ? `1px solid ${color}33` : "none", background: "transparent", borderRadius: 8, color, fontSize: 11, fontWeight: 600, fontFamily: MONO, cursor: onChangeType ? "pointer" : "default", flexShrink: 0 }}
-                  >
-                    <KindIcon name={a.activity_kinds?.icon ?? a.type} size={mobile ? 16 : 13} color={color} sw={1.8} />
-                    {!mobile && <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{kindLabel}</span>}
-                  </button>
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: T.chalk, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {onRename ? (
-                      <InlineEdit
-                        value={a.title}
-                        onSave={(v) => onRename(a.id, v)}
-                        ariaLabel="Título da atividade"
-                        textStyle={{ fontSize: 13, color: T.chalk, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block", cursor: "text" }}
-                        inputStyle={{ fontSize: 13, color: T.chalk, fontWeight: 500, width: "100%", boxSizing: "border-box", background: "var(--surface-raised)", border: `1px solid ${T.sprout}`, borderRadius: 6, padding: "4px 8px", outline: "none" }}
-                      />
-                    ) : (
-                      a.title
-                    )}
-                    {archived && <span style={{ marginLeft: 8, fontSize: 9, fontFamily: MONO, color: T.slate, border: `1px solid ${T.stone}`, borderRadius: 4, padding: "1px 5px" }}>ARQUIVADA</span>}
-                  </span>
-                  {/* Participantes */}
-                  <span style={{ display: "inline-flex", alignItems: "center", width: mobile ? "auto" : 70, justifyContent: "flex-start" }}>
-                    {team.slice(0, 3).map((p, i) => <span key={i} style={{ marginLeft: i === 0 ? 0 : -8 }}><ParticipantAvatar name={p.participant_name} size={22} /></span>)}
-                  </span>
-                  <span style={{ fontFamily: MONO, fontSize: 11, color: T.bone, minWidth: 96, textAlign: "right" }}>
-                    {new Date(a.activity_date + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}{a.start_time ? ` ${a.start_time.slice(0, 5)}` : ""}
-                  </span>
-                  <span style={{ minWidth: 110 }}>
-                    <span style={{ fontSize: 10, fontWeight: 600, fontFamily: MONO, color: st.color, background: st.color + "1A", border: `1px solid ${st.color}33`, borderRadius: 12, padding: "2px 8px" }}>{st.label}</span>
-                  </span>
-                  {!mobile && <span style={{ minWidth: 84 }}>{oc && <span style={{ fontSize: 10, fontWeight: 600, fontFamily: MONO, color: oc.color }}>{oc.label}</span>}</span>}
-                  {/* Ações no hover */}
-                  <span style={{ display: "flex", gap: 2, width: mobile ? "auto" : 96, justifyContent: "flex-end", visibility: isHover || mobile ? "visible" : "hidden" }} onClick={(e) => e.stopPropagation()}>
-                    {a.status !== "completed" && <RowBtn title="Concluir" onClick={() => onComplete(a)} size={mobile ? 44 : 28}>✓</RowBtn>}
-                    <RowBtn title="Editar" onClick={() => onEdit(a)} size={mobile ? 44 : 28}>✎</RowBtn>
-                    <RowBtn title="Arquivar" onClick={() => onArchive(a.id)} size={mobile ? 44 : 28}>📥</RowBtn>
-                  </span>
-                </div>
-              );
-            })}
+            {items.map((a) => (
+              <ListRow
+                key={a.id}
+                a={a}
+                mobile={mobile}
+                onRowClick={onRowClick}
+                onComplete={onComplete}
+                onEdit={onEdit}
+                onArchive={onArchive}
+                onRename={onRename}
+                onChangeType={onChangeType}
+                onReschedule={onReschedule}
+                onQuickComplete={onQuickComplete}
+              />
+            ))}
           </div>
         </div>
       ))}
       {activities.length === 0 && <div style={{ padding: 40, textAlign: "center", color: T.slate, fontSize: 13, fontStyle: "italic" }}>Nenhuma atividade no período.</div>}
+    </div>
+  );
+}
+
+// Linha da Lista. Desktop = layout horizontal (com hover). Mobile = 2 linhas
+// (título herói na 1ª; chip+data+status na 2ª) + swipe (concluir/reagendar),
+// sem aglomerado de ícones. Mesma cor de tipo e mesmos chips do Quadro.
+function ListRow({ a, mobile, onRowClick, onComplete, onEdit, onArchive, onRename, onChangeType, onReschedule, onQuickComplete }: {
+  a: ListActivity;
+  mobile: boolean;
+  onRowClick: (a: ListActivity) => void;
+  onComplete: (a: ListActivity) => void;
+  onEdit: (a: ListActivity) => void;
+  onArchive: (id: string) => void;
+  onRename?: (id: string, title: string) => void;
+  onChangeType?: (a: ListActivity) => void;
+  onReschedule?: (a: ListActivity) => void;
+  onQuickComplete?: (a: ListActivity) => void;
+}) {
+  const [hover, setHover] = useState(false);
+  const color = getActivityColors(a.type).color;
+  const kindLabel = a.activity_kinds?.label || TYPE_LABELS[a.type] || a.type;
+  const st = STATUS_BADGE[a.status || "scheduled"] ?? STATUS_BADGE.scheduled;
+  const oc = a.outcome_category ? OUTCOME_BADGE[a.outcome_category] : null;
+  const team = (a.activity_participants ?? []).filter((p) => p.participant_type === "user");
+  const archived = !!a.archived_at;
+  const completed = a.status === "completed";
+  const quickComplete = onQuickComplete ?? onComplete;
+
+  const swipeEnabled = mobile && !archived;
+  const { dx, swiping, handlers } = useHorizontalSwipe({
+    enabled: swipeEnabled,
+    onRight: completed ? undefined : () => quickComplete(a),
+    onLeft: onReschedule ? () => onReschedule(a) : undefined,
+  });
+
+  const chip = (
+    <button
+      type="button"
+      onClick={onChangeType ? (e) => { e.stopPropagation(); onChangeType(a); } : undefined}
+      onPointerDown={onChangeType ? (e) => e.stopPropagation() : undefined}
+      disabled={!onChangeType}
+      title={onChangeType ? "Mudar tipo" : kindLabel}
+      aria-label={onChangeType ? `Tipo: ${kindLabel} — tocar para mudar` : kindLabel}
+      style={{ display: "inline-flex", alignItems: "center", gap: 5, minHeight: mobile ? 32 : 44, minWidth: mobile ? undefined : 130, justifyContent: "flex-start", padding: mobile ? "2px 8px" : "0 8px", border: onChangeType ? `1px solid ${color}33` : "none", background: mobile ? color + "14" : "transparent", borderRadius: mobile ? 6 : 8, color, fontSize: 11, fontWeight: 600, fontFamily: MONO, cursor: onChangeType ? "pointer" : "default", flexShrink: 0, maxWidth: mobile ? "60%" : undefined }}
+    >
+      <KindIcon name={a.activity_kinds?.icon ?? a.type} size={13} color={color} sw={1.8} />
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{kindLabel}</span>
+    </button>
+  );
+
+  const dateLabel = `${new Date(a.activity_date + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}${a.start_time ? ` ${a.start_time.slice(0, 5)}` : ""}`;
+  const statusBadge = (
+    <span style={{ fontSize: 10, fontWeight: 600, fontFamily: MONO, color: st.color, background: st.color + "1A", border: `1px solid ${st.color}33`, borderRadius: 12, padding: "2px 8px" }}>{st.label}</span>
+  );
+
+  // ── Mobile: 2 linhas + swipe ──
+  if (mobile) {
+    return (
+      <div style={{ position: "relative", borderBottom: `1px solid ${T.stone}` }}>
+        {swipeEnabled && dx !== 0 && (
+          <>
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", paddingLeft: 16, fontFamily: MONO, fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: T.sprout, background: "rgba(74,222,128,0.12)", opacity: dx > 0 && !completed ? 1 : 0 }}>CONCLUIR</div>
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "flex-end", paddingRight: 16, fontFamily: MONO, fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: T.amber, background: "rgba(224,162,60,0.12)", opacity: dx < 0 && onReschedule ? 1 : 0 }}>REAGENDAR</div>
+          </>
+        )}
+        <div
+          onClick={() => onRowClick(a)}
+          {...(swipeEnabled ? handlers : {})}
+          style={{ display: "flex", gap: 10, alignItems: "stretch", minHeight: 60, padding: "8px 10px 8px 0", cursor: "pointer", opacity: archived ? 0.55 : 1, background: "var(--surface-base)", transform: dx !== 0 ? `translateX(${dx}px)` : "none", transition: swiping ? "none" : "transform 0.16s ease", touchAction: swipeEnabled ? "pan-y" : "manipulation" }}
+        >
+          <div style={{ width: 4, alignSelf: "stretch", borderRadius: 2, background: color, flexShrink: 0, marginRight: 4 }} />
+          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 5, justifyContent: "center" }}>
+            {/* Linha 1 — título herói */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: completed ? T.fog : T.chalk, textDecoration: completed ? "line-through" : "none", textDecorationColor: "rgba(112,107,95,0.4)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {onRename ? (
+                  <InlineEdit
+                    value={a.title}
+                    onSave={(v) => onRename(a.id, v)}
+                    ariaLabel="Título da atividade"
+                    textStyle={{ fontSize: 14, fontWeight: 600, color: completed ? T.fog : T.chalk, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "text" }}
+                    inputStyle={{ fontSize: 14, fontWeight: 600, color: T.chalk, width: "100%", boxSizing: "border-box", background: "var(--surface-raised)", border: `1px solid ${T.sprout}`, borderRadius: 6, padding: "4px 8px", outline: "none" }}
+                  />
+                ) : (
+                  a.title
+                )}
+              </span>
+              {archived && <span style={{ flexShrink: 0, fontSize: 9, fontFamily: MONO, color: T.slate, border: `1px solid ${T.stone}`, borderRadius: 4, padding: "1px 5px" }}>ARQUIVADA</span>}
+            </div>
+            {/* Linha 2 — chip + data + status */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+              {chip}
+              <span style={{ fontFamily: MONO, fontSize: 11, color: T.bone, whiteSpace: "nowrap" }}>{dateLabel}</span>
+              <span style={{ marginLeft: "auto", flexShrink: 0 }}>{statusBadge}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Desktop: layout horizontal com hover ──
+  return (
+    <div
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onClick={() => onRowClick(a)}
+      style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 44, padding: "6px 10px 6px 0", borderBottom: `1px solid ${T.stone}`, cursor: "pointer", opacity: archived ? 0.55 : 1, background: hover ? "var(--surface-hover)" : "transparent", borderRadius: 6 }}
+    >
+      <div style={{ width: 4, alignSelf: "stretch", borderRadius: 2, background: color, flexShrink: 0, marginRight: 4 }} />
+      {chip}
+      <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: T.chalk, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {onRename ? (
+          <InlineEdit
+            value={a.title}
+            onSave={(v) => onRename(a.id, v)}
+            ariaLabel="Título da atividade"
+            textStyle={{ fontSize: 13, color: T.chalk, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block", cursor: "text" }}
+            inputStyle={{ fontSize: 13, color: T.chalk, fontWeight: 500, width: "100%", boxSizing: "border-box", background: "var(--surface-raised)", border: `1px solid ${T.sprout}`, borderRadius: 6, padding: "4px 8px", outline: "none" }}
+          />
+        ) : (
+          a.title
+        )}
+        {archived && <span style={{ marginLeft: 8, fontSize: 9, fontFamily: MONO, color: T.slate, border: `1px solid ${T.stone}`, borderRadius: 4, padding: "1px 5px" }}>ARQUIVADA</span>}
+      </span>
+      <span style={{ display: "inline-flex", alignItems: "center", width: 70, justifyContent: "flex-start" }}>
+        {team.slice(0, 3).map((p, i) => <span key={i} style={{ marginLeft: i === 0 ? 0 : -8 }}><ParticipantAvatar name={p.participant_name} size={22} /></span>)}
+      </span>
+      <span style={{ fontFamily: MONO, fontSize: 11, color: T.bone, minWidth: 96, textAlign: "right" }}>{dateLabel}</span>
+      <span style={{ minWidth: 110 }}>{statusBadge}</span>
+      <span style={{ minWidth: 84 }}>{oc && <span style={{ fontSize: 10, fontWeight: 600, fontFamily: MONO, color: oc.color }}>{oc.label}</span>}</span>
+      <span style={{ display: "flex", gap: 2, width: 96, justifyContent: "flex-end", visibility: hover ? "visible" : "hidden" }} onClick={(e) => e.stopPropagation()}>
+        {a.status !== "completed" && <RowBtn title="Concluir" onClick={() => onComplete(a)}>✓</RowBtn>}
+        <RowBtn title="Editar" onClick={() => onEdit(a)}>✎</RowBtn>
+        <RowBtn title="Arquivar" onClick={() => onArchive(a.id)}>📥</RowBtn>
+      </span>
     </div>
   );
 }

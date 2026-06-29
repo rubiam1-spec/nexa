@@ -109,6 +109,8 @@ interface KanbanBoardProps {
   // Conclusão rápida (mobile + swipe-direita) — otimista c/ desfazer. Distinto
   // do onCompleteCard (modal com resultado/duração, usado no hover desktop).
   onQuickComplete?: (a: KanbanActivity) => void;
+  // Reabrir card concluído (volta para agendado) — ação discreta no card.
+  onReopen?: (a: KanbanActivity) => void;
   teamProfiles: { id: string; name: string }[];
   kindsByKey: Record<string, ActivityKind>;
   onCreateColumn: () => void;
@@ -223,6 +225,7 @@ export default function KanbanBoard({
   onReschedule,
   onChipClick,
   onQuickComplete,
+  onReopen,
   teamProfiles,
   kindsByKey,
   onCreateColumn,
@@ -630,6 +633,7 @@ export default function KanbanBoard({
                         onMoveMenu={() => setMoveMenuFor(a)}
                         onComplete={() => onCompleteCard(a)}
                         onQuickComplete={onQuickComplete ? () => onQuickComplete(a) : undefined}
+                        onReopen={onReopen ? () => onReopen(a) : undefined}
                         onReschedule={onReschedule ? () => onReschedule(a) : undefined}
                         onChipClick={onChipClick ? () => onChipClick(a) : undefined}
                       />
@@ -1146,6 +1150,7 @@ function SortableCard({
   onMoveMenu,
   onComplete,
   onQuickComplete,
+  onReopen,
   onReschedule,
   onChipClick,
 }: {
@@ -1165,6 +1170,7 @@ function SortableCard({
   onMoveMenu: () => void;
   onComplete: () => void;
   onQuickComplete?: () => void;
+  onReopen?: () => void;
   onReschedule?: () => void;
   onChipClick?: () => void;
 }) {
@@ -1197,6 +1203,7 @@ function SortableCard({
         onMoveMenu={onMoveMenu}
         onComplete={!disabled ? onComplete : undefined}
         onQuickComplete={!disabled ? onQuickComplete : undefined}
+        onReopen={!disabled ? onReopen : undefined}
         onReschedule={!disabled ? onReschedule : undefined}
         onChipClick={onChipClick}
       />
@@ -1219,6 +1226,7 @@ function CardView({
   onMoveMenu,
   onComplete,
   onQuickComplete,
+  onReopen,
   onReschedule,
   onChipClick,
   overlay,
@@ -1237,6 +1245,7 @@ function CardView({
   onMoveMenu?: () => void;
   onComplete?: () => void;
   onQuickComplete?: () => void;
+  onReopen?: () => void;
   onReschedule?: () => void;
   onChipClick?: () => void;
   overlay?: boolean;
@@ -1361,7 +1370,22 @@ function CardView({
               />
             )}
           </div>
-          {completed && <span title="Concluída" style={{ color: T.sprout, fontSize: 14, fontWeight: 700, flexShrink: 0 }}>✓</span>}
+          <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
+            {completed && <span title="Concluída" style={{ color: T.sprout, fontSize: 14, fontWeight: 700 }}>✓</span>}
+            {/* Mover — discreto no canto, mesmo padrão p/ todos os cards (≥44px de toque) */}
+            {mobile && !overlay && draggable && onMoveMenu && (
+              <button
+                type="button"
+                title="Mover"
+                aria-label="Mover para outra coluna"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); onMoveMenu(); }}
+                style={{ width: 44, height: 44, margin: "-10px -8px -10px 0", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", color: T.fog, fontSize: 18, lineHeight: 1, cursor: "pointer" }}
+              >
+                ⋯
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Linha 2 — chip de tipo (toque troca categoria) + hora */}
@@ -1419,29 +1443,29 @@ function CardView({
           </div>
         )}
 
-        {/* Ações mobile — alvos ≥44px (swipe é atalho, não única via) */}
-        {mobile && !overlay && draggable && (
-          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-            {!completed && quickComplete && (
-              <button
-                type="button"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => { e.stopPropagation(); quickComplete(); }}
-                style={{ flex: 1, minHeight: 44, borderRadius: 8, border: `1px solid ${T.sprout}55`, background: "rgba(74,222,128,0.08)", color: T.sprout, fontFamily: MONO, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
-              >
-                Concluir
-              </button>
-            )}
-            {onMoveMenu && (
-              <button
-                type="button"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => { e.stopPropagation(); onMoveMenu(); }}
-                style={{ flex: completed ? 1 : "0 0 auto", minHeight: 44, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.bone, fontFamily: MONO, fontSize: 12, cursor: "pointer" }}
-              >
-                Mover
-              </button>
-            )}
+        {/* Ação principal mobile — coerente por status: ativo = Concluir; concluído = Reabrir discreto */}
+        {mobile && !overlay && draggable && !completed && quickComplete && (
+          <div style={{ marginTop: 8 }}>
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); quickComplete(); }}
+              style={{ width: "100%", minHeight: 44, borderRadius: 8, border: `1px solid ${T.sprout}55`, background: "rgba(74,222,128,0.08)", color: T.sprout, fontFamily: MONO, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+            >
+              Concluir
+            </button>
+          </div>
+        )}
+        {mobile && !overlay && draggable && completed && onReopen && (
+          <div style={{ marginTop: 6 }}>
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onReopen(); }}
+              style={{ minHeight: 44, padding: "0 4px", background: "transparent", border: "none", color: T.fog, fontFamily: MONO, fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+            >
+              Reabrir
+            </button>
           </div>
         )}
       </div>

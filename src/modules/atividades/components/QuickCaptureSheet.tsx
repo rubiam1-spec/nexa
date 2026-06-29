@@ -21,6 +21,7 @@ const T = {
   bone: "var(--text-secondary)",
   fog: "var(--text-muted)",
   sprout: "var(--interactive-primary)",
+  amber: "#E0A23C",
 };
 const MONO = "var(--font-mono)";
 
@@ -57,10 +58,11 @@ export default function QuickCaptureSheet({
   const [manualKind, setManualKind] = useState<ActivityKind | null>(null);
   const [override, setOverride] = useState<{ date?: string; time?: string }>({});
   const [busy, setBusy] = useState(false);
+  const [moreTypes, setMoreTypes] = useState(false);
 
   // Reset ao abrir.
   useEffect(() => {
-    if (open) { setText(""); setManualKind(null); setOverride({}); setMode(initialMode); setBusy(false); }
+    if (open) { setText(""); setManualKind(null); setOverride({}); setMode(initialMode); setBusy(false); setMoreTypes(false); }
   }, [open, initialMode]);
 
   // Parse com debounce só para os chips de feedback.
@@ -74,7 +76,14 @@ export default function QuickCaptureSheet({
   const effKind = manualKind ?? parsed.kind;
   const effDate = override.date ?? parsed.date ?? todayStr();
   const effTime = override.time ?? parsed.time ?? (mode === "done" ? nowHHMM() : undefined);
-  const canCreate = text.trim().length > 0 && !busy;
+  // Planejar exige data + hora; Já feita assume "agora".
+  const needsTime = mode === "plan" && !effTime;
+  const canCreate = text.trim().length > 0 && !busy && !needsTime;
+  // Captura de 5s: só comerciais de cara; interno/operacional sob "Mais tipos".
+  const hasMore = kinds.interno.length > 0 || kinds.operacional.length > 0;
+  const visibleKinds = moreTypes
+    ? kinds
+    : { comercial: kinds.comercial, interno: [], operacional: [] };
 
   const buildParsed = (): QuickParsed & { title: string } => ({
     kind: effKind ?? kinds.byKey.other ?? null,
@@ -189,8 +198,8 @@ export default function QuickCaptureSheet({
         >
           Agora
         </button>
-        <span style={{ fontFamily: MONO, fontSize: 11, color: T.fog }}>
-          {effDate === todayStr() ? "Hoje" : fmtDayMonth(effDate)}{effTime ? ` · ${effTime}` : ""}
+        <span style={{ fontFamily: MONO, fontSize: 11, color: needsTime ? T.amber : T.fog }}>
+          {effDate === todayStr() ? "Hoje" : fmtDayMonth(effDate)}{effTime ? ` · ${effTime}` : needsTime ? " · defina o horário" : ""}
         </span>
         {parsed.participant && (
           <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 600, color: T.sprout, background: "rgba(74,222,128,0.12)", border: `1px solid ${T.sprout}30`, borderRadius: 12, padding: "2px 8px" }}>
@@ -199,10 +208,19 @@ export default function QuickCaptureSheet({
         )}
       </div>
 
-      {/* Tipo (catálogo) */}
+      {/* Tipo (catálogo) — só comerciais de cara; resto sob "Mais tipos" */}
       <div style={{ marginTop: 16 }}>
         <div style={{ fontFamily: MONO, fontSize: 9, color: T.fog, textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 8, fontWeight: 600 }}>Tipo</div>
-        <TypeChipGrid kinds={kinds} selectedKey={effKind?.key ?? null} onPick={(k) => setManualKind(k)} />
+        <TypeChipGrid kinds={visibleKinds} selectedKey={effKind?.key ?? null} onPick={(k) => setManualKind(k)} />
+        {hasMore && (
+          <button
+            type="button"
+            onClick={() => setMoreTypes((v) => !v)}
+            style={{ marginTop: 10, minHeight: 40, padding: "0 4px", background: "transparent", border: "none", color: T.fog, fontFamily: MONO, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+          >
+            {moreTypes ? "− Menos tipos" : "+ Mais tipos"}
+          </button>
+        )}
       </div>
     </BottomSheet>
   );

@@ -1611,6 +1611,8 @@ export default function AtividadesPage() {
   const [typeSheetFor, setTypeSheetFor] = useState<{ id: string; currentKey: string | null } | null>(null);
   const [reschedulingActivity, setReschedulingActivity] = useState<Activity | null>(null);
   const [capture, setCapture] = useState<{ open: boolean; mode: "plan" | "done"; columnId: string | null; columnName: string | null }>({ open: false, mode: "done", columnId: null, columnName: null });
+  // Menu ⋯ do topo (tira "Limpar concluídas"/"Arquivados" da zona nobre).
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
 
   // Handle ?date=YYYY-MM-DD from Central "+ Agendar" link
   useEffect(() => {
@@ -2204,6 +2206,15 @@ export default function AtividadesPage() {
       },
     });
   }
+  // Reabrir card concluído → volta para "scheduled" (otimista).
+  async function handleReopen(a: Activity) {
+    const prev = a.status;
+    patchActivityLocal(a.id, { status: "scheduled" } as Partial<Activity>);
+    const ok = await setActivityStatusOptimistic(a.id, "scheduled");
+    if (!ok) { patchActivityLocal(a.id, { status: prev } as Partial<Activity>); setToast("Não foi possível reabrir"); return; }
+    logEvent(a.id, "updated", { fields: ["status"], reopened: true });
+    setToast("Atividade reaberta");
+  }
   // Troca de categoria (chip do card/lista) — preserva título/dados, só type+kind.
   async function handleChangeType(id: string, kind: ActivityKind) {
     const target = activities.find((a) => a.id === id);
@@ -2482,13 +2493,30 @@ export default function AtividadesPage() {
         {/* AÇÕES (direita) — agrupadas na mesma linha do título */}
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
           {displayMode === "kanban" && !isMobile && <button type="button" title="Atalhos de teclado (?)" onClick={() => setShowShortcuts(true)} style={{ background: "transparent", border: `1px solid ${T.stone}`, borderRadius: 8, color: T.fog, width: 34, height: 34, cursor: "pointer", fontSize: 14, flexShrink: 0 }}>?</button>}
-          {/* Ações de arquivo agrupadas */}
-          {(displayMode === "kanban" || displayMode === "list") && canManage && (
-            <button type="button" onClick={handleBulkArchiveCompleted} title="Arquivar concluídas do período" style={{ background: "transparent", border: `1px solid ${T.stone}`, borderRadius: 8, color: T.fog, fontSize: 12, height: 34, padding: "0 12px", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>Limpar concluídas</button>
-          )}
-          <button type="button" onClick={() => setArchivedOpen(true)} title="Atividades arquivadas" style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "transparent", border: `1px solid ${T.stone}`, borderRadius: 8, color: T.fog, fontSize: 12, height: 34, padding: "0 12px", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>
-            📥 Arquivados{scopedArchived.length > 0 ? <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, background: "rgba(112,107,95,0.3)", color: T.bone, borderRadius: 10, minWidth: 16, height: 16, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{scopedArchived.length}</span> : null}
-          </button>
+          {/* Ações secundárias (Limpar/Arquivados) movidas para o menu ⋯ */}
+          <div style={{ position: "relative", flexShrink: 0 }}>
+            <button
+              type="button"
+              aria-label="Mais ações"
+              title="Mais ações"
+              onClick={() => setHeaderMenuOpen((v) => !v)}
+              style={{ position: "relative", background: "transparent", border: `1px solid ${T.stone}`, borderRadius: 8, color: T.fog, width: 34, height: 34, cursor: "pointer", fontSize: 16, lineHeight: 1, flexShrink: 0 }}
+            >
+              ⋯
+              {scopedArchived.length > 0 && <span style={{ position: "absolute", top: -4, right: -4, width: 8, height: 8, borderRadius: "50%", background: T.amber }} />}
+            </button>
+            {headerMenuOpen && (
+              <>
+                <div onClick={() => setHeaderMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 199 }} />
+                <div style={{ position: "absolute", top: 40, right: 0, zIndex: 200, background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: 6, minWidth: 210, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", display: "flex", flexDirection: "column", gap: 2 }}>
+                  {(displayMode === "kanban" || displayMode === "list") && canManage && (
+                    <button type="button" onClick={() => { setHeaderMenuOpen(false); void handleBulkArchiveCompleted(); }} style={{ display: "block", width: "100%", textAlign: "left", minHeight: 44, padding: "10px 12px", background: "transparent", border: "none", color: T.bone, fontSize: 13, cursor: "pointer", borderRadius: 6 }}>Limpar concluídas do período</button>
+                  )}
+                  <button type="button" onClick={() => { setHeaderMenuOpen(false); setArchivedOpen(true); }} style={{ display: "block", width: "100%", textAlign: "left", minHeight: 44, padding: "10px 12px", background: "transparent", border: "none", color: T.bone, fontSize: 13, cursor: "pointer", borderRadius: 6 }}>Arquivados{scopedArchived.length > 0 ? ` (${scopedArchived.length})` : ""}</button>
+                </div>
+              </>
+            )}
+          </div>
           <div style={{ display: "flex", gap: 0, border: "1px solid rgba(61,58,48,0.15)", borderRadius: 8, overflow: "hidden", flexShrink: 0 }}>
             {(["kanban", "list", "calendar"] as const).map((mode, i, arr) => (
               <button key={mode} type="button" onClick={() => setDisplayMode(mode)} style={{
@@ -2614,6 +2642,7 @@ export default function AtividadesPage() {
           onReschedule={(a) => { const found = activities.find((x) => x.id === a.id); if (found) setReschedulingActivity(found); }}
           onChipClick={(a) => setTypeSheetFor({ id: a.id, currentKey: a.activity_kinds?.base_type ?? a.type })}
           onQuickComplete={(a) => { const found = activities.find((x) => x.id === a.id); if (found) void handleQuickComplete(found); }}
+          onReopen={(a) => { const found = activities.find((x) => x.id === a.id); if (found) void handleReopen(found); }}
           teamProfiles={teamProfiles}
           kindsByKey={activityKinds.byKey}
           onCreateColumn={async () => {
@@ -2650,6 +2679,8 @@ export default function AtividadesPage() {
           onArchive={handleArchive}
           onRename={handleRenameCard}
           onChangeType={(a) => setTypeSheetFor({ id: a.id, currentKey: a.activity_kinds?.base_type ?? a.type })}
+          onReschedule={(a) => { const found = activities.find((x) => x.id === a.id); if (found) setReschedulingActivity(found); }}
+          onQuickComplete={(a) => { const found = activities.find((x) => x.id === a.id); if (found) void handleQuickComplete(found); }}
         />
       )}
 
@@ -3179,7 +3210,7 @@ export default function AtividadesPage() {
           type="button"
           onClick={openCaptureFab}
           aria-label="Nova atividade"
-          style={{ position: "fixed", right: 18, bottom: "calc(env(safe-area-inset-bottom, 0px) + 18px)", width: 56, height: 56, borderRadius: "50%", background: T.sprout, color: T.ink, border: "none", boxShadow: "0 8px 24px rgba(0,0,0,0.4)", fontSize: 30, lineHeight: 1, cursor: "pointer", zIndex: 8000, display: "flex", alignItems: "center", justifyContent: "center" }}
+          style={{ position: "fixed", right: 18, bottom: "calc(env(safe-area-inset-bottom, 0px) + 56px + 18px)", width: 56, height: 56, borderRadius: "50%", background: T.sprout, color: T.ink, border: "none", boxShadow: "0 8px 24px rgba(0,0,0,0.4)", fontSize: 30, lineHeight: 1, cursor: "pointer", zIndex: 8000, display: "flex", alignItems: "center", justifyContent: "center" }}
         >
           +
         </button>
