@@ -40,6 +40,8 @@ export default function QuickCaptureSheet({
   kinds,
   teamProfiles,
   initialMode = "done",
+  initialDate,
+  initialTime,
   columnName,
   onCreate,
   onMoreOptions,
@@ -49,6 +51,8 @@ export default function QuickCaptureSheet({
   kinds: GroupedKinds;
   teamProfiles: { id: string; name: string }[];
   initialMode?: "plan" | "done";
+  initialDate?: string;
+  initialTime?: string;
   columnName?: string | null;
   onCreate: (parsed: QuickParsed & { title: string }, mode: "plan" | "done") => void | Promise<void>;
   onMoreOptions: (prefill: { title: string; kind: ActivityKind | null; mode: "plan" | "done" }) => void;
@@ -60,10 +64,10 @@ export default function QuickCaptureSheet({
   const [busy, setBusy] = useState(false);
   const [moreTypes, setMoreTypes] = useState(false);
 
-  // Reset ao abrir.
+  // Reset ao abrir — semeia data/hora do contexto da lente (Lista/Agenda).
   useEffect(() => {
-    if (open) { setText(""); setManualKind(null); setOverride({}); setMode(initialMode); setBusy(false); setMoreTypes(false); }
-  }, [open, initialMode]);
+    if (open) { setText(""); setManualKind(null); setOverride(initialDate || initialTime ? { date: initialDate, time: initialTime } : {}); setMode(initialMode); setBusy(false); setMoreTypes(false); }
+  }, [open, initialMode, initialDate, initialTime]);
 
   // Parse com debounce só para os chips de feedback.
   const [parsed, setParsed] = useState<QuickParsed>({ kind: null });

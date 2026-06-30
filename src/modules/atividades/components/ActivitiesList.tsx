@@ -122,7 +122,7 @@ export default function ActivitiesList({ activities, columns, onRowClick, onComp
       </div>
 
       {groups.map(([gkey, items]) => (
-        <div key={gkey || "all"} style={{ marginBottom: 14 }}>
+        <div key={gkey || "all"} data-act-day={groupKey === "date" ? gkey : undefined} style={{ marginBottom: 14 }}>
           {groupKey !== "none" && (
             <div style={{ fontFamily: MONO, fontSize: 10, color: T.fog, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, padding: "4px 2px", marginBottom: 2 }}>
               {groupLabel(gkey)} <span style={{ color: T.slate }}>· {items.length}</span>

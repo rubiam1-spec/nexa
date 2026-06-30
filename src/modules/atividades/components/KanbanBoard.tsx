@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import {
   DndContext,
   DragOverlay,
-  PointerSensor,
+  MouseSensor,
   TouchSensor,
   KeyboardSensor,
   useSensor,
@@ -251,8 +251,11 @@ export default function KanbanBoard({
   // Física do drag (Tarefa 1): threshold 8px no ponteiro garante que clique
   // simples abra o card e nunca inicie arrasto; long-press (250ms) no toque
   // evita drag acidental ao rolar a coluna no mobile (padrão Trello).
+  // Toque é tratado SÓ pelo TouchSensor (long-press 250ms) para não brigar com o
+  // swipe horizontal do card; o MouseSensor cuida do desktop. (Antes, o
+  // PointerSensor armava o drag a 8px em qualquer direção e engolia o swipe.)
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
@@ -636,6 +639,7 @@ export default function KanbanBoard({
                         onReopen={onReopen ? () => onReopen(a) : undefined}
                         onReschedule={onReschedule ? () => onReschedule(a) : undefined}
                         onChipClick={onChipClick ? () => onChipClick(a) : undefined}
+                        columnCompletes={col.completes_activity}
                       />
                     ))}
                   </SortableContext>
@@ -874,7 +878,7 @@ function Column({
   };
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div ref={setNodeRef} data-col-id={col.id} style={style}>
       {/* Header fixo */}
       <div
         style={{
@@ -1153,6 +1157,7 @@ function SortableCard({
   onReopen,
   onReschedule,
   onChipClick,
+  columnCompletes,
 }: {
   activity: KanbanActivity;
   disabled: boolean;
@@ -1173,6 +1178,7 @@ function SortableCard({
   onReopen?: () => void;
   onReschedule?: () => void;
   onChipClick?: () => void;
+  columnCompletes?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: activity.id,
@@ -1206,6 +1212,7 @@ function SortableCard({
         onReopen={!disabled ? onReopen : undefined}
         onReschedule={!disabled ? onReschedule : undefined}
         onChipClick={onChipClick}
+        columnCompletes={columnCompletes}
       />
     </div>
   );
@@ -1229,6 +1236,7 @@ function CardView({
   onReopen,
   onReschedule,
   onChipClick,
+  columnCompletes,
   overlay,
 }: {
   activity: KanbanActivity;
@@ -1248,6 +1256,7 @@ function CardView({
   onReopen?: () => void;
   onReschedule?: () => void;
   onChipClick?: () => void;
+  columnCompletes?: boolean;
   overlay?: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -1260,6 +1269,10 @@ function CardView({
   const iconName = kind?.icon || null;
   const overdue = isOverdueScheduled(activity);
   const completed = activity.status === "completed";
+  // Coluna que conclui também conta como "feito" — coerência na coluna Concluída,
+  // mesmo que o status ainda não seja completed (column_id é independente).
+  // "Atrasada" é só rótulo: nunca reativa "Concluir" aqui.
+  const isDone = completed || !!columnCompletes;
   const bond = bondLine(activity);
   const owner = activity.profiles?.name || "—";
   const day = new Date(activity.activity_date + "T12:00:00");
@@ -1274,14 +1287,14 @@ function CardView({
   const tempColor = negTemp ? TEMP_COLORS[negTemp] ?? null : null;
 
   // Aging: só esmaece o card (sem texto gritando) — detalhe textual fica na ficha.
-  const aging = completed || overlay ? "none" : agingLevel(activity.updated_at);
-  const baseOpacity = completed ? 0.68 : aging === "stale" ? 0.6 : aging === "soft" ? 0.82 : 1;
+  const aging = isDone || overlay ? "none" : agingLevel(activity.updated_at);
+  const baseOpacity = isDone ? 0.68 : aging === "stale" ? 0.6 : aging === "soft" ? 0.82 : 1;
   const showActions = hovered && !mobile && !overlay && draggable && !editing;
 
   // Conclusão rápida (mobile/swipe) cai no quick-complete; sem ele, no modal.
   const quickComplete = onQuickComplete ?? onComplete;
   // Swipe (mobile, arrastável, não concluído): direita = concluir, esquerda = reagendar.
-  const swipeEnabled = !!mobile && !overlay && !editing && !!draggable && !completed;
+  const swipeEnabled = !!mobile && !overlay && !editing && !!draggable && !isDone;
   const { dx, swiping, handlers } = useHorizontalSwipe({
     enabled: swipeEnabled,
     onRight: () => quickComplete?.(),
@@ -1291,9 +1304,9 @@ function CardView({
   const titleStyle: React.CSSProperties = {
     fontSize: 15,
     fontWeight: 600,
-    color: completed ? T.fog : T.chalk,
+    color: isDone ? T.fog : T.chalk,
     lineHeight: 1.25,
-    textDecoration: completed ? "line-through" : "none",
+    textDecoration: isDone ? "line-through" : "none",
     textDecorationColor: "rgba(112,107,95,0.4)",
     display: "block",
   };
@@ -1347,7 +1360,7 @@ function CardView({
           <div style={{ position: "absolute", top: 6, right: 6, display: "flex", gap: 2, background: "var(--surface-raised)", border: `1px solid ${T.stone}`, borderRadius: 8, padding: 2, zIndex: 2, boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}>
             {onRename && <ActionBtn title="Editar título (e)" onClick={() => onEditingChange?.(true)}>✎</ActionBtn>}
             {onAddPersonClick && <ActionBtn title="Adicionar pessoa (m)" onClick={onAddPersonClick}>+</ActionBtn>}
-            {!completed && onComplete && <ActionBtn title="Concluir (c)" onClick={onComplete} accent>✓</ActionBtn>}
+            {!isDone && onComplete && <ActionBtn title="Concluir (c)" onClick={onComplete} accent>✓</ActionBtn>}
             {onArchive && <ActionBtn title="Arquivar" onClick={onArchive}>📥</ActionBtn>}
             {onMoveMenu && <ActionBtn title="Mover" onClick={onMoveMenu}>⋮</ActionBtn>}
           </div>
@@ -1371,7 +1384,7 @@ function CardView({
             )}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
-            {completed && <span title="Concluída" style={{ color: T.sprout, fontSize: 14, fontWeight: 700 }}>✓</span>}
+            {isDone && <span title="Concluída" style={{ color: T.sprout, fontSize: 14, fontWeight: 700 }}>✓</span>}
             {/* Mover — discreto no canto, mesmo padrão p/ todos os cards (≥44px de toque) */}
             {mobile && !overlay && draggable && onMoveMenu && (
               <button
@@ -1444,7 +1457,7 @@ function CardView({
         )}
 
         {/* Ação principal mobile — coerente por status: ativo = Concluir; concluído = Reabrir discreto */}
-        {mobile && !overlay && draggable && !completed && quickComplete && (
+        {mobile && !overlay && draggable && !isDone && quickComplete && (
           <div style={{ marginTop: 8 }}>
             <button
               type="button"
@@ -1456,7 +1469,7 @@ function CardView({
             </button>
           </div>
         )}
-        {mobile && !overlay && draggable && completed && onReopen && (
+        {mobile && !overlay && draggable && isDone && onReopen && (
           <div style={{ marginTop: 6 }}>
             <button
               type="button"

@@ -166,6 +166,25 @@ function todayStr() { return new Date().toISOString().slice(0, 10); }
 function yesterdayStr() { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); }
 function addDaysIso(n: number) { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }
 function nextFridayIso() { const d = new Date(); let add = (5 - d.getDay() + 7) % 7; if (add === 0) add = 7; d.setDate(d.getDate() + add); return d.toISOString().slice(0, 10); }
+function nextHourHHMM() { const d = new Date(); const h = d.getMinutes() > 0 ? d.getHours() + 1 : d.getHours(); return `${String(Math.min(h, 23)).padStart(2, "0")}:00`; }
+// Lente em foco (lazy, lido só no clique do FAB) via atributos data-* no DOM.
+function visibleKanbanColId(): string | null {
+  if (typeof document === "undefined") return null;
+  const nodes = Array.from(document.querySelectorAll<HTMLElement>("[data-col-id]"));
+  if (!nodes.length) return null;
+  const centerX = window.innerWidth / 2;
+  let best: string | null = null, bestD = Infinity;
+  for (const n of nodes) { const r = n.getBoundingClientRect(); const c = r.left + r.width / 2; const d = Math.abs(c - centerX); if (d < bestD) { bestD = d; best = n.dataset.colId ?? null; } }
+  return best;
+}
+function visibleListDay(): string | null {
+  if (typeof document === "undefined") return null;
+  const nodes = Array.from(document.querySelectorAll<HTMLElement>("[data-act-day]"));
+  if (!nodes.length) return null;
+  let chosen: string | null = nodes[0].dataset.actDay ?? null;
+  for (const n of nodes) { const top = n.getBoundingClientRect().top; if (top <= 160) chosen = n.dataset.actDay ?? chosen; else break; }
+  return chosen;
+}
 function startOfWeek() { const d = new Date(); const diff = d.getDay() === 0 ? -6 : 1 - d.getDay(); const m = new Date(d); m.setDate(d.getDate() + diff); return m.toISOString().slice(0, 10); }
 function startOfMonth() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; }
 function daysDiff(dateStr: string) { return Math.floor((Date.now() - new Date(dateStr + "T12:00:00").getTime()) / 864e5); }
@@ -1610,9 +1629,10 @@ export default function AtividadesPage() {
   // Onda 1 (mobile): troca de tipo (chip), reagendar (swipe) e captura rápida (FAB / "+" coluna).
   const [typeSheetFor, setTypeSheetFor] = useState<{ id: string; currentKey: string | null } | null>(null);
   const [reschedulingActivity, setReschedulingActivity] = useState<Activity | null>(null);
-  const [capture, setCapture] = useState<{ open: boolean; mode: "plan" | "done"; columnId: string | null; columnName: string | null }>({ open: false, mode: "done", columnId: null, columnName: null });
+  const [capture, setCapture] = useState<{ open: boolean; mode: "plan" | "done"; columnId: string | null; columnName: string | null; date?: string; time?: string }>({ open: false, mode: "done", columnId: null, columnName: null });
   // Menu ⋯ do topo (tira "Limpar concluídas"/"Arquivados" da zona nobre).
-  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  // Ancorado por portal: guarda a posição calculada do retângulo do botão.
+  const [headerMenuPos, setHeaderMenuPos] = useState<{ top: number; left: number } | null>(null);
 
   // Handle ?date=YYYY-MM-DD from Central "+ Agendar" link
   useEffect(() => {
@@ -2039,8 +2059,34 @@ export default function AtividadesPage() {
     setModalForcedColumnId(columnId);
     setModalOpen(true);
   }
-  // FAB (mobile): captura rápida sem coluna (vai pra coluna padrão por modo).
-  function openCaptureFab() { setCapture({ open: true, mode: "done", columnId: null, columnName: null }); }
+  // FAB (mobile): captura que HERDA o contexto da lente em foco.
+  function openCaptureFab() {
+    if (displayMode === "kanban") {
+      // Herda a coluna em foco → status implícito (coluna que conclui = Já feita).
+      const colId = visibleKanbanColId() ?? planColumnId;
+      const col = orderedBoardColumns.find((c) => c.id === colId);
+      setCapture({ open: true, mode: col?.completes_activity ? "done" : "plan", columnId: colId ?? null, columnName: col?.name ?? null });
+      return;
+    }
+    if (displayMode === "list") {
+      // Herda o dia do grupo em foco → passado = Já feita, hoje/futuro = Planejar
+      // (com próxima hora cheia para já ser submetível).
+      const day = visibleListDay() ?? todayStr();
+      const past = day < todayStr();
+      setCapture({ open: true, mode: past ? "done" : "plan", columnId: null, columnName: null, date: day, time: past ? undefined : nextHourHHMM() });
+      return;
+    }
+    if (displayMode === "calendar") {
+      // Agenda: dia exibido (hoje) + próxima hora cheia, Planejar.
+      setCapture({ open: true, mode: "plan", columnId: null, columnName: null, date: todayStr(), time: nextHourHHMM() });
+      return;
+    }
+    setCapture({ open: true, mode: "done", columnId: null, columnName: null });
+  }
+  // Toque num horário vago da Agenda → captura travada naquele dia+hora (Planejar).
+  function openCaptureAt(date: string, time: string) {
+    setCapture({ open: true, mode: "plan", columnId: null, columnName: null, date, time });
+  }
   function openModalForSuggestion(s: { id: string; clientId: string | null; clientName: string; quadra: string; lote: string }) {
     setEditingActivity(null);
     setModalType("follow_up");
@@ -2206,13 +2252,22 @@ export default function AtividadesPage() {
       },
     });
   }
-  // Reabrir card concluído → volta para "scheduled" (otimista).
+  // Reabrir card concluído → volta para "scheduled" (otimista) e, se estava numa
+  // coluna que conclui, tira de lá (volta para o planejamento) — coerência visual.
   async function handleReopen(a: Activity) {
     const prev = a.status;
+    const inDoneCol = orderedBoardColumns.find((c) => c.id === a.column_id)?.completes_activity;
     patchActivityLocal(a.id, { status: "scheduled" } as Partial<Activity>);
     const ok = await setActivityStatusOptimistic(a.id, "scheduled");
     if (!ok) { patchActivityLocal(a.id, { status: prev } as Partial<Activity>); setToast("Não foi possível reabrir"); return; }
     logEvent(a.id, "updated", { fields: ["status"], reopened: true });
+    if (inDoneCol && planColumnId && a.column_id !== planColumnId) {
+      const fromCol = a.column_id;
+      patchActivityLocal(a.id, { column_id: planColumnId } as Partial<Activity>);
+      const moved = await updateCardColumnOptimistic(a.id, planColumnId);
+      if (moved) logEvent(a.id, "moved", { from_column_id: fromCol, to_column_id: planColumnId });
+      else patchActivityLocal(a.id, { column_id: fromCol } as Partial<Activity>);
+    }
     setToast("Atividade reaberta");
   }
   // Troca de categoria (chip do card/lista) — preserva título/dados, só type+kind.
@@ -2470,7 +2525,7 @@ export default function AtividadesPage() {
   return (
     // Quadro: largura cheia + coluna flex de altura total (header fixo, board
     // rola por dentro). Agenda e demais views seguem centralizadas em 960.
-    <div style={displayMode === "kanban" ? { width: "100%", height: "100%", display: "flex", flexDirection: "column", minHeight: 0 } : displayMode === "calendar" ? { width: "100%" } : { maxWidth: 960, margin: "0 auto" }}>
+    <div style={displayMode === "kanban" ? { width: "100%", height: "100%", display: "flex", flexDirection: "column", minHeight: 0 } : displayMode === "calendar" ? { width: "100%", paddingBottom: isMobile ? 96 : undefined } : { maxWidth: 960, margin: "0 auto", paddingBottom: isMobile ? 96 : undefined }}>
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: displayMode === "kanban" ? 14 : 24, flexWrap: "wrap", gap: 12, flexShrink: 0 }}>
         <div>
@@ -2499,22 +2554,32 @@ export default function AtividadesPage() {
               type="button"
               aria-label="Mais ações"
               title="Mais ações"
-              onClick={() => setHeaderMenuOpen((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={!!headerMenuPos}
+              onClick={(e) => {
+                if (headerMenuPos) { setHeaderMenuPos(null); return; }
+                const r = e.currentTarget.getBoundingClientRect();
+                const W = 230;
+                const left = Math.min(Math.max(8, r.right - W), window.innerWidth - W - 8);
+                const top = Math.min(r.bottom + 6, window.innerHeight - 8);
+                setHeaderMenuPos({ top, left });
+              }}
               style={{ position: "relative", background: "transparent", border: `1px solid ${T.stone}`, borderRadius: 8, color: T.fog, width: 34, height: 34, cursor: "pointer", fontSize: 16, lineHeight: 1, flexShrink: 0 }}
             >
               ⋯
               {scopedArchived.length > 0 && <span style={{ position: "absolute", top: -4, right: -4, width: 8, height: 8, borderRadius: "50%", background: T.amber }} />}
             </button>
-            {headerMenuOpen && (
-              <>
-                <div onClick={() => setHeaderMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 199 }} />
-                <div style={{ position: "absolute", top: 40, right: 0, zIndex: 200, background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: 6, minWidth: 210, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", display: "flex", flexDirection: "column", gap: 2 }}>
+            {headerMenuPos && createPortal(
+              <div style={{ position: "fixed", inset: 0, zIndex: 9000 }}>
+                <div onClick={() => setHeaderMenuPos(null)} style={{ position: "absolute", inset: 0 }} />
+                <div role="menu" style={{ position: "fixed", top: headerMenuPos.top, left: headerMenuPos.left, width: 230, background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: 6, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", display: "flex", flexDirection: "column", gap: 2 }}>
                   {(displayMode === "kanban" || displayMode === "list") && canManage && (
-                    <button type="button" onClick={() => { setHeaderMenuOpen(false); void handleBulkArchiveCompleted(); }} style={{ display: "block", width: "100%", textAlign: "left", minHeight: 44, padding: "10px 12px", background: "transparent", border: "none", color: T.bone, fontSize: 13, cursor: "pointer", borderRadius: 6 }}>Limpar concluídas do período</button>
+                    <button type="button" onClick={() => { setHeaderMenuPos(null); void handleBulkArchiveCompleted(); }} style={{ display: "block", width: "100%", textAlign: "left", minHeight: 44, padding: "10px 12px", background: "transparent", border: "none", color: T.bone, fontSize: 13, cursor: "pointer", borderRadius: 6 }}>Limpar concluídas do período</button>
                   )}
-                  <button type="button" onClick={() => { setHeaderMenuOpen(false); setArchivedOpen(true); }} style={{ display: "block", width: "100%", textAlign: "left", minHeight: 44, padding: "10px 12px", background: "transparent", border: "none", color: T.bone, fontSize: 13, cursor: "pointer", borderRadius: 6 }}>Arquivados{scopedArchived.length > 0 ? ` (${scopedArchived.length})` : ""}</button>
+                  <button type="button" onClick={() => { setHeaderMenuPos(null); setArchivedOpen(true); }} style={{ display: "block", width: "100%", textAlign: "left", minHeight: 44, padding: "10px 12px", background: "transparent", border: "none", color: T.bone, fontSize: 13, cursor: "pointer", borderRadius: 6 }}>Arquivados{scopedArchived.length > 0 ? ` (${scopedArchived.length})` : ""}</button>
                 </div>
-              </>
+              </div>,
+              document.body,
             )}
           </div>
           <div style={{ display: "flex", gap: 0, border: "1px solid rgba(61,58,48,0.15)", borderRadius: 8, overflow: "hidden", flexShrink: 0 }}>
@@ -2568,7 +2633,7 @@ export default function AtividadesPage() {
         <WeeklyCalendar
           activities={activities}
           accountId={accountId}
-          onSlotClick={openScheduleModal}
+          onSlotClick={isMobile ? openCaptureAt : openScheduleModal}
           onEventClick={async (id) => {
             const found = activities.find((a) => a.id === id);
             if (found) setSelectedActivity(found);
@@ -3203,8 +3268,8 @@ export default function AtividadesPage() {
         <RegistrationModal accountId={accountId} developmentId={developmentId} profileId={profileId} initialType={modalType} initialTitle={modalTitle} initialDate={slotDate} initialStartTime={slotTime} editActivity={editingActivity} canManageDate={canManage} negotiationId={modalNegotiationId} clientId={modalClientId} initialMode={modalMode} forcedStatus={modalForcedStatus} forcedColumnId={modalForcedColumnId} planColumnId={planColumnId} doneColumnId={doneColumnId} templates={activityTemplates} developmentName={development?.developmentName ?? null} kinds={activityKinds} teamProfiles={teamProfiles} currentUser={profileId ? { id: profileId, name: authenticatedProfile?.fullName ?? "Eu" } : null} onClose={() => { setModalOpen(false); setModalType(undefined); setModalTitle(undefined); setModalNegotiationId(undefined); setModalClientId(undefined); setSlotDate(undefined); setSlotTime(undefined); setEditingActivity(null); setModalMode("plan"); setModalForcedStatus(undefined); setModalForcedColumnId(null); }} onSaved={handleSaved} />
       )}
 
-      {/* FAB de captura (mobile) — zona do polegar, Quadro e Lista */}
-      {isMobile && (displayMode === "kanban" || displayMode === "list") && (showRegister || canManage) &&
+      {/* FAB de captura (mobile) — zona do polegar, em todas as lentes */}
+      {isMobile && (displayMode === "kanban" || displayMode === "list" || displayMode === "calendar") && (showRegister || canManage) &&
         !modalOpen && !capture.open && !selectedActivity && !completingActivity && !skippingActivity && !reschedulingActivity && !typeSheetFor && !archivedOpen && (
         <button
           type="button"
@@ -3223,17 +3288,21 @@ export default function AtividadesPage() {
         kinds={activityKinds}
         teamProfiles={teamProfiles}
         initialMode={capture.mode}
+        initialDate={capture.date}
+        initialTime={capture.time}
         columnName={capture.columnName}
         onCreate={(parsed, mode) => handleQuickCapture(parsed, mode, capture.columnId)}
         onMoreOptions={(prefill) => {
           const colId = capture.columnId;
+          const cDate = capture.date;
+          const cTime = capture.time;
           const mode = prefill.mode;
           setCapture((c) => ({ ...c, open: false }));
           setEditingActivity(null);
           setModalType((prefill.kind?.base_type as ActivityType | undefined) ?? undefined);
           setModalTitle(prefill.title || undefined);
           setModalNegotiationId(undefined); setModalClientId(undefined);
-          setSlotDate(undefined); setSlotTime(undefined);
+          setSlotDate(cDate); setSlotTime(cTime);
           setModalMode(mode);
           setModalForcedStatus(mode === "plan" ? "scheduled" : undefined);
           setModalForcedColumnId(colId);
