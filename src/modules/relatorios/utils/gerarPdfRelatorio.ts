@@ -2,6 +2,7 @@ import jsPDF from "jspdf";
 import { TLight } from "../../../shared/theme/lightTokens";
 import { NEXA_LOGO_HEADER, NEXA_LOGO_FOOTER } from "../../../shared/utils/pdfLogos";
 import { formatDateTimeBRT } from "../../../shared/utils/dateUtils";
+import { getActivityColors } from "../../../shared/utils/activityColors";
 
 function n(t: string): string {
   if (!t) return "";
@@ -313,6 +314,15 @@ export interface IndividualPdfData {
     pendentes: number;
     porTipo: { label: string; count: number }[];
     porSemana: { semana: string; count: number }[];
+    lista: {
+      activityDate: string;
+      startTime: string | null;
+      title: string;
+      type: string;
+      typeLabel: string;
+      status: string;
+      outcome: string | null;
+    }[];
   };
   negocios: {
     porStatus: { label: string; count: number }[];
@@ -352,6 +362,30 @@ function drawBars(
   return y + 4;
 }
 
+// Rótulos legíveis de outcome_category (mesmos códigos das quick-tags do módulo
+// de Atividades). Código desconhecido cai no valor cru — nunca inventa texto.
+const OUTCOME_LABELS: Record<string, string> = {
+  avancou: "Avançou",
+  neutro: "Neutro",
+  sem_sucesso: "Sem sucesso",
+  remarcou: "Remarcou",
+};
+
+// "2026-06-16" → "16 de jun." (subtítulo discreto de dia).
+function dayLabel(iso: string): string {
+  const d = new Date(iso + "T12:00:00");
+  return d.toLocaleDateString("pt-BR", { day: "numeric", month: "short" });
+}
+
+// Trunca com reticências p/ caber na largura (mm). Requer fonte/tamanho já set.
+function truncate(doc: jsPDF, txt: string, maxW: number): string {
+  if (!txt) return "";
+  if (doc.getTextWidth(txt) <= maxW) return txt;
+  let s = txt;
+  while (s.length > 1 && doc.getTextWidth(s + "...") > maxW) s = s.slice(0, -1);
+  return s + "...";
+}
+
 export async function gerarPdfRelatorioIndividual(
   cfg: { membroNome: string; period: string; contaNome: string; empreendimentoNome: string },
   d: IndividualPdfData,
@@ -387,6 +421,64 @@ export async function gerarPdfRelatorioIndividual(
   if (d.atividades.total === 0) {
     doc.setFont(ff, "normal"); doc.setFontSize(9); doc.setTextColor(...hex(TLight.textTertiary));
     doc.text(t("Sem atividades no periodo."), mg, y); y += 10;
+  }
+
+  // ── Detalhamento das atividades (lista item-a-item, agrupada por dia) ──
+  if (d.atividades.lista.length > 0) {
+    y = newPage(doc, y, 24);
+    y = secLabel(doc, ff, t, "Detalhamento das atividades", y);
+
+    const colHora = mg;
+    const colTitle = mg + 15;
+    const colType = mg + 96;
+    const colOutcome = mg + 140;
+    const titleW = colType - colTitle - 4;
+    const typeW = colOutcome - (colType + 4) - 3;
+    const outW = W - mg - colOutcome;
+
+    let lastDay: string | null = null;
+    let row = 0;
+    for (const it of d.atividades.lista) {
+      // Quebra de página antes da linha (reserva espaço p/ subtítulo do dia + linha).
+      const needsHeader = it.activityDate !== lastDay;
+      const before = y;
+      y = newPage(doc, y, (needsHeader ? 5 : 0) + 8);
+      if (y !== before) lastDay = null; // quebrou página → reimprime o dia no topo
+
+      if (it.activityDate !== lastDay) {
+        lastDay = it.activityDate;
+        doc.setFont(ff, "bold"); doc.setFontSize(7); doc.setTextColor(...hex(TLight.textTertiary));
+        doc.text(t(dayLabel(it.activityDate)), colHora, y);
+        y += 5;
+      }
+
+      if (row % 2 === 1) { doc.setFillColor(...hex(TLight.surfaceAlt)); doc.rect(mg, y - 3, cw, 6, "F"); }
+
+      // HORA (mono; vazio quando não há hora — não inventar).
+      doc.setFont(ff, "normal"); doc.setFontSize(8); doc.setTextColor(...hex(TLight.textTertiary));
+      doc.text(it.startTime ? it.startTime.slice(0, 5) : "", colHora, y);
+
+      // ATIVIDADE (título truncado; sem título → cai no rótulo do tipo).
+      doc.setFontSize(8.5); doc.setTextColor(...hex(TLight.textPrimary));
+      const titulo = it.title.trim() ? it.title : it.typeLabel;
+      doc.text(t(truncate(doc, titulo, titleW)), colTitle, y);
+
+      // TIPO (marcador de cor por type + rótulo).
+      const tc = hex(getActivityColors(it.type).color);
+      doc.setFillColor(tc[0], tc[1], tc[2]); doc.circle(colType + 1.3, y - 1.1, 1.3, "F");
+      doc.setFont(ff, "normal"); doc.setFontSize(8); doc.setTextColor(...hex(TLight.textSecondary));
+      doc.text(t(truncate(doc, it.typeLabel, typeW)), colType + 4, y);
+
+      // RESULTADO (rótulo legível; sem resultado → cinza, sempre visível).
+      const label = it.outcome ? (OUTCOME_LABELS[it.outcome] ?? it.outcome) : null;
+      doc.setFontSize(8);
+      doc.setTextColor(...hex(label ? TLight.textPrimary : TLight.textMuted));
+      doc.text(t(truncate(doc, label ?? "sem resultado", outW)), colOutcome, y);
+
+      y += 6;
+      row++;
+    }
+    y += 8;
   }
 
   // ── Negócios ── (apenas contagens — negotiations sem valor confiável, sem VGV)

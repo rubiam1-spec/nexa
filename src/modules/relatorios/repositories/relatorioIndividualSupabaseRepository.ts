@@ -12,6 +12,7 @@ export type AtividadeIndividualRow = {
   activity_date: string; // YYYY-MM-DD
   title: string | null;
   start_time: string | null;
+  outcome_category: string | null;
   created_at: string;
 };
 
@@ -49,7 +50,7 @@ export async function fetchAtividadesIndividual(
   const client = getSupabaseClientOrThrow("relatorioIndividual.fetchAtividadesIndividual");
   const { data, error } = await client
     .from("activities")
-    .select("id, profile_id, type, status, activity_date, title, start_time, created_at")
+    .select("id, profile_id, type, status, activity_date, title, start_time, outcome_category, created_at")
     .eq("account_id", opts.accountId)
     .eq("development_id", opts.developmentId)
     .eq("profile_id", opts.profileId)

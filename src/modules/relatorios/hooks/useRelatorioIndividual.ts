@@ -25,6 +25,18 @@ export interface RelatorioIndividualData {
     pendentes: number;
     porTipo: { tipo: string; label: string; count: number }[];
     porSemana: { semana: string; count: number }[];
+    // Lista bruta item-a-item p/ o detalhamento do PDF. Ordenada por data DESC
+    // (mais recente primeiro) e, dentro do dia, por hora DESC. outcome = valor
+    // cru de outcome_category (ou null) — sem inventar rótulo aqui.
+    lista: {
+      activityDate: string;
+      startTime: string | null;
+      title: string;
+      type: string;
+      typeLabel: string;
+      status: string;
+      outcome: string | null;
+    }[];
   };
   negocios: {
     porStatus: { status: string; label: string; count: number }[];
@@ -99,7 +111,25 @@ function aggregateAtividades(rows: AtividadeIndividualRow[]): RelatorioIndividua
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([, v]) => ({ semana: v.label, count: v.count }));
 
-  return { total, concluidas, taxaConclusao: pct(concluidas, total), pendentes, porTipo, porSemana };
+  // Lista item-a-item: data DESC; dentro do dia, hora DESC (sem hora por último).
+  const lista = [...rows]
+    .sort((a, b) => {
+      if (a.activity_date !== b.activity_date) return a.activity_date < b.activity_date ? 1 : -1;
+      const ta = a.start_time ?? "";
+      const tb = b.start_time ?? "";
+      return ta < tb ? 1 : ta > tb ? -1 : 0;
+    })
+    .map((a) => ({
+      activityDate: a.activity_date,
+      startTime: a.start_time,
+      title: a.title ?? "",
+      type: a.type,
+      typeLabel: ACTIVITY_TYPE_SCHEMA[a.type]?.label ?? a.type,
+      status: a.status,
+      outcome: a.outcome_category ?? null,
+    }));
+
+  return { total, concluidas, taxaConclusao: pct(concluidas, total), pendentes, porTipo, porSemana, lista };
 }
 
 function aggregateNegocios(
