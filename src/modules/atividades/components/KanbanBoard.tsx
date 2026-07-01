@@ -28,7 +28,7 @@ import InlineEdit from "./InlineEdit";
 import KindIcon from "./KindIcon";
 import ParticipantAvatar, { MoreAvatar } from "./ParticipantAvatar";
 import { parseQuickCapture, type QuickParsed } from "../config/quickParse";
-import { useHorizontalSwipe } from "./mobileKit";
+import { useHorizontalSwipe, BottomSheet } from "./mobileKit";
 import { getActivityColors } from "../../../shared/utils/activityColors";
 import type { ActivityKind } from "../../../infra/repositories/activityKindsRepository";
 
@@ -837,6 +837,7 @@ function Column({
     disabled: !canManageColumns,
   });
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState<DOMRect | null>(null);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
   const [parsed, setParsed] = useState<QuickParsed>({ kind: null });
@@ -937,7 +938,7 @@ function Column({
           {canManageColumns && (
             <button
               type="button"
-              onClick={() => setMenuOpen((v) => !v)}
+              onClick={(e) => { setMenuAnchor(e.currentTarget.getBoundingClientRect()); setMenuOpen((v) => !v); }}
               style={{ background: "none", border: "none", color: T.fog, fontSize: 16, cursor: "pointer", padding: "0 2px", lineHeight: 1 }}
             >
               ⋮
@@ -946,6 +947,8 @@ function Column({
           {menuOpen && (
             <ColumnMenu
               col={col}
+              anchor={menuAnchor}
+              mobile={mobile}
               onClose={() => setMenuOpen(false)}
               onUpdate={(patch) => onUpdateColumn(col.id, patch)}
               onDelete={onDeleteColumn}
@@ -1041,99 +1044,97 @@ function ColumnMenu({
   onClose,
   onUpdate,
   onDelete,
+  anchor,
+  mobile,
 }: {
   col: BoardColumnVM;
   onClose: () => void;
   onUpdate: (patch: { name?: string; color?: string; completes_activity?: boolean }) => void;
   onDelete: () => void;
+  anchor?: DOMRect | null;
+  mobile?: boolean;
 }) {
   const [name, setName] = useState(col.name);
-  return (
-    <>
-      <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={onClose} />
-      <div
-        style={{
-          position: "absolute",
-          top: 28,
-          right: 0,
-          zIndex: 200,
-          background: T.carbon,
-          border: `1px solid ${T.stone}`,
-          borderRadius: 10,
-          padding: 12,
-          width: 220,
-          boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
+  // Ancorado por portal com clamp na viewport (nunca corta na borda).
+  const W = 230;
+  const left = anchor ? Math.min(Math.max(8, anchor.right - W), window.innerWidth - W - 8) : 8;
+  const top = anchor ? Math.min(anchor.bottom + 6, window.innerHeight - 8) : 8;
+  const inner = (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onBlur={() => name.trim() && name.trim() !== col.name && onUpdate({ name: name.trim() })}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && name.trim()) {
+            onUpdate({ name: name.trim() });
+            onClose();
+          }
         }}
-      >
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onBlur={() => name.trim() && name.trim() !== col.name && onUpdate({ name: name.trim() })}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && name.trim()) {
-              onUpdate({ name: name.trim() });
-              onClose();
-            }
-          }}
-          placeholder="Nome da coluna"
-          style={{
-            background: T.ink,
-            border: `1px solid ${T.stone}`,
-            borderRadius: 8,
-            padding: "8px 10px",
-            color: T.chalk,
-            fontSize: 13,
-            outline: "none",
-          }}
-        />
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {COLUMN_PALETTE.map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => onUpdate({ color: c })}
-              style={{
-                width: 22,
-                height: 22,
-                borderRadius: "50%",
-                background: c,
-                border: col.color === c ? `2px solid ${T.chalk}` : "2px solid transparent",
-                cursor: "pointer",
-              }}
-            />
-          ))}
+        placeholder="Nome da coluna"
+        style={{ background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "10px 12px", color: T.chalk, fontSize: 14, outline: "none", width: "100%", boxSizing: "border-box" }}
+      />
+
+      {/* Cor — círculos perfeitos e iguais (flex:none, nunca esticam); selecionado com anel. */}
+      <div>
+        <div style={{ fontFamily: MONO, fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.slate, marginBottom: 8 }}>Cor</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+          {COLUMN_PALETTE.map((c) => {
+            const selected = col.color === c;
+            return (
+              <button
+                key={c}
+                type="button"
+                onClick={() => onUpdate({ color: c })}
+                aria-label={`Cor ${c}`}
+                aria-pressed={selected}
+                style={{ width: 44, height: 44, flex: "none", padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", borderRadius: "50%", cursor: "pointer" }}
+              >
+                <span style={{ width: 30, height: 30, flex: "none", borderRadius: "50%", background: c, display: "inline-flex", alignItems: "center", justifyContent: "center", boxShadow: selected ? `0 0 0 2px ${T.carbon}, 0 0 0 4px ${T.chalk}` : "none" }}>
+                  {selected && (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ stroke: T.ink, strokeWidth: 3.5, strokeLinecap: "round", strokeLinejoin: "round" }}><polyline points="20 6 9 17 4 12" /></svg>
+                  )}
+                </span>
+              </button>
+            );
+          })}
         </div>
-        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: T.bone, cursor: "pointer" }}>
+      </div>
+
+      {/* "Conclui" — checkbox estilizado + label na mesma linha, toque ≥44px. */}
+      <label style={{ display: "flex", alignItems: "center", gap: 12, minHeight: 44, cursor: "pointer", fontSize: 14, color: T.bone }}>
+        <span style={{ position: "relative", flex: "none", width: 22, height: 22, borderRadius: 6, border: `1.5px solid ${col.completes_activity ? T.sprout : T.stone}`, background: col.completes_activity ? T.sprout : "transparent", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
           <input
             type="checkbox"
             checked={col.completes_activity}
             onChange={(e) => onUpdate({ completes_activity: e.target.checked })}
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", margin: 0, opacity: 0, cursor: "pointer" }}
           />
-          Esta coluna conclui
-        </label>
-        <button
-          type="button"
-          onClick={() => {
-            onClose();
-            onDelete();
-          }}
-          style={{
-            background: "transparent",
-            border: `1px solid ${T.red}30`,
-            color: T.red,
-            borderRadius: 8,
-            padding: "8px 10px",
-            fontSize: 13,
-            cursor: "pointer",
-          }}
-        >
-          Excluir coluna
-        </button>
-      </div>
-    </>
+          {col.completes_activity && (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ stroke: T.ink, strokeWidth: 3.5, strokeLinecap: "round", strokeLinejoin: "round" }}><polyline points="20 6 9 17 4 12" /></svg>
+          )}
+        </span>
+        Esta coluna conclui a atividade
+      </label>
+
+      <div style={{ height: 1, background: T.stone, opacity: 0.6 }} />
+
+      <button
+        type="button"
+        onClick={() => { onClose(); onDelete(); }}
+        style={{ width: "100%", minHeight: 44, background: "transparent", border: `1px solid ${T.red}55`, color: T.red, borderRadius: 8, padding: "10px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+      >
+        Excluir coluna
+      </button>
+    </div>
+  );
+  if (mobile) return <BottomSheet open onClose={onClose} title={col.name || "Coluna"}>{inner}</BottomSheet>;
+  return createPortal(
+    <div style={{ position: "fixed", inset: 0, zIndex: 9000 }}>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0 }} />
+      <div style={{ position: "fixed", top, left, width: W, maxHeight: "80vh", overflowY: "auto", background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", display: "flex", flexDirection: "column", gap: 10 }}>{inner}</div>
+    </div>,
+    document.body,
   );
 }
 

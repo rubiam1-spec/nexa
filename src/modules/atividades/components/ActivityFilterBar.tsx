@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import ParticipantAvatar from "./ParticipantAvatar";
+import { BottomSheet } from "./mobileKit";
 
 export type TypeOption = { key: string; label: string; color: string };
 
@@ -43,16 +45,29 @@ export default function ActivityFilterBar(p: Props) {
   const isKanban = p.view === "kanban";
   const [ownerSearch, setOwnerSearch] = useState("");
   const wrapRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  // Popover ancorado por portal (desktop) — posição do rect do botão com clamp.
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
   useEffect(() => {
     if (!p.open) return;
-    const onClick = (e: MouseEvent) => { if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) p.setOpen(false); };
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") p.setOpen(false); };
-    document.addEventListener("mousedown", onClick);
     document.addEventListener("keydown", onKey);
-    return () => { document.removeEventListener("mousedown", onClick); document.removeEventListener("keydown", onKey); };
+    return () => document.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.open]);
+
+  // Calcula a posição do popover (desktop) a partir do botão "Filtrar".
+  useLayoutEffect(() => {
+    if (!p.open || p.isMobile) { setPos(null); return; }
+    const el = btnRef.current; if (!el) return;
+    const W = 300;
+    const r = el.getBoundingClientRect();
+    const left = Math.min(Math.max(8, r.left), window.innerWidth - W - 8);
+    const top = Math.min(r.bottom + 6, window.innerHeight - 8);
+    setPos({ top, left });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.open, p.isMobile]);
 
   const searchActive = p.search.trim().length > 0;
   const typeCount = isKanban ? p.typeFilter.length : 0;
@@ -91,14 +106,15 @@ export default function ActivityFilterBar(p: Props) {
 
       {/* Botão Filtrar + painel */}
       <div ref={wrapRef} style={{ position: "relative" }}>
-        <button type="button" onClick={() => p.setOpen(!p.open)} style={{ display: "inline-flex", alignItems: "center", gap: 7, height: 34, padding: "0 12px", borderRadius: 8, background: count > 0 ? "rgba(74,222,128,0.1)" : "var(--surface-raised)", border: `1px solid ${count > 0 ? T.sprout : T.stone}`, color: count > 0 ? T.sprout : T.bone, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+        <button ref={btnRef} type="button" onClick={() => p.setOpen(!p.open)} style={{ display: "inline-flex", alignItems: "center", gap: 7, height: 34, padding: "0 12px", borderRadius: 8, background: count > 0 ? "rgba(74,222,128,0.1)" : "var(--surface-raised)", border: `1px solid ${count > 0 ? T.sprout : T.stone}`, color: count > 0 ? T.sprout : T.bone, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.5 10 19 14 21 14 12.5 22 3" /></svg>
           Filtrar
           {count > 0 && <span style={{ fontFamily: MONO, fontSize: 10, fontWeight: 700, background: T.sprout, color: T.ink, borderRadius: 10, minWidth: 16, height: 16, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{count}</span>}
         </button>
 
-        {p.open && (
-          <div style={{ position: "absolute", top: 40, left: 0, zIndex: 200, width: 300, maxWidth: "92vw", background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 12, boxShadow: "0 12px 32px rgba(0,0,0,0.5)", padding: 14 }}>
+        {p.open && (() => {
+          const panelInner = (
+            <>
             {/* Tipo */}
             {isKanban && p.typeOptions.length > 0 && (
               <div style={{ marginBottom: 16 }}>
@@ -161,8 +177,18 @@ export default function ActivityFilterBar(p: Props) {
               <button type="button" onClick={clearAll} disabled={count === 0} style={{ background: "none", border: "none", color: count === 0 ? T.slate : T.fog, fontSize: 12, fontFamily: MONO, cursor: count === 0 ? "default" : "pointer" }}>Limpar filtros</button>
               <button type="button" onClick={() => p.setOpen(false)} style={{ background: "none", border: "none", color: T.bone, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Fechar</button>
             </div>
-          </div>
-        )}
+            </>
+          );
+          return p.isMobile ? (
+            <BottomSheet open onClose={() => p.setOpen(false)} title="Filtrar">{panelInner}</BottomSheet>
+          ) : pos ? createPortal(
+            <div style={{ position: "fixed", inset: 0, zIndex: 9000 }}>
+              <div onClick={() => p.setOpen(false)} style={{ position: "absolute", inset: 0 }} />
+              <div style={{ position: "fixed", top: pos.top, left: pos.left, width: 300, maxHeight: "80vh", overflowY: "auto", background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 12, boxShadow: "0 12px 32px rgba(0,0,0,0.5)", padding: 14 }}>{panelInner}</div>
+            </div>,
+            document.body,
+          ) : null;
+        })()}
       </div>
 
       {/* Chips ativos */}

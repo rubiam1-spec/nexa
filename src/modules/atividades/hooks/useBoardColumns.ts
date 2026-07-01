@@ -65,11 +65,9 @@ export function useBoardColumns(opts: {
   const create = useCallback(
     async (name: string, color: string) => {
       if (!accountId) return;
+      // Coluna nova entra SEMPRE no fim (padrão Trello): maior posição + passo.
       const maxPos = columns.reduce((m, c) => Math.max(m, c.position), 0);
-      // Nova coluna entra antes da "conclui" (se houver) ou ao final.
-      const completesPos = columns.find((c) => c.completes_activity)?.position;
-      const position =
-        completesPos !== undefined ? completesPos - 1 : maxPos + 1000;
+      const position = maxPos + 1000;
       const row = await repoCreateColumn({
         accountId,
         developmentId,
