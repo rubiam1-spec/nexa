@@ -2,7 +2,7 @@ import { createPortal } from "react-dom";
 import { useCallback, useRef, useState } from "react";
 
 /* ───── tipos ───── */
-type CelebrationLevel = "success" | "sale";
+type CelebrationLevel = "success" | "sale" | "error";
 
 interface ToastData {
   id: number;
@@ -15,9 +15,10 @@ interface ToastData {
 const palette: Record<CelebrationLevel, { bg: string; border: string; glow: string; text: string; sub: string }> = {
   success: { bg: "var(--surface-raised)", border: "rgba(74,222,128,0.4)", glow: "0 0 24px rgba(74,222,128,0.15)", text: "#4ADE80", sub: "var(--text-muted)" },
   sale:    { bg: "var(--surface-raised)", border: "rgba(251,191,36,0.5)", glow: "0 0 32px rgba(251,191,36,0.2)", text: "#FBBF24", sub: "var(--text-muted)" },
+  error:   { bg: "var(--surface-raised)", border: "rgba(248,113,113,0.5)", glow: "0 0 24px rgba(248,113,113,0.15)", text: "#F87171", sub: "var(--text-muted)" },
 };
 
-const icons: Record<CelebrationLevel, string> = { success: "\u2713", sale: "\u2605" };
+const icons: Record<CelebrationLevel, string> = { success: "\u2713", sale: "\u2605", error: "\u26a0" };
 
 /* ───── hook público ───── */
 export function useCelebration() {
@@ -34,7 +35,11 @@ export function useCelebration() {
     celebrate(title, subtitle, "sale");
   }, [celebrate]);
 
-  return { toasts, celebrate, celebrateSale };
+  const celebrateError = useCallback((title: string, subtitle?: string) => {
+    celebrate(title, subtitle, "error");
+  }, [celebrate]);
+
+  return { toasts, celebrate, celebrateSale, celebrateError };
 }
 
 /* ───── componente Toast Container ───── */

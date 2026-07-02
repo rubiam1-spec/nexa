@@ -8,7 +8,7 @@ import { formatDateBRT } from "../../../shared/utils/dateUtils";
 
 function logActivity(accountId: string, developmentId: string | null, entity: string, entityId: string, action: string, userId: string | null, details?: string) {
   if (!supabase) return;
-  supabase.from("activity_logs").insert({ account_id: accountId, development_id: developmentId, entity, entity_id: entityId, action, actor_profile_id: userId, details: details || null }).then(() => {}, () => {});
+  supabase.from("activity_logs").insert({ account_id: accountId, development_id: developmentId, entity, entity_id: entityId, action, actor_profile_id: userId, details: details || null }).then(() => {}, (err) => { console.error("[logActivity] falha ao gravar auditoria:", err); });
 }
 
 export function usePipelineActions(accountId: string | null, developmentId: string | null, onSuccess: () => void) {

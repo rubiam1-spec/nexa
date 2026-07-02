@@ -77,7 +77,7 @@ export default function KanbanPage() {
   const aId = account?.accountId ?? null, dId = development?.developmentId ?? null;
   const [refreshKey, setRefreshKey] = useState(0);
   const perms = getPermissions(account?.role ?? null);
-  const { toasts, celebrate, celebrateSale } = useCelebration();
+  const { toasts, celebrate, celebrateSale, celebrateError } = useCelebration();
   const onActionSuccess = useCallback(() => setRefreshKey((k) => k + 1), []);
   const { criarProposta, solicitarReserva, aprovarReserva, registrarVenda, converterSimulacao, cancelarNegociacao } = usePipelineActions(aId, dId, onActionSuccess);
   const [convertingSimId, setConvertingSimId] = useState<string | null>(null);
@@ -366,7 +366,7 @@ export default function KanbanPage() {
                     {/* Mobile actions */}
                     {mobileTab !== "perdido" ? (
                       <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(61,58,48,0.06)" }} onClick={(e) => e.stopPropagation()}>
-                        {mobileTab === "simulacao" && c.isSimulacao ? <HoverBtn label={convertingSimId === c.id ? "..." : "Negociação"} cor="#4ADE80" onClick={() => { if (convertingSimId) return; setConvertingSimId(c.id); void converterSimulacao({ simulationId: c.id, unitId: c.unitId!, clientId: c.clienteId, brokerId: c.corretorId }).then(() => celebrate("Negociação iniciada!")).catch((e: unknown) => { alert(e instanceof Error ? e.message : "Erro"); }).finally(() => setConvertingSimId(null)); }} /> : null}
+                        {mobileTab === "simulacao" && c.isSimulacao ? <HoverBtn label={convertingSimId === c.id ? "..." : "Negociação"} cor="#4ADE80" onClick={() => { if (convertingSimId) return; setConvertingSimId(c.id); void converterSimulacao({ simulationId: c.id, unitId: c.unitId!, clientId: c.clienteId, brokerId: c.corretorId }).then(() => celebrate("Negociação iniciada!")).catch((e: unknown) => { console.error("[Kanban] converterSimulacao:", e); celebrateError("Falha ao iniciar negociação", e instanceof Error ? e.message : undefined); }).finally(() => setConvertingSimId(null)); }} /> : null}
                         {mobileTab === "negociacao" ? <HoverBtn label="Proposta" cor="#FBBF24" onClick={() => setModalProposta(c)} /> : null}
                         {mobileTab === "proposta" ? <HoverBtn label="Reserva" cor="#A78BFA" onClick={() => setModalReserva(c)} /> : null}
                         {mobileTab === "reserva" ? <>{perms.canCompleteSale ? <HoverBtn label="Venda" cor="#4ADE80" onClick={() => setModalVenda(c)} /> : null}{perms.canApproveReservation && c.reservaRequestId && (c.reservaRequestStatus === "pending" || c.reservaRequestStatus === "requested") ? <HoverBtn label="Aprovar" cor="#A78BFA" onClick={() => setModalAprovar(c)} /> : null}</> : null}
@@ -494,7 +494,7 @@ export default function KanbanPage() {
                         {/* Hover actions */}
                         {(isHovered || isMobile) && est.id !== "perdido" ? (
                           <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(61,58,48,0.06)" }} onClick={(e) => e.stopPropagation()}>
-                            {est.id === "simulacao" && c.isSimulacao ? <HoverBtn label={convertingSimId === c.id ? "Criando..." : "Iniciar negociação"} cor="#4ADE80" onClick={() => { if (convertingSimId) return; setConvertingSimId(c.id); void converterSimulacao({ simulationId: c.id, unitId: c.unitId!, clientId: c.clienteId, brokerId: c.corretorId }).then(() => celebrate("Negociação iniciada!")).catch((e: unknown) => { alert(e instanceof Error ? e.message : "Erro"); }).finally(() => setConvertingSimId(null)); }} /> : null}
+                            {est.id === "simulacao" && c.isSimulacao ? <HoverBtn label={convertingSimId === c.id ? "Criando..." : "Iniciar negociação"} cor="#4ADE80" onClick={() => { if (convertingSimId) return; setConvertingSimId(c.id); void converterSimulacao({ simulationId: c.id, unitId: c.unitId!, clientId: c.clienteId, brokerId: c.corretorId }).then(() => celebrate("Negociação iniciada!")).catch((e: unknown) => { console.error("[Kanban] converterSimulacao:", e); celebrateError("Falha ao iniciar negociação", e instanceof Error ? e.message : undefined); }).finally(() => setConvertingSimId(null)); }} /> : null}
                             {est.id === "negociacao" ? <HoverBtn label="Criar proposta" cor="#FBBF24" onClick={() => setModalProposta(c)} /> : null}
                             {est.id === "proposta" ? <HoverBtn label="Solicitar reserva" cor="#A78BFA" onClick={() => setModalReserva(c)} /> : null}
                             {est.id === "reserva" ? <>{perms.canCompleteSale ? <HoverBtn label="Registrar venda" cor="#4ADE80" onClick={() => setModalVenda(c)} /> : null}{perms.canApproveReservation && c.reservaRequestId && (c.reservaRequestStatus === "pending" || c.reservaRequestStatus === "requested") ? <HoverBtn label="Aprovar" cor="#A78BFA" onClick={() => setModalAprovar(c)} /> : null}</> : null}
@@ -557,9 +557,9 @@ export default function KanbanPage() {
       );
     })()}
     <CriarPropostaModal open={!!modalProposta} card={modalProposta} onClose={() => setModalProposta(null)} onConfirm={async ({ entradaPct, parcelas }) => { if (!modalProposta) return; const v = modalProposta.valor ?? 0; const ev = Math.round(v * entradaPct / 100); const pv = parcelas > 0 ? Math.round((v - ev) / parcelas) : 0; await criarProposta({ negotiationId: modalProposta.id, unitId: modalProposta.unitId!, clientId: modalProposta.clienteId!, brokerId: modalProposta.corretorId, amount: v, entradaPercentual: entradaPct, entradaValor: ev, parcelasQuantidade: parcelas, parcelasValor: pv }); celebrate("Proposta criada", `${modalProposta.clienteNome || "Cliente"} — Q${modalProposta.quadra}·L${modalProposta.lote}`); }} />
-    <SolicitarReservaModal open={!!modalReserva} card={modalReserva} onClose={() => setModalReserva(null)} onConfirm={async () => { if (!modalReserva) return; await solicitarReserva({ negotiationId: modalReserva.id, unitId: modalReserva.unitId! }); celebrate("Reserva solicitada", `Aguardando aprovação — Q${modalReserva.quadra}·L${modalReserva.lote}`); }} />
-    <AprovarReservaModal open={!!modalAprovar} card={modalAprovar} onClose={() => setModalAprovar(null)} onConfirm={async () => { if (!modalAprovar) return; await aprovarReserva(modalAprovar.id, modalAprovar.unitId!, modalAprovar.reservaRequestId ?? undefined); celebrate("Reserva aprovada", `Unidade Q${modalAprovar.quadra}·L${modalAprovar.lote} reservada`); }} />
-    <RegistrarVendaModal open={!!modalVenda} card={modalVenda} onClose={() => setModalVenda(null)} onConfirm={async () => { if (!modalVenda) return; await registrarVenda({ negotiationId: modalVenda.id, unitId: modalVenda.unitId!, amount: modalVenda.valor ?? 0 }); celebrateSale("Venda registrada!", `${modalVenda.clienteNome || "Cliente"} — Q${modalVenda.quadra}·L${modalVenda.lote}`); }} />
+    <SolicitarReservaModal open={!!modalReserva} card={modalReserva} onClose={() => setModalReserva(null)} onConfirm={async () => { if (!modalReserva) return; try { await solicitarReserva({ negotiationId: modalReserva.id, unitId: modalReserva.unitId! }); celebrate("Reserva solicitada", `Aguardando aprovação — Q${modalReserva.quadra}·L${modalReserva.lote}`); setModalReserva(null); } catch (e) { console.error("[Kanban] solicitarReserva:", e); celebrateError("Falha ao solicitar reserva", e instanceof Error ? e.message : undefined); } }} />
+    <AprovarReservaModal open={!!modalAprovar} card={modalAprovar} onClose={() => setModalAprovar(null)} onConfirm={async () => { if (!modalAprovar) return; try { await aprovarReserva(modalAprovar.id, modalAprovar.unitId!, modalAprovar.reservaRequestId ?? undefined); celebrate("Reserva aprovada", `Unidade Q${modalAprovar.quadra}·L${modalAprovar.lote} reservada`); setModalAprovar(null); } catch (e) { console.error("[Kanban] aprovarReserva:", e); celebrateError("Falha ao aprovar reserva", e instanceof Error ? e.message : undefined); } }} />
+    <RegistrarVendaModal open={!!modalVenda} card={modalVenda} onClose={() => setModalVenda(null)} onConfirm={async () => { if (!modalVenda) return; try { await registrarVenda({ negotiationId: modalVenda.id, unitId: modalVenda.unitId!, amount: modalVenda.valor ?? 0 }); celebrateSale("Venda registrada!", `${modalVenda.clienteNome || "Cliente"} — Q${modalVenda.quadra}·L${modalVenda.lote}`); setModalVenda(null); } catch (e) { console.error("[Kanban] registrarVenda:", e); celebrateError("Falha ao registrar venda", e instanceof Error ? e.message : undefined); } }} />
 
     {/* Cancel negotiation modal */}
     <CancelNegotiationModal
@@ -568,7 +568,7 @@ export default function KanbanPage() {
       negotiation={{ id: cancelTarget?.id ?? "", clientName: cancelTarget?.clienteNome || "Cliente", unitLabel: `Q${cancelTarget?.quadra || "?"} · L${cancelTarget?.lote || "?"}`, value: cancelTarget?.valor ?? 0, brokerName: cancelTarget?.corretorNome || "—" }}
       hasActiveReservation={!!cancelTarget?.reservaStatus && !["cancelada", "expirada", "convertida", "cancelled", "expired", "converted"].includes(cancelTarget.reservaStatus)}
       hasActiveProposals={!!cancelTarget?.propostaStatus && !["REJECTED", "EXPIRED", "ACCEPTED", "rejected", "expired", "accepted"].includes(cancelTarget.propostaStatus)}
-      onConfirm={async (reason) => { if (!cancelTarget) return; await cancelarNegociacao({ negotiationId: cancelTarget.id, unitId: cancelTarget.unitId!, reason, currentStatus: cancelTarget.status }); celebrate("Negociação cancelada", `${cancelTarget.clienteNome || "Cliente"} — Q${cancelTarget.quadra}·L${cancelTarget.lote}`); setCancelTarget(null); }}
+      onConfirm={async (reason) => { if (!cancelTarget) return; try { await cancelarNegociacao({ negotiationId: cancelTarget.id, unitId: cancelTarget.unitId!, reason, currentStatus: cancelTarget.status }); celebrate("Negociação cancelada", `${cancelTarget.clienteNome || "Cliente"} — Q${cancelTarget.quadra}·L${cancelTarget.lote}`); setCancelTarget(null); } catch (e) { console.error("[Kanban] cancelarNegociacao:", e); celebrateError("Falha ao cancelar negociação", e instanceof Error ? e.message : undefined); } }}
     />
 
     {/* Simulation detail modal */}
@@ -609,7 +609,7 @@ export default function KanbanPage() {
               setConvertingSimId(simDetail.id);
               void converterSimulacao({ simulationId: simDetail.id, unitId: simDetail.unitId!, clientId: simDetail.clienteId, brokerId: simDetail.corretorId })
                 .then(() => { celebrate("Negociação iniciada!"); setSimDetail(null); })
-                .catch((e: unknown) => { alert(e instanceof Error ? e.message : "Erro"); })
+                .catch((e: unknown) => { console.error("[Kanban] converterSimulacao:", e); celebrateError("Falha ao iniciar negociação", e instanceof Error ? e.message : undefined); })
                 .finally(() => setConvertingSimId(null));
             }} style={{ padding: "12px", borderRadius: 8, border: "none", background: convertingSimId === simDetail.id ? "rgba(74,222,128,0.3)" : "#4ADE80", color: "var(--interactive-on-primary)", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
               {convertingSimId === simDetail.id ? "Criando..." : "Iniciar negociação"}
@@ -627,7 +627,7 @@ export default function KanbanPage() {
                 setSimDetail(null);
                 onActionSuccess();
               } catch (e: unknown) {
-                celebrate(e instanceof Error ? e.message : "Erro ao excluir");
+                console.error("[Kanban] excluir simulação:", e); celebrateError("Falha ao excluir", e instanceof Error ? e.message : undefined);
               } finally {
                 setDeletingSim(false);
               }
