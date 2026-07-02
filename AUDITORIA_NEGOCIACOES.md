@@ -110,7 +110,12 @@ Sem paginação (`NegotiationsPage.tsx:373`, renderiza todos os cards); busca/fi
 | 6 — Padronizar feedback de erro | ⏳ | |
 | 7 — Dinheiro fecha no centavo | ⏳ | |
 | 8 — Unificar permissões | ⏳ | |
-| 9 — Deploy a partir do git (fim do stash dance) | ✅ doc | `docs/governance/DEPLOY.md` — integração git validada; **falta confirmar Production Branch=main no dashboard (ação do usuário)** |
+| 9 — Deploy a partir do git (fim do stash dance) | ✅ | `docs/governance/DEPLOY.md`; **feat→main via fast-forward `19b3acb..14f0fb8`** (hashes preservados); push de `main` disparou deploy de produção **`source: git`** (`dpl_GD7b9iE...`), aliasado a `app.nexacomercial.com.br` → **Production Branch=main confirmado na prática**. WIP não entrou (git build ignora não-commitado). |
+
+**Pendências operacionais resolvidas (2026-07-02):**
+- **Branch alinhada:** `main` agora = `14f0fb8` (todo o trabalho validado, ff sem squash). Produção passou a sair do git. Live anterior era `dec6264`; o novo deploy é `dec6264` + Etapa 1 (refactor de status validado) — passo à frente, não regressão. WIP do importador segue não-commitado, fora do merge e do deploy.
+- **Edge functions M11 deployadas** no Supabase (`daily-briefing`, `intelligence-alerts`) via `supabase functions deploy ... --no-verify-jwt` — subidas do arquivo commitado em disco, correspondem ao código de `main`.
+- **Plano da org = FREE** (confirmado via API; não Pro). Sem backup diário/PITR → dump manual feito antes do DDL da Etapa 2 (`supabase/backups/`). Doc de contexto `.claude/agents/nexa-diagnostico.md` reforçado. Upgrade fica com o Rubiam.
 
 **De-para (Etapa 2):** dados já 100% canônicos após a Fase 2 → **nenhuma normalização** foi necessária. CHECKs aplicados (migrations `20260702120000`/`120100`, ADD NOT VALID + VALIDATE) e provados que mordem nas 5 tabelas (proposals/reservations/reservation_requests/sales/pipeline_simulations). Backup lógico pré-DDL em `supabase/backups/20260702_module_tables_pre_etapa2.json`.
 

@@ -17,7 +17,7 @@ Para erro de tela ligado ao Supabase, siga rigorosamente:
 4. A policy/RLS não está bloqueando a leitura/escrita real?
 5. SÓ DEPOIS olhar componente/hook.
 
-Nunca assuma que o erro é de frontend antes de validar banco, dados e policies. O Supabase está no plano Free e pausa após ~7 dias de inatividade — se houver erro de login/conexão, o PRIMEIRO passo é checar o status do projeto (status INACTIVE/PAUSED não é bug de código).
+Nunca assuma que o erro é de frontend antes de validar banco, dados e policies. O Supabase está no plano Free (confirmado via API em 2026-07-02: org `qxitjlpazviroqyxpymz` = free) e pausa após ~7 dias de inatividade — se houver erro de login/conexão, o PRIMEIRO passo é checar o status do projeto (status INACTIVE/PAUSED não é bug de código). O plano Free **não tem backup automático diário nem PITR** — qualquer DDL/normalização de dados exige **dump manual antes** (ver `supabase/backups/`). Upgrade para Pro (habilita backup/PITR) é decisão do Rubiam.
 
 Use o Supabase MCP para inspecionar schema, dados, migrations, advisors e RLS. Use Read/Grep/Glob para ler o código real (domain/infra/modules). Confirme antes de afirmar.
 
