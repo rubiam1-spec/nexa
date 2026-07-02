@@ -1,27 +1,12 @@
 import { ProposalStatus, type ProposalStatus as ProposalStatusType } from "../../domain/proposta/ProposalStatus";
+import { ProposalDbStatus, ProposalStatusFromDb } from "../../domain/status/proposal";
 import type { Proposal } from "../../shared/types/proposal";
 import { getSupabaseClientOrThrow, unwrapSupabaseListResult } from "./baseRepository";
 import { getSimulationById } from "./pipelineSimulationsSupabaseRepository";
 
-const dbStatusToEnum: Record<string, ProposalStatusType> = {
-  draft: ProposalStatus.DRAFT,
-  sent: ProposalStatus.SENT,
-  under_analysis: ProposalStatus.UNDER_ANALYSIS,
-  accepted: ProposalStatus.ACCEPTED,
-  rejected: ProposalStatus.REJECTED,
-  expired: ProposalStatus.EXPIRED,
-  counter_proposal: ProposalStatus.COUNTER_PROPOSAL,
-};
-
-const enumToDbStatus: Record<ProposalStatusType, string> = {
-  [ProposalStatus.DRAFT]: "draft",
-  [ProposalStatus.SENT]: "sent",
-  [ProposalStatus.UNDER_ANALYSIS]: "under_analysis",
-  [ProposalStatus.ACCEPTED]: "accepted",
-  [ProposalStatus.REJECTED]: "rejected",
-  [ProposalStatus.EXPIRED]: "expired",
-  [ProposalStatus.COUNTER_PROPOSAL]: "counter_proposal",
-};
+// Vocabulário de status centralizado em src/domain/status/proposal.ts (Fase 3 — Etapa 1).
+const dbStatusToEnum = ProposalStatusFromDb;
+const enumToDbStatus = ProposalDbStatus;
 
 const validStatuses = new Set<string>(Object.values(ProposalStatus));
 

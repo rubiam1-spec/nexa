@@ -14,11 +14,13 @@ function makeNeg(status: Negotiation["status"]): Negotiation {
 }
 
 describe("NegotiationStatus — constantes", () => {
-  it("define 5 estados", () => {
+  it("define os 7 estados canônicos (alinhado ao CHECK do banco)", () => {
     const values = Object.values(NegotiationStatus);
-    expect(values).toHaveLength(5);
+    expect(values).toHaveLength(7);
     expect(values).toContain("OPEN");
     expect(values).toContain("IN_PROGRESS");
+    expect(values).toContain("PROPOSAL");
+    expect(values).toContain("RESERVATION");
     expect(values).toContain("WON");
     expect(values).toContain("LOST");
     expect(values).toContain("CANCELLED");

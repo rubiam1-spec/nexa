@@ -2,28 +2,13 @@ import {
   ReservationStatus,
   type ReservationStatus as ReservationStatusType,
 } from "../../domain/reserva/ReservationStatus";
+import { ReservationDbStatus, ReservationStatusFromDb } from "../../domain/status/reservation";
 import type { Reservation } from "../../shared/types/reservation";
 import { getSupabaseClientOrThrow, unwrapSupabaseListResult } from "./baseRepository";
 
-const dbStatusToEnum: Record<string, ReservationStatusType> = {
-  requested: ReservationStatus.REQUESTED,
-  approved: ReservationStatus.APPROVED,
-  rejected: ReservationStatus.REJECTED,
-  active: ReservationStatus.ACTIVE,
-  cancelled: ReservationStatus.CANCELLED,
-  expired: ReservationStatus.EXPIRED,
-  converted: ReservationStatus.CONVERTED,
-};
-
-const enumToDbStatus: Record<ReservationStatusType, string> = {
-  [ReservationStatus.REQUESTED]: "requested",
-  [ReservationStatus.APPROVED]: "approved",
-  [ReservationStatus.REJECTED]: "rejected",
-  [ReservationStatus.ACTIVE]: "active",
-  [ReservationStatus.CANCELLED]: "cancelled",
-  [ReservationStatus.EXPIRED]: "expired",
-  [ReservationStatus.CONVERTED]: "converted",
-};
+// Vocabulário de status centralizado em src/domain/status/reservation.ts (Fase 3 — Etapa 1).
+const dbStatusToEnum = ReservationStatusFromDb;
+const enumToDbStatus = ReservationDbStatus;
 
 const validStatuses = new Set<string>(Object.values(ReservationStatus));
 
