@@ -99,6 +99,21 @@ Sem paginação (`NegotiationsPage.tsx:373`, renderiza todos os cards); busca/fi
 
 ---
 
+## Fase 3 — Endurecimento estrutural (rastreio)
+| Etapa | Status | Commit |
+|---|---|---|
+| 1 — Fonte única de vocabulário (src/domain/status/) | ✅ | `f081a4a` |
+| 2 — Normalizar dados legados + CHECK constraints | ⏳ | |
+| 3 — Remover tolerância de leitura | ⏳ | |
+| 4 — Teste de contrato enum × banco (check:contracts) | ⏳ | |
+| 5 — Fechar funil de escrita (tudo via repositório) | ⏳ | |
+| 6 — Padronizar feedback de erro | ⏳ | |
+| 7 — Dinheiro fecha no centavo | ⏳ | |
+| 8 — Unificar permissões | ⏳ | |
+| 9 — Deploy a partir do git (fim do stash dance) | ⏳ | |
+
+**De-para legado a normalizar (Etapa 2):** `unit_queue_entries` tem 1 registro `"waiting"` (canônico repo = lowercase; ver src/domain/status/unitQueue.ts). Demais tabelas: dados já no canônico após a Fase 2 (proposals=under_analysis, reservations=active, reservation_requests=approved, pipeline_simulations=ativa/convertida, negotiations=IN_PROGRESS).
+
 ## Notas de escopo
 - `src/services/negotiationImport/*` e componentes `*Import*` são **WIP não-commitado, fora de produção** — não auditados a fundo.
 - Kanban de negociações **não tem drag-and-drop** (avança por botões/modais); itens do prompt sobre DnD/rollback não se aplicam ao design atual.
