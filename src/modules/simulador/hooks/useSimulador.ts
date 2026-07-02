@@ -184,6 +184,13 @@ export function useSimulador(settings: SimuladorSettings | null, valorUnidade: n
       parcelaValorEfetivo = numeroParcelas > 0 ? saldoFinanciar / numeroParcelas : 0;
     }
 
+    // Arredonda a parcela a centavos; o resíduo vai na última parcela, para que
+    // (nº−1) × parcela + última feche exatamente o saldo financiado.
+    parcelaValorEfetivo = Math.round(parcelaValorEfetivo * 100) / 100;
+    const parcelaValorUltima = numeroParcelas > 0
+      ? Math.round((saldoFinanciar - parcelaValorEfetivo * (numeroParcelas - 1)) * 100) / 100
+      : 0;
+
     const entradaParceladaValor = entradaParcelada && entradaParceladaVezes > 0
       ? entradaValorEfetivo / entradaParceladaVezes : 0;
     const comissaoValor = (valorNegociado * s.comissaoCorretorPct) / 100;
@@ -191,7 +198,7 @@ export function useSimulador(settings: SimuladorSettings | null, valorUnidade: n
     // ── Consistency check ──
     const totalComposicao = entradaValorEfetivo + saldoFinanciar + totalPermuta + totalBalaosEfetivo;
     const diferenca = Math.abs(totalComposicao - valorNegociado);
-    const somaConsistente = diferenca < 1;
+    const somaConsistente = diferenca < 0.01;
 
     // ── Validations ──
     const entradaAbaixoMinimo = entradaPctEfetivo > 0 && entradaPctEfetivo < s.entradaMinimaPct;
@@ -226,6 +233,7 @@ export function useSimulador(settings: SimuladorSettings | null, valorUnidade: n
       saldoAVista,
       aVista,
       parcelaValor: parcelaValorEfetivo,
+      parcelaValorUltima,
       totalBalaos: totalBalaosEfetivo,
       balaoValorEfetivo,
       totalPermuta, comissaoValor,
