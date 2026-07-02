@@ -40,6 +40,10 @@ function fmtV(v: number) { return v >= 1e6 ? `R$ ${(v / 1e6).toFixed(1)}M` : v >
 function fmtBRL(v: number | null) { return v ? v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }) : "—"; }
 function dRel(d: string) { return timeAgo(d); }
 
+// Dispositivos sem hover (touch/tablet) não disparam onMouseEnter — as ações do
+// card ficariam inacessíveis. Detecta pointer grosso p/ exibi-las sempre nesses casos.
+const CAN_HOVER = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(hover: hover)").matches;
+
 function getEstagio(c: KanbanCard): EstagioId {
   if (c.isSimulacao) return "simulacao";
   const s = (c.status || "").toUpperCase();
@@ -295,7 +299,7 @@ export default function KanbanPage() {
               const active = mobileTab === est.id;
               return (
                 <button key={est.id} type="button" onClick={() => setMobileTab(est.id)} style={{
-                  flexShrink: 0, padding: "5px 14px", borderRadius: 16, fontSize: 11, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", minHeight: 36,
+                  flexShrink: 0, padding: "5px 14px", borderRadius: 16, fontSize: 11, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", minHeight: 44,
                   border: active ? `1px solid ${est.cor}30` : "1px solid rgba(61,58,48,0.2)",
                   background: active ? `${est.cor}10` : "transparent",
                   color: active ? est.cor : "#5C5647",
@@ -492,7 +496,7 @@ export default function KanbanPage() {
                           <div style={{ fontSize: 11, color: "#F87171", marginTop: 6, paddingTop: 6, borderTop: "1px solid rgba(61,58,48,0.06)" }}>Motivo: {c.lostReason}</div>
                         )}
                         {/* Hover actions */}
-                        {(isHovered || isMobile) && est.id !== "perdido" ? (
+                        {(isHovered || isMobile || !CAN_HOVER) && est.id !== "perdido" ? (
                           <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(61,58,48,0.06)" }} onClick={(e) => e.stopPropagation()}>
                             {est.id === "simulacao" && c.isSimulacao ? <HoverBtn label={convertingSimId === c.id ? "Criando..." : "Iniciar negociação"} cor="#4ADE80" onClick={() => { if (convertingSimId) return; setConvertingSimId(c.id); void converterSimulacao({ simulationId: c.id, unitId: c.unitId!, clientId: c.clienteId, brokerId: c.corretorId }).then(() => celebrate("Negociação iniciada!")).catch((e: unknown) => { console.error("[Kanban] converterSimulacao:", e); celebrateError("Falha ao iniciar negociação", e instanceof Error ? e.message : undefined); }).finally(() => setConvertingSimId(null)); }} /> : null}
                             {est.id === "negociacao" ? <HoverBtn label="Criar proposta" cor="#FBBF24" onClick={() => setModalProposta(c)} /> : null}
@@ -701,5 +705,5 @@ function SimDrawer({ open, unidade, onClose, onCriarProposta }: { open: boolean;
 }
 
 function HoverBtn({ label, cor, onClick }: { label: string; cor: string; onClick: () => void }) {
-  return <button type="button" onClick={(e) => { e.stopPropagation(); onClick(); }} style={{ fontSize: 11, padding: "4px 9px", borderRadius: 6, border: `1px solid ${cor}40`, background: `${cor}15`, color: cor, cursor: "pointer", whiteSpace: "nowrap" }}>{label}</button>;
+  return <button type="button" onClick={(e) => { e.stopPropagation(); onClick(); }} style={{ fontSize: 12, padding: "9px 12px", minHeight: 40, borderRadius: 6, border: `1px solid ${cor}40`, background: `${cor}15`, color: cor, cursor: "pointer", whiteSpace: "nowrap" }}>{label}</button>;
 }
