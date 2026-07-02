@@ -67,7 +67,7 @@ serve(async (req) => {
 
       const metrics = {
         new_negotiations: await countQuery("negotiations", { gte: yesterday.toISOString() }),
-        active_negotiations: await countQuery("negotiations", { status_in: ["OPEN", "IN_PROGRESS", "open", "in_progress"] }),
+        active_negotiations: await countQuery("negotiations", { status_in: ["OPEN", "IN_PROGRESS", "PROPOSAL", "RESERVATION"] }),
         new_proposals: await countQuery("proposals", { gte: yesterday.toISOString() }),
         active_reservations: await countQuery("reservations", { status_in: ["ATIVA", "ativa", "active"] }),
         new_clients: await countQuery("clients", { gte: yesterday.toISOString() }),
@@ -84,7 +84,7 @@ serve(async (req) => {
       const { count: availableUnits } = await supabase
         .from("units").select("*", { count: "exact", head: true })
         .eq("account_id", accId)
-        .in("status", ["AVAILABLE", "DISPONIVEL", "disponivel"]);
+        .in("status", ["available", "AVAILABLE", "DISPONIVEL", "disponivel"]);
 
       // Pending activities
       const { count: pendingActivities } = await supabase

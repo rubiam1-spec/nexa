@@ -64,7 +64,7 @@ serve(async (req) => {
         .from("negotiations")
         .select("id, status, updated_at, client_id, broker_id, clients(name), brokers(name)")
         .eq("account_id", accId)
-        .in("status", ["OPEN", "IN_PROGRESS", "open", "in_progress"])
+        .in("status", ["OPEN", "IN_PROGRESS", "PROPOSAL", "RESERVATION"])
         .lt("updated_at", idleCutoff)
         .limit(20);
 
