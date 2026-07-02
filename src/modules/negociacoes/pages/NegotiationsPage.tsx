@@ -105,6 +105,8 @@ export default function NegotiationsPage() {
   const [selectedBrokerId, setSelectedBrokerId] = useState("");
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
   const firstInputRef = useRef<HTMLSelectElement>(null);
 
   // Quick client creation
@@ -150,9 +152,8 @@ export default function NegotiationsPage() {
       setSelectedClientId("");
       setSelectedBrokerId("");
       setErrorMsg(null);
-      setSuccessMsg("Salvo com sucesso");
-      // Criar negociação leva para a ficha da negociação criada (não p/ o pipeline).
-      navigateToSimulador(`/negociacoes/${result.id}`);
+      // Criar negociação leva para a ficha, que exibe o toast de confirmação.
+      navigateToSimulador(`/negociacoes/${result.id}`, { state: { justCreated: true } });
     } else {
       // Erro completo já vai ao console pelo hook; aqui, toast legível em PT.
       setSuccessMsg(null);
@@ -305,6 +306,13 @@ export default function NegotiationsPage() {
         </div>
       ) : null}
 
+      {/* Busca — disponível a todos os perfis */}
+      {negotiations.length > 0 ? (
+        <div style={{ marginBottom: 12 }}>
+          <input value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} placeholder="Buscar por cliente, unidade ou corretor..." style={{ width: "100%", maxWidth: 420, background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 8, padding: "10px 14px", color: "var(--text-primary)", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+        </div>
+      ) : null}
+
       {/* Filters */}
       {canFilter && negotiations.length > 0 ? (
         <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
@@ -365,12 +373,24 @@ export default function NegotiationsPage() {
         let filtered = negotiations;
         if (filterBroker !== "all") filtered = filtered.filter((n) => n.brokerId === filterBroker);
         if (filterStatus !== "all") filtered = filtered.filter((n) => n.status === filterStatus);
+        const q = search.trim().toLowerCase();
+        if (q) filtered = filtered.filter((n) => {
+          const u = unitsById.get(n.unitId);
+          const c = n.clientId ? clientsById.get(n.clientId) : null;
+          const b = n.brokerId ? brokersById.get(n.brokerId) : null;
+          const unitLabel = u ? `q${u.quadra} l${u.lote} ${u.quadra}${u.lote}` : "";
+          return (c?.name ?? "").toLowerCase().includes(q) || (b?.name ?? "").toLowerCase().includes(q) || unitLabel.toLowerCase().includes(q);
+        });
         if (sortBy === "score") filtered = [...filtered].sort((a, b) => (b.score ?? 50) - (a.score ?? 50));
+        const PAGE_SIZE = 25;
+        const pageCount = Math.ceil((filtered?.length ?? 0) / PAGE_SIZE);
+        const safePage = Math.min(page, Math.max(0, pageCount - 1));
         return !filtered || filtered.length === 0 ? (
           <EmptyState icone={"\u2197"} titulo="Nenhuma negociação ainda" descricao="Comece simulando uma condição comercial para um cliente e envie para o pipeline." ctaLabel="Abrir Simulador" onCta={() => navigateToSimulador("/simulador")} />
         ) : (
+          <>
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {filtered.map((negotiation) => {
+            {filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE).map((negotiation) => {
               const unit = unitsById.get(negotiation.unitId);
               const cl = negotiation.clientId ? clientsById.get(negotiation.clientId) : null;
               const br = negotiation.brokerId ? brokersById.get(negotiation.brokerId) : null;
@@ -451,6 +471,14 @@ export default function NegotiationsPage() {
               );
             })}
           </div>
+          {pageCount > 1 ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginTop: 16 }}>
+              <button type="button" disabled={safePage <= 0} onClick={() => setPage(safePage - 1)} style={{ ...btnSecondary, height: 36, opacity: safePage <= 0 ? 0.4 : 1 }}>Anterior</button>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--text-muted)" }}>Página {safePage + 1} de {pageCount} · {filtered.length} negociações</span>
+              <button type="button" disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)} style={{ ...btnSecondary, height: 36, opacity: safePage >= pageCount - 1 ? 0.4 : 1 }}>Próxima</button>
+            </div>
+          ) : null}
+          </>
         );
       })()}
 

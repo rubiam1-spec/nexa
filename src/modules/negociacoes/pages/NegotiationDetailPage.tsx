@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo, useReducer } from "react";
 import { createPortal } from "react-dom";
-import { Link, useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useParams, useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { useIsMobile } from "../../../shared/hooks/useIsMobile";
 import { supabase } from "../../../infra/supabase/supabaseClient";
 import { canPerformAction, PermissionAction } from "../../../app/authorization/permissions";
@@ -91,6 +91,15 @@ function formatRelativeDate(iso: string): string {
 export default function NegotiationDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Toast de confirmação quando chega da criação (flag passada via navigate state).
+  const [showCreatedToast, setShowCreatedToast] = useState(Boolean((location.state as { justCreated?: boolean } | null)?.justCreated));
+  useEffect(() => {
+    if (!showCreatedToast) return;
+    window.history.replaceState({}, ""); // evita reaparecer no refresh/voltar
+    const t = setTimeout(() => setShowCreatedToast(false), 3500);
+    return () => clearTimeout(t);
+  }, [showCreatedToast]);
   const isMobile = useIsMobile();
   const { authenticatedProfile } = useAuth();
   const {
@@ -868,6 +877,11 @@ export default function NegotiationDetailPage() {
 
   return (
     <div>
+      {showCreatedToast ? (
+        <div style={{ position: "fixed", top: 24, right: 24, zIndex: 10000, background: "var(--surface-raised)", border: "1px solid rgba(74,222,128,0.4)", borderRadius: 12, padding: "12px 18px", boxShadow: "0 0 24px rgba(74,222,128,0.15)", display: "flex", alignItems: "center", gap: 10, color: "#4ADE80", fontSize: 14, fontWeight: 700 }}>
+          <span>✓</span> Salvo com sucesso
+        </div>
+      ) : null}
       {/* Breadcrumb + Header */}
       <div style={{ marginBottom: 24 }}>
         <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "#5C5647", marginBottom: 14, display: "flex", alignItems: "center", gap: 6 }}>
