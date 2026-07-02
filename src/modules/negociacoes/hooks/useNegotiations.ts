@@ -313,6 +313,8 @@ export function useNegotiations(
       setStatus("ready");
       return persistedNegotiation;
     } catch (error) {
+      // Loga o erro completo (mensagem do Postgres/constraint) para diagnóstico.
+      console.error("[useNegotiations] Falha ao criar negociação:", error);
       setErrorMessage(
         error instanceof Error
           ? error.message

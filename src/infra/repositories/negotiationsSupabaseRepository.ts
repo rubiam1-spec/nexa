@@ -15,16 +15,17 @@ const dbStatusToEnum: Record<string, NegotiationStatusType> = {
   cancelled: NegotiationStatus.CANCELLED,
 };
 
+// O CHECK negotiations_status_check exige os valores canônicos em UPPERCASE
+// (idênticos ao enum de domínio). O mapa de escrita é identidade — nunca gravar
+// lowercase, senão a constraint é violada no insert/update.
 const enumToDbStatus: Record<NegotiationStatusType, string> = {
-  [NegotiationStatus.OPEN]: "open",
-  [NegotiationStatus.IN_PROGRESS]: "in_progress",
-  // PROPOSAL/RESERVATION são produzidos pela importação e gravados em UPPERCASE
-  // (compatível com o CHECK negotiations_status_check).
+  [NegotiationStatus.OPEN]: "OPEN",
+  [NegotiationStatus.IN_PROGRESS]: "IN_PROGRESS",
   [NegotiationStatus.PROPOSAL]: "PROPOSAL",
   [NegotiationStatus.RESERVATION]: "RESERVATION",
-  [NegotiationStatus.WON]: "won",
-  [NegotiationStatus.LOST]: "lost",
-  [NegotiationStatus.CANCELLED]: "cancelled",
+  [NegotiationStatus.WON]: "WON",
+  [NegotiationStatus.LOST]: "LOST",
+  [NegotiationStatus.CANCELLED]: "CANCELLED",
 };
 
 const validStatuses = new Set<string>(Object.values(NegotiationStatus));

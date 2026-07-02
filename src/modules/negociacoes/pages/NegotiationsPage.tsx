@@ -104,6 +104,7 @@ export default function NegotiationsPage() {
   const [selectedClientId, setSelectedClientId] = useState("");
   const [selectedBrokerId, setSelectedBrokerId] = useState("");
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const firstInputRef = useRef<HTMLSelectElement>(null);
 
   // Quick client creation
@@ -148,8 +149,14 @@ export default function NegotiationsPage() {
       setSelectedUnitId("");
       setSelectedClientId("");
       setSelectedBrokerId("");
-      setSuccessMsg("Negociação criada com sucesso!");
-      setTimeout(() => navigateToSimulador("/pipeline"), 1500);
+      setErrorMsg(null);
+      setSuccessMsg("Salvo com sucesso");
+      // Criar negociação leva para a ficha da negociação criada (não p/ o pipeline).
+      navigateToSimulador(`/negociacoes/${result.id}`);
+    } else {
+      // Erro completo já vai ao console pelo hook; aqui, toast legível em PT.
+      setSuccessMsg(null);
+      setErrorMsg("Não foi possível criar a negociação. Verifique os dados e tente novamente.");
     }
   }
 
@@ -242,6 +249,12 @@ export default function NegotiationsPage() {
       {successMsg ? (
         <div style={{ background: "var(--color-sprout-muted)", border: "1px solid var(--color-sprout)", borderRadius: 8, padding: "10px 16px", marginBottom: 16, fontSize: 13, color: "var(--color-sprout)", display: "flex", alignItems: "center", gap: 8 }}>
           <span>&#10003;</span> {successMsg}
+        </div>
+      ) : null}
+
+      {errorMsg ? (
+        <div style={{ background: "rgba(248,113,113,0.12)", border: "1px solid var(--color-red)", borderRadius: 8, padding: "10px 16px", marginBottom: 16, fontSize: 13, color: "var(--color-red)", display: "flex", alignItems: "center", gap: 8 }}>
+          <span>&#9888;</span> {errorMsg}
         </div>
       ) : null}
 
