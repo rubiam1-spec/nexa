@@ -185,7 +185,7 @@ export function usePipelineActions(accountId: string | null, developmentId: stri
     if (input.thirdPartyPropertyId) { payload.third_party_property_id = input.thirdPartyPropertyId; payload.development_id = null; }
     const { error: nErr } = await supabase.from("negotiations").insert(payload);
     if (nErr) throw nErr;
-    await supabase.from("pipeline_simulations").update({ status: "converted" }).eq("id", input.simulationId);
+    await supabase.from("pipeline_simulations").update({ status: "convertida" }).eq("id", input.simulationId);
     // Sync third-party property status → em_negociacao
     if (input.thirdPartyPropertyId) {
       supabase.from("third_party_properties").update({ status: "em_negociacao", updated_at: new Date().toISOString() }).eq("id", input.thirdPartyPropertyId).then(() => {}, () => {});
@@ -202,11 +202,11 @@ export function usePipelineActions(accountId: string | null, developmentId: stri
         .select("id")
         .eq("unit_id", unitId)
         .eq("account_id", accountId)
-        .eq("status", "waiting")
+        .eq("status", "ACTIVE")
         .order("position", { ascending: true })
         .limit(1);
       if (queueEntries && queueEntries.length > 0) {
-        await supabase.from("unit_queue_entries").update({ status: "promoted", promoted_at: new Date().toISOString() }).eq("id", queueEntries[0].id);
+        await supabase.from("unit_queue_entries").update({ status: "PROMOTED", promoted_at: new Date().toISOString() }).eq("id", queueEntries[0].id);
       }
     } catch (queueErr) {
       console.error("[QUEUE] Erro ao promover:", queueErr);
