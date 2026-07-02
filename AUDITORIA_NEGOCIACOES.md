@@ -103,7 +103,7 @@ Sem paginação (`NegotiationsPage.tsx:373`, renderiza todos os cards); busca/fi
 | Etapa | Status | Commit |
 |---|---|---|
 | 1 — Fonte única de vocabulário (src/domain/status/) | ✅ | `f081a4a` |
-| 2 — Normalizar dados legados + CHECK constraints | ⏳ | |
+| 2 — CHECK constraints de status (dados já canônicos, sem normalização) | ✅ | `7c8063c` |
 | 3 — Remover tolerância de leitura | ⏳ | |
 | 4 — Teste de contrato enum × banco (check:contracts) | ⏳ | |
 | 5 — Fechar funil de escrita (tudo via repositório) | ⏳ | |
@@ -112,7 +112,12 @@ Sem paginação (`NegotiationsPage.tsx:373`, renderiza todos os cards); busca/fi
 | 8 — Unificar permissões | ⏳ | |
 | 9 — Deploy a partir do git (fim do stash dance) | ⏳ | |
 
-**De-para legado a normalizar (Etapa 2):** `unit_queue_entries` tem 1 registro `"waiting"` (canônico repo = lowercase; ver src/domain/status/unitQueue.ts). Demais tabelas: dados já no canônico após a Fase 2 (proposals=under_analysis, reservations=active, reservation_requests=approved, pipeline_simulations=ativa/convertida, negotiations=IN_PROGRESS).
+**De-para (Etapa 2):** dados já 100% canônicos após a Fase 2 → **nenhuma normalização** foi necessária. CHECKs aplicados (migrations `20260702120000`/`120100`, ADD NOT VALID + VALIDATE) e provados que mordem nas 5 tabelas (proposals/reservations/reservation_requests/sales/pipeline_simulations). Backup lógico pré-DDL em `supabase/backups/20260702_module_tables_pre_etapa2.json`.
+
+**Decisões/pendências registradas na Etapa 2:**
+- **Vocabulário PT em `pipeline_simulations`** (`ativa/convertida/expirada/cancelada`): decisão consciente — o CHECK reflete o vocabulário PT já existente no banco. Unificar para EN (como as demais tabelas) é **limpeza futura opcional** e deve ser feita **isolada** (migration própria de rename + backfill + atualização de src/domain/status/pipelineSimulation.ts), **nunca embutida** em outra mudança.
+- **`unit_queue_entries` — CHECK ADIADO para a Etapa 5.** Motivo: o fix M1 (`usePipelineActions.promoteQueueFirst`) grava em UPPER (`ACTIVE`/`PROMOTED`) enquanto o dado/canônico são lowercase (`waiting`), e há ambiguidade semântica `WAITING` vs `ACTIVE`. Rotear a escrita pelo repositório (Etapa 5) normaliza o case; só então adicionar o CHECK, senão o próprio código geraria violação.
+- **Item de ação — importador/`sales`:** a escrita principal de `sales` virá do **importador (WIP)**. Ele **DEVE** derivar o status de `src/domain/status/sale.ts` (`SaleStatus`/`SaleDbStatus`). Se gravar literal fora de `{created, awaiting_documents, awaiting_contract, awaiting_payment, completed, cancelled}`, nascerá violando `sales_status_check`. Nota replicada como comentário na migration `20260702120000`. **Aplicar quando o WIP do importador aterrissar.**
 
 ## Notas de escopo
 - `src/services/negotiationImport/*` e componentes `*Import*` são **WIP não-commitado, fora de produção** — não auditados a fundo.
