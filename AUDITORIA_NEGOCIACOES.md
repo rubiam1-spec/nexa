@@ -110,7 +110,7 @@ Sem paginação (`NegotiationsPage.tsx:373`, renderiza todos os cards); busca/fi
 | 6 — Padronizar feedback de erro | ⏳ | |
 | 7 — Dinheiro fecha no centavo | ⏳ | |
 | 8 — Unificar permissões | ⏳ | |
-| 9 — Deploy a partir do git (fim do stash dance) | ⏳ | |
+| 9 — Deploy a partir do git (fim do stash dance) | ✅ doc | `docs/governance/DEPLOY.md` — integração git validada; **falta confirmar Production Branch=main no dashboard (ação do usuário)** |
 
 **De-para (Etapa 2):** dados já 100% canônicos após a Fase 2 → **nenhuma normalização** foi necessária. CHECKs aplicados (migrations `20260702120000`/`120100`, ADD NOT VALID + VALIDATE) e provados que mordem nas 5 tabelas (proposals/reservations/reservation_requests/sales/pipeline_simulations). Backup lógico pré-DDL em `supabase/backups/20260702_module_tables_pre_etapa2.json`.
 
