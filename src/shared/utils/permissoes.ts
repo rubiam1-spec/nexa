@@ -16,7 +16,7 @@ export function podeVerTodasNegociacoes(role: string | null): boolean {
 }
 
 export function podeAprovarReserva(role: string | null): boolean {
-  return is(role, MANAGER_ROLES);
+  return is(role, [...MANAGER_ROLES, "administrative"]);
 }
 
 export function podeAcessarConfiguracoes(role: string | null): boolean {
@@ -62,8 +62,8 @@ export function getPermissions(role: string | null) {
     canCreateProposal: is(r, [...MANAGER_ROLES, "commercial_consultant", "broker"]),
     canRequestReservation: is(r, [...MANAGER_ROLES, "commercial_consultant", "broker"]),
 
-    // Ações críticas
-    canApproveReservation: is(r, MANAGER_ROLES),
+    // Ações críticas (administrative pode aprovar reserva — alinhado com a ficha)
+    canApproveReservation: is(r, [...MANAGER_ROLES, "administrative"]),
     canCancelReservation: is(r, MANAGER_ROLES),
     canCompleteSale: is(r, MANAGER_ROLES),
     canCancelSale: is(r, MANAGER_ROLES),

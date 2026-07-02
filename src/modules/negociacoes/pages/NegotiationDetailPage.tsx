@@ -18,6 +18,7 @@ import { getNegotiationStatusLabel } from "../../../domain/negociacao/Negotiatio
 import NexaBadge from "../../../shared/components/NexaBadge";
 import { SaleService } from "../../../domain/venda/SaleService";
 import { getSaleStatusLabel } from "../../../domain/venda/SaleStatusLabel";
+import { SaleStatus } from "../../../domain/venda/SaleStatus";
 import { createClient, getClientWithSpouse } from "../../../infra/repositories/clientsSupabaseRepository";
 import { addParty as addPartyRepo } from "../../../infra/repositories/negotiationPartiesSupabaseRepository";
 import { formatPhone } from "../../../shared/utils/masks";
@@ -192,6 +193,7 @@ export default function NegotiationDetailPage() {
       prependSale,
       sales,
       status: salesStatus,
+      documentsGate,
     },
     broker,
     client,
@@ -915,9 +917,9 @@ export default function NegotiationDetailPage() {
                 {showBrokerSelect && (
                   <div style={{ position: "absolute", top: "100%", right: 0, zIndex: 50, marginTop: 4, background: "var(--surface-raised, #1C1B18)", border: "1px solid var(--border-default)", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", minWidth: 220, maxHeight: 240, overflowY: "auto", padding: "4px 0" }}>
                     <div style={{ padding: "6px 12px", fontSize: 10, color: "#5C5647", fontFamily: "var(--font-mono)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Selecionar corretor</div>
-                    <div onClick={async () => { if (!supabase || !id || actionSaving) return; setActionSaving(true); try { await supabase.from("negotiations").update({ broker_id: null }).eq("id", id); setShowBrokerSelect(false); replaceNegotiation({ ...negotiation, brokerId: null }); } catch { /* ignore */ } finally { setActionSaving(false); } }} style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, color: "#5C5647", fontStyle: "italic", borderBottom: "1px solid rgba(61,58,48,0.1)" }}>— Nenhum</div>
+                    <div onClick={async () => { if (!supabase || !id || actionSaving) return; setActionSaving(true); try { await supabase.from("negotiations").update({ broker_id: null }).eq("id", id); setShowBrokerSelect(false); replaceNegotiation({ ...negotiation, brokerId: null }); } catch (e) { console.error("[Ficha] trocar corretor:", e); } finally { setActionSaving(false); } }} style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, color: "#5C5647", fontStyle: "italic", borderBottom: "1px solid rgba(61,58,48,0.1)" }}>— Nenhum</div>
                     {brokersList.map((b) => (
-                      <div key={b.id} onClick={async () => { if (!supabase || !id || actionSaving) return; setActionSaving(true); try { await supabase.from("negotiations").update({ broker_id: b.id }).eq("id", id); setShowBrokerSelect(false); replaceNegotiation({ ...negotiation, brokerId: b.id }); } catch { /* ignore */ } finally { setActionSaving(false); } }} style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, color: "#C4BFB3", borderBottom: "1px solid rgba(61,58,48,0.06)" }} onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(74,222,128,0.04)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>{b.name}{broker?.id === b.id ? <span style={{ fontSize: 10, color: "#4ADE80", marginLeft: 8 }}>atual</span> : null}</div>
+                      <div key={b.id} onClick={async () => { if (!supabase || !id || actionSaving) return; setActionSaving(true); try { await supabase.from("negotiations").update({ broker_id: b.id }).eq("id", id); setShowBrokerSelect(false); replaceNegotiation({ ...negotiation, brokerId: b.id }); } catch (e) { console.error("[Ficha] trocar corretor:", e); } finally { setActionSaving(false); } }} style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, color: "#C4BFB3", borderBottom: "1px solid rgba(61,58,48,0.06)" }} onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(74,222,128,0.04)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>{b.name}{broker?.id === b.id ? <span style={{ fontSize: 10, color: "#4ADE80", marginLeft: 8 }}>atual</span> : null}</div>
                     ))}
                   </div>
                 )}
@@ -1676,11 +1678,33 @@ export default function NegotiationDetailPage() {
                   <span className="nexa-badge" style={{ color: "var(--color-fog)", background: "rgba(156,150,134,0.12)" }}>{getSaleStatusLabel(sale.status)}</span>
                 </div>
                 <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-slate)" }}>{formatDateTimeBRT(sale.createdAt)}</div>
+                {sale.status === SaleStatus.AWAITING_DOCUMENTS && documentsGate ? (
+                  <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 6, background: documentsGate.complete ? "rgba(74,222,128,0.08)" : "rgba(217,119,6,0.08)", border: `1px solid ${documentsGate.complete ? "rgba(74,222,128,0.25)" : "rgba(217,119,6,0.25)"}` }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: documentsGate.complete ? "var(--color-sprout)" : "#D97706" }}>Documentos: {documentsGate.requiredApproved}/{documentsGate.requiredTotal} obrigatórios aprovados</div>
+                    {!documentsGate.complete && documentsGate.pendingLabels.length > 0 ? (
+                      <div style={{ fontSize: 11, color: "var(--color-fog)", marginTop: 4 }}>Pendentes: {documentsGate.pendingLabels.join(", ")}</div>
+                    ) : null}
+                    {negotiation?.clientId ? (
+                      <button type="button" onClick={() => navigate(`/contatos/${negotiation.clientId}?tab=documentos`)} style={{ marginTop: 6, background: "none", border: "none", color: "var(--color-sprout)", fontSize: 11, fontWeight: 600, cursor: "pointer", padding: 0, textDecoration: "underline" }}>Abrir documentos do comprador</button>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
                   {canAdvanceSaleByRole ? (
                     <>
                       <button type="button" disabled={isTransitioningSale || !SaleService.podeAvancarParaDocumentos(sale)} onClick={() => void handleSaleTransition(sale.id, "documents")} style={btnSecondary}>Documentação</button>
-                      <button type="button" disabled={isTransitioningSale || !SaleService.podeAvancarParaContrato(sale)} onClick={() => void handleSaleTransition(sale.id, "contract")} style={btnSecondary}>Contrato</button>
+                      {(() => {
+                        const atDocs = sale.status === SaleStatus.AWAITING_DOCUMENTS;
+                        const blocked = Boolean(atDocs && documentsGate && !documentsGate.complete);
+                        const role = actorRole as string | null;
+                        const canOverrideDocs = role === "director" || role === "owner";
+                        const baseDisabled = isTransitioningSale || !SaleService.podeAvancarParaContrato(sale);
+                        const missing = documentsGate ? documentsGate.requiredTotal - documentsGate.requiredApproved : 0;
+                        if (blocked && canOverrideDocs) {
+                          return <button type="button" disabled={baseDisabled} title={`${missing} documento(s) obrigatório(s) pendente(s)`} onClick={() => void handleSaleTransition(sale.id, "contract")} style={btnSecondary}>Avançar mesmo assim</button>;
+                        }
+                        return <button type="button" disabled={baseDisabled || blocked} title={blocked ? `Faltam ${missing} documento(s) obrigatório(s)` : undefined} onClick={() => void handleSaleTransition(sale.id, "contract")} style={btnSecondary}>Contrato</button>;
+                      })()}
                       <button type="button" disabled={isTransitioningSale || !SaleService.podeAvancarParaPagamento(sale)} onClick={() => void handleSaleTransition(sale.id, "payment")} style={btnSecondary}>Pagamento</button>
                       <button type="button" disabled={isTransitioningSale || !SaleService.podeConcluir(sale)} onClick={() => void handleSaleTransition(sale.id, "complete")} style={btnPrimary}>Concluir</button>
                     </>
@@ -2096,12 +2120,12 @@ function ProposalForm(props: {
         </div>
         <div>
           <FormLabel label="Parcelas">
-            <select value={numParcelas} onChange={(e) => setField("numParcelas", e.target.value)}>
+            <select value={["12", "24", "36", "48", "60"].includes(numParcelas) ? numParcelas : "0"} onChange={(e) => setField("numParcelas", e.target.value)}>
               {[12, 24, 36, 48, 60].map((n) => <option key={n} value={n}>{n}x</option>)}
               <option value="0">Personalizado</option>
             </select>
           </FormLabel>
-          {numParcelas === "0" ? <input type="number" value="" onChange={(e) => setField("numParcelas", e.target.value)} min="1" placeholder="Nº parcelas" style={{ marginTop: 6 }} /> : null}
+          {!["12", "24", "36", "48", "60"].includes(numParcelas) ? <input type="number" value={numParcelas === "0" ? "" : numParcelas} onChange={(e) => setField("numParcelas", e.target.value)} min="1" placeholder="Nº parcelas" style={{ marginTop: 6 }} autoFocus /> : null}
           {financiado > 0 && nParcelas > 0 ? (
             <div style={{ fontSize: 12, color: "var(--color-sprout)", marginTop: 6, fontWeight: 700, background: "var(--color-sprout-muted)", borderRadius: 4, padding: "4px 8px", display: "inline-block" }}>
               Parcela: R$ {fmt(parcelaVal)}
@@ -2210,13 +2234,6 @@ function ReservationRequestForm(props: {
     >
       <div className="nexa-label" style={{ marginBottom: 12 }}>Solicitar reserva</div>
       <div style={{ display: "grid", gap: 12, maxWidth: 360 }}>
-        <label>
-          <span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Observação (opcional)</span>
-          <textarea
-            rows={3}
-            placeholder="Observações adicionais sobre a solicitação..."
-          />
-        </label>
         <div style={{ display: "flex", gap: 8 }}>
           <button
             type="button"
