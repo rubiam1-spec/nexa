@@ -114,6 +114,12 @@ Sem paginação (`NegotiationsPage.tsx:373`, renderiza todos os cards); busca/fi
 | C1 vendas | ✅ | `7baf3bb` |
 | C2 grupo multi-unidade | ✅ | `7baf3bb` |
 | C3 vazamento entre empreendimentos | ✅ | não é bug — decisão de produto (intencional) |
-| M9 permissão administrative | ⏸ | decisão: **pode** aprovar reserva → alinhar as 2 telas p/ permitir (fase 🟡) |
-| M1–M11 (demais) | ⏳ | |
-| B1–B10 | ⏳ | |
+| M1 fila promove + M2 idioma sim. (+backfill) | ✅ | `099473f` |
+| M4 (pipeline/kanban) + M5 erros → toast | ✅ | `c0059b8` |
+| M4 (ficha: trocar corretor) + M6 campos de form | ✅ | `8ad037d` |
+| M9 administrative aprova reserva | ✅ | `8ad037d` + teste `fb988b6` |
+| M11 edge functions PROPOSAL/RESERVATION | ✅ | `4a5395f` (requer deploy da função) |
+| M7 toast na ficha + M8 busca/paginação | ✅ | `3935aeb` |
+| M10 Kanban touch + alvos 44px | ✅ | `5a74966` |
+| M3 arredondamento simulador | ✅ | `6703c6b` (exibir "última parcela" na UI = follow-up) |
+| B1–B10 (🟢 polish/hardening) | ⏳ | adiados — não bloqueiam |
