@@ -46,9 +46,9 @@ function getEstagio(c: KanbanCard): EstagioId {
   const us = (c.unitStatus || "").toLowerCase();
   if (s === "LOST" || s === "CANCELLED") return "perdido";
   if (s === "WON" || s === "SOLD" || us === "sold" || us === "vendido") return "venda";
-  if (c.reservaStatus && c.reservaStatus !== "expirada" && c.reservaStatus !== "cancelada" && c.reservaStatus !== "convertida") return "reserva";
+  if (c.reservaStatus && !["expirada", "cancelada", "convertida", "expired", "cancelled", "converted"].includes(c.reservaStatus)) return "reserva";
   if (us === "reserved" || us === "reservado") return "reserva";
-  if (c.reservaRequestId && c.reservaRequestStatus === "pending") return "reserva";
+  if (c.reservaRequestId && (c.reservaRequestStatus === "pending" || c.reservaRequestStatus === "requested")) return "reserva";
   if (c.propostaId) return "proposta";
   if (s === "IN_PROGRESS" || s === "OPEN") return "negociacao";
   return "simulacao";
@@ -369,7 +369,7 @@ export default function KanbanPage() {
                         {mobileTab === "simulacao" && c.isSimulacao ? <HoverBtn label={convertingSimId === c.id ? "..." : "Negociação"} cor="#4ADE80" onClick={() => { if (convertingSimId) return; setConvertingSimId(c.id); void converterSimulacao({ simulationId: c.id, unitId: c.unitId!, clientId: c.clienteId, brokerId: c.corretorId }).then(() => celebrate("Negociação iniciada!")).catch((e: unknown) => { alert(e instanceof Error ? e.message : "Erro"); }).finally(() => setConvertingSimId(null)); }} /> : null}
                         {mobileTab === "negociacao" ? <HoverBtn label="Proposta" cor="#FBBF24" onClick={() => setModalProposta(c)} /> : null}
                         {mobileTab === "proposta" ? <HoverBtn label="Reserva" cor="#A78BFA" onClick={() => setModalReserva(c)} /> : null}
-                        {mobileTab === "reserva" ? <>{perms.canCompleteSale ? <HoverBtn label="Venda" cor="#4ADE80" onClick={() => setModalVenda(c)} /> : null}{perms.canApproveReservation && c.reservaRequestId && c.reservaRequestStatus === "pending" ? <HoverBtn label="Aprovar" cor="#A78BFA" onClick={() => setModalAprovar(c)} /> : null}</> : null}
+                        {mobileTab === "reserva" ? <>{perms.canCompleteSale ? <HoverBtn label="Venda" cor="#4ADE80" onClick={() => setModalVenda(c)} /> : null}{perms.canApproveReservation && c.reservaRequestId && (c.reservaRequestStatus === "pending" || c.reservaRequestStatus === "requested") ? <HoverBtn label="Aprovar" cor="#A78BFA" onClick={() => setModalAprovar(c)} /> : null}</> : null}
                         <span style={{ marginLeft: "auto", fontSize: 10, color: "#5C5647", fontFamily: MONO }}>{dRel(c.updatedAt)}</span>
                       </div>
                     ) : c.lostReason ? <div style={{ fontSize: 11, color: "#F87171", marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(61,58,48,0.06)" }}>Motivo: {c.lostReason}</div> : null}
@@ -497,7 +497,7 @@ export default function KanbanPage() {
                             {est.id === "simulacao" && c.isSimulacao ? <HoverBtn label={convertingSimId === c.id ? "Criando..." : "Iniciar negociação"} cor="#4ADE80" onClick={() => { if (convertingSimId) return; setConvertingSimId(c.id); void converterSimulacao({ simulationId: c.id, unitId: c.unitId!, clientId: c.clienteId, brokerId: c.corretorId }).then(() => celebrate("Negociação iniciada!")).catch((e: unknown) => { alert(e instanceof Error ? e.message : "Erro"); }).finally(() => setConvertingSimId(null)); }} /> : null}
                             {est.id === "negociacao" ? <HoverBtn label="Criar proposta" cor="#FBBF24" onClick={() => setModalProposta(c)} /> : null}
                             {est.id === "proposta" ? <HoverBtn label="Solicitar reserva" cor="#A78BFA" onClick={() => setModalReserva(c)} /> : null}
-                            {est.id === "reserva" ? <>{perms.canCompleteSale ? <HoverBtn label="Registrar venda" cor="#4ADE80" onClick={() => setModalVenda(c)} /> : null}{perms.canApproveReservation && c.reservaRequestId && c.reservaRequestStatus === "pending" ? <HoverBtn label="Aprovar" cor="#A78BFA" onClick={() => setModalAprovar(c)} /> : null}</> : null}
+                            {est.id === "reserva" ? <>{perms.canCompleteSale ? <HoverBtn label="Registrar venda" cor="#4ADE80" onClick={() => setModalVenda(c)} /> : null}{perms.canApproveReservation && c.reservaRequestId && (c.reservaRequestStatus === "pending" || c.reservaRequestStatus === "requested") ? <HoverBtn label="Aprovar" cor="#A78BFA" onClick={() => setModalAprovar(c)} /> : null}</> : null}
                             {/* ⋮ menu trigger (portal rendered at page bottom) */}
                             <div style={{ marginLeft: "auto" }}>
                               <button type="button" onClick={(e) => {
@@ -566,8 +566,8 @@ export default function KanbanPage() {
       isOpen={!!cancelTarget}
       onClose={() => setCancelTarget(null)}
       negotiation={{ id: cancelTarget?.id ?? "", clientName: cancelTarget?.clienteNome || "Cliente", unitLabel: `Q${cancelTarget?.quadra || "?"} · L${cancelTarget?.lote || "?"}`, value: cancelTarget?.valor ?? 0, brokerName: cancelTarget?.corretorNome || "—" }}
-      hasActiveReservation={!!cancelTarget?.reservaStatus && cancelTarget.reservaStatus !== "cancelada" && cancelTarget.reservaStatus !== "expirada" && cancelTarget.reservaStatus !== "convertida"}
-      hasActiveProposals={!!cancelTarget?.propostaStatus && !["REJECTED", "EXPIRED", "ACCEPTED"].includes(cancelTarget.propostaStatus)}
+      hasActiveReservation={!!cancelTarget?.reservaStatus && !["cancelada", "expirada", "convertida", "cancelled", "expired", "converted"].includes(cancelTarget.reservaStatus)}
+      hasActiveProposals={!!cancelTarget?.propostaStatus && !["REJECTED", "EXPIRED", "ACCEPTED", "rejected", "expired", "accepted"].includes(cancelTarget.propostaStatus)}
       onConfirm={async (reason) => { if (!cancelTarget) return; await cancelarNegociacao({ negotiationId: cancelTarget.id, unitId: cancelTarget.unitId!, reason, currentStatus: cancelTarget.status }); celebrate("Negociação cancelada", `${cancelTarget.clienteNome || "Cliente"} — Q${cancelTarget.quadra}·L${cancelTarget.lote}`); setCancelTarget(null); }}
     />
 

@@ -22,7 +22,7 @@ export function usePipelineActions(accountId: string | null, developmentId: stri
     // Check for existing proposal
     const { data: existing } = await supabase.from("proposals").select("id, status").eq("negotiation_id", input.negotiationId).limit(1);
     if (existing && existing.length > 0) {
-      if (existing[0].status === "DRAFT") {
+      if (existing[0].status === "draft") {
         await supabase.from("proposals").update({ amount: input.amount, entrada_percentual: input.entradaPercentual, entrada_valor: input.entradaValor, parcelas_quantidade: input.parcelasQuantidade, parcelas_valor: input.parcelasValor, updated_at: new Date().toISOString() }).eq("id", existing[0].id);
       }
       // Don't change negotiation status — stage is derived from proposal existence
@@ -30,7 +30,7 @@ export function usePipelineActions(accountId: string | null, developmentId: stri
       onSuccess(); return;
     }
 
-    const { error } = await supabase.from("proposals").insert({ negotiation_id: input.negotiationId, account_id: accountId, development_id: developmentId, unit_id: input.unitId, client_id: input.clientId, broker_id: input.brokerId, title: "Proposta Comercial", amount: input.amount, status: "DRAFT", tipo: "proposta", entrada_tipo: "percentual", entrada_valor: input.entradaValor, entrada_percentual: input.entradaPercentual, parcelas_quantidade: input.parcelasQuantidade, parcelas_valor: input.parcelasValor });
+    const { error } = await supabase.from("proposals").insert({ negotiation_id: input.negotiationId, account_id: accountId, development_id: developmentId, unit_id: input.unitId, client_id: input.clientId, broker_id: input.brokerId, title: "Proposta Comercial", amount: input.amount, status: "draft", tipo: "proposta", entrada_tipo: "percentual", entrada_valor: input.entradaValor, entrada_percentual: input.entradaPercentual, parcelas_quantidade: input.parcelasQuantidade, parcelas_valor: input.parcelasValor });
     if (error) throw error;
     // Only touch updated_at, NOT status — stage derived from proposal existence
     await supabase.from("negotiations").update({ updated_at: new Date().toISOString() }).eq("id", input.negotiationId);
@@ -65,7 +65,7 @@ export function usePipelineActions(accountId: string | null, developmentId: stri
     if (!supabase || !accountId || !developmentId) throw new Error("Contexto invalido");
     const { data: propostas } = await supabase.from("proposals").select("id").eq("negotiation_id", input.negotiationId).order("created_at", { ascending: false }).limit(1);
     const proposalId = propostas?.[0]?.id ?? null;
-    const { error } = await supabase.from("reservation_requests").insert({ negotiation_id: input.negotiationId, proposal_id: proposalId, account_id: accountId, development_id: developmentId, unit_id: input.unitId, status: "pending" });
+    const { error } = await supabase.from("reservation_requests").insert({ negotiation_id: input.negotiationId, proposal_id: proposalId, account_id: accountId, development_id: developmentId, unit_id: input.unitId, status: "requested" });
     if (error) throw error;
     await supabase.from("negotiations").update({ updated_at: new Date().toISOString() }).eq("id", input.negotiationId);
     if (accountId && userId) logActivity(accountId, developmentId, "reservation_request", input.negotiationId, "created", userId, "Reserva solicitada");
@@ -95,7 +95,7 @@ export function usePipelineActions(accountId: string | null, developmentId: stri
     const { data: settings } = await supabase.from("account_settings").select("reservation_duration_hours").eq("account_id", accountId).single();
     const horas = settings?.reservation_duration_hours ?? 72;
     const expiresAt = new Date(Date.now() + horas * 3600000).toISOString();
-    const { error } = await supabase.from("reservations").insert({ reservation_request_id: reservationRequestId ?? null, negotiation_id: negotiationId, account_id: accountId, development_id: developmentId, unit_id: unitId, status: "ativa", started_at: new Date().toISOString(), expires_at: expiresAt });
+    const { error } = await supabase.from("reservations").insert({ reservation_request_id: reservationRequestId ?? null, negotiation_id: negotiationId, account_id: accountId, development_id: developmentId, unit_id: unitId, status: "active", started_at: new Date().toISOString(), expires_at: expiresAt });
     if (error) throw error;
     await supabase.from("units").update({ status: "reserved" }).eq("id", unitId);
     if (reservationRequestId) await supabase.from("reservation_requests").update({ status: "approved" }).eq("id", reservationRequestId);
@@ -128,11 +128,11 @@ export function usePipelineActions(accountId: string | null, developmentId: stri
     let reservationId: string | null = null;
     const { data: reservas } = await supabase.from("reservations").select("id").eq("negotiation_id", input.negotiationId).order("created_at", { ascending: false }).limit(1);
     if (reservas && reservas.length > 0) reservationId = reservas[0].id;
-    const { error } = await supabase.from("sales").insert({ negotiation_id: input.negotiationId, reservation_id: reservationId, proposal_id: proposalId, account_id: accountId, development_id: developmentId, unit_id: input.unitId, amount: input.amount || 0, status: "aguardando_documentacao" });
+    const { error } = await supabase.from("sales").insert({ negotiation_id: input.negotiationId, reservation_id: reservationId, proposal_id: proposalId, account_id: accountId, development_id: developmentId, unit_id: input.unitId, amount: input.amount || 0, status: "awaiting_documents" });
     if (error) throw error;
     if (input.unitId) await supabase.from("units").update({ status: "sold" }).eq("id", input.unitId);
     await supabase.from("negotiations").update({ status: "WON", updated_at: new Date().toISOString() }).eq("id", input.negotiationId);
-    if (reservationId) await supabase.from("reservations").update({ status: "convertida" }).eq("id", reservationId);
+    if (reservationId) await supabase.from("reservations").update({ status: "converted" }).eq("id", reservationId);
     // Sync third-party property status → vendido
     const { data: negData } = await supabase.from("negotiations").select("third_party_property_id").eq("id", input.negotiationId).maybeSingle();
     const tppId = (negData as Record<string, unknown> | null)?.third_party_property_id as string | null;
@@ -216,12 +216,12 @@ export function usePipelineActions(accountId: string | null, developmentId: stri
   // Cancel negotiation with full cascade
   const cancelarNegociacao = useCallback(async (input: { negotiationId: string; unitId: string; reason: string; currentStatus?: string }) => {
     if (!supabase || !accountId) throw new Error("Contexto invalido");
-    await supabase.from("proposals").update({ status: "REJECTED", updated_at: new Date().toISOString() }).eq("negotiation_id", input.negotiationId).in("status", ["DRAFT", "SENT", "UNDER_ANALYSIS"]);
-    await supabase.from("reservation_requests").update({ status: "cancelled", updated_at: new Date().toISOString() }).eq("negotiation_id", input.negotiationId).eq("status", "pending");
-    const { data: activeRes } = await supabase.from("reservations").select("id, unit_id").eq("negotiation_id", input.negotiationId).in("status", ["ativa", "ACTIVE"]);
+    await supabase.from("proposals").update({ status: "rejected", updated_at: new Date().toISOString() }).eq("negotiation_id", input.negotiationId).in("status", ["draft", "sent", "under_analysis"]);
+    await supabase.from("reservation_requests").update({ status: "cancelled", updated_at: new Date().toISOString() }).eq("negotiation_id", input.negotiationId).eq("status", "requested");
+    const { data: activeRes } = await supabase.from("reservations").select("id, unit_id").eq("negotiation_id", input.negotiationId).in("status", ["active", "ativa", "ACTIVE"]);
     if (activeRes && activeRes.length > 0) {
       for (const r of activeRes) {
-        await supabase.from("reservations").update({ status: "cancelada" }).eq("id", r.id);
+        await supabase.from("reservations").update({ status: "cancelled" }).eq("id", r.id);
         await supabase.from("units").update({ status: "available" }).eq("id", r.unit_id);
         try { await promoteQueueFirst(r.unit_id); } catch { /* non-blocking */ }
       }

@@ -829,7 +829,7 @@ export default function SimuladorPage() {
                 parcelas_quantidade: g.parcelas, parcelas_valor: g.parcelaValor,
                 balao_quantidade: g.balaoQtd || null, balao_valor: g.balaoValor || null,
                 permuta_valor: g.permutaValor || null, permuta_descricao: g.permutaDesc || null,
-                status: "active",
+                status: "ativa",
               }).then(() => {}, () => {});
             }
             // Save group metadata
