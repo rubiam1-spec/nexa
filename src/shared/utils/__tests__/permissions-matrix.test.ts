@@ -24,8 +24,9 @@ describe("Matriz de permissões — podeVerTodasNegociacoes", () => {
 });
 
 describe("Matriz de permissões — podeAprovarReserva", () => {
-  const allowed = ["owner", "director", "manager"];
-  const denied = ["commercial_consultant", "broker", "administrative", "concierge"];
+  // administrative pode aprovar reserva (decisão de produto — auditoria M9)
+  const allowed = ["owner", "director", "manager", "administrative"];
+  const denied = ["commercial_consultant", "broker", "concierge"];
   allowed.forEach((r) => it(`${r} PODE`, () => expect(podeAprovarReserva(r)).toBe(true)));
   denied.forEach((r) => it(`${r} NÃO pode`, () => expect(podeAprovarReserva(r)).toBe(false)));
 });
@@ -140,7 +141,7 @@ describe("getPermissions — administrative", () => {
   const p = getPermissions("administrative");
   it("canViewFullDashboard = false", () => expect(p.canViewFullDashboard).toBe(false));
   it("canCreateNegotiation = false", () => expect(p.canCreateNegotiation).toBe(false));
-  it("canApproveReservation = false", () => expect(p.canApproveReservation).toBe(false));
+  it("canApproveReservation = true (M9)", () => expect(p.canApproveReservation).toBe(true));
   it("canManageUsers = false", () => expect(p.canManageUsers).toBe(false));
   it("canAccessSettings = false", () => expect(p.canAccessSettings).toBe(false));
 });
