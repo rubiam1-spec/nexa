@@ -104,7 +104,7 @@ Sem paginação (`NegotiationsPage.tsx:373`, renderiza todos os cards); busca/fi
 |---|---|---|
 | 1 — Fonte única de vocabulário (src/domain/status/) | ✅ | `f081a4a` |
 | 2 — CHECK constraints de status (dados já canônicos, sem normalização) | ✅ | `7c8063c` |
-| 3 — Remover tolerância de leitura | ⏳ | |
+| 3 — Remover tolerância de leitura (Kanban) | ✅ | `67c5bec` |
 | 4 — Teste de contrato enum × banco (check:contracts) | ⏳ | |
 | 5 — Fechar funil de escrita (tudo via repositório) | ⏳ | |
 | 6 — Padronizar feedback de erro | ⏳ | |
@@ -123,6 +123,15 @@ Sem paginação (`NegotiationsPage.tsx:373`, renderiza todos os cards); busca/fi
 - **Vocabulário PT em `pipeline_simulations`** (`ativa/convertida/expirada/cancelada`): decisão consciente — o CHECK reflete o vocabulário PT já existente no banco. Unificar para EN (como as demais tabelas) é **limpeza futura opcional** e deve ser feita **isolada** (migration própria de rename + backfill + atualização de src/domain/status/pipelineSimulation.ts), **nunca embutida** em outra mudança.
 - **`unit_queue_entries` — CHECK ADIADO para a Etapa 5.** Motivo: o fix M1 (`usePipelineActions.promoteQueueFirst`) grava em UPPER (`ACTIVE`/`PROMOTED`) enquanto o dado/canônico são lowercase (`waiting`), e há ambiguidade semântica `WAITING` vs `ACTIVE`. Rotear a escrita pelo repositório (Etapa 5) normaliza o case; só então adicionar o CHECK, senão o próprio código geraria violação.
 - **Item de ação — importador/`sales`:** a escrita principal de `sales` virá do **importador (WIP)**. Ele **DEVE** derivar o status de `src/domain/status/sale.ts` (`SaleStatus`/`SaleDbStatus`). Se gravar literal fora de `{created, awaiting_documents, awaiting_contract, awaiting_payment, completed, cancelled}`, nascerá violando `sales_status_check`. Nota replicada como comentário na migration `20260702120000`. **Aplicar quando o WIP do importador aterrissar.**
+
+## Etapa 3 — tolerância removida + achados reportados (2026-07-03)
+- **Removida** a leitura tolerante da Fase 2 no caminho do Kanban (`useKanbanData`, `KanbanPage.getEstagio` + diálogo de cancelamento + botões Aprovar, filtro de leitura do `usePipelineActions`). Comparação agora estrita contra `src/domain/status/` (agrupamentos `RESERVATION_ACTIVE_DB`, `RESERVATION_TERMINAL_DB_VALUES`, `RESERVATION_REQUEST_PENDING_DB`, `PROPOSAL_CLOSED_DB_VALUES`, `PipelineSimulationStatus.ATIVA`, `NegotiationStatus`). Commit `67c5bec`. Build verde, 0 TS, 603 testes.
+- **Exceção `unit_queue` mantida** (comentada em `src/domain/status/unitQueue.ts`): o fix M1 ainda grava status de fila em UPPER; a tolerância da fila só cai na **Etapa 5** junto com o fix de escrita + o CHECK da fila.
+- **⚠️ Tolerância pré-existente ENCONTRADA e NÃO removida (aguarda decisão do Rubiam)** — não foi introduzida na Fase 2, e removê-la é amplo/arriscado:
+  - `src/shared/utils/normalizeStatus.ts` — `normalizeNegotiationStatus` com aliases PT/EN (`em_andamento→IN_PROGRESS`, `vendida→WON`, `perdida→LOST`, `cancelada→CANCELLED`, lowercase→UPPER). Usado por Central (`CentralPage`, `CentralMobile`, `useCentral`), relatórios e dashboards. É a normalização de leitura de negociação em todo o app.
+  - `src/shared/hooks/useCadenceAlerts.ts` — filtros `.in("status", ["IN_PROGRESS","OPEN","in_progress","open"])` (negociações) e `.in("status", ["ativa","active"])` (reservas).
+  - **Recomendação:** tornar estritos numa etapa própria (ou dentro da 5), com teste dedicado — não embutir aqui. `NegotiationDetailPage.tsx:1661` tem `=== "ACTIVE"` (literal solto) mas é arquivo do WIP importador — corrigir quando o WIP aterrissar.
+- **Fora de escopo (não tocado):** tolerância de `unitStatus` (`vendido`/`reservado`) no `getEstagio` — units não está na lista de tabelas da Etapa 3.
 
 ## Notas de escopo
 - `src/services/negotiationImport/*` e componentes `*Import*` são **WIP não-commitado, fora de produção** — não auditados a fundo.
