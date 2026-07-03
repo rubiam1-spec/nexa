@@ -107,7 +107,7 @@ Sem paginação (`NegotiationsPage.tsx:373`, renderiza todos os cards); busca/fi
 | 3 — Remover tolerância de leitura (Kanban) | ✅ | `67c5bec` |
 | 3b — Lógica estrita + tradutor de exibição de histórico | ✅ | `fad0988` |
 | 4 — Teste de contrato enum × banco (check:contracts) | ✅ | `065a417` |
-| 5 — Fechar funil de escrita (tudo via repositório) | 🔵 Bloco 1 ✅ (`usePipelineActions`) / Bloco 2 ⏳ (CHECK `unit_queue`, aguarda Rubiam) | ver "Etapa 5 — Bloco 1" |
+| 5 — Fechar funil de escrita (tudo via repositório) + CHECK da fila | ✅ **COMPLETA** (Bloco 1 `6e273a7` + Bloco 2 `20260703121000`/`121100`) | ver "Etapa 5 — Bloco 1/2" |
 | 6 — Padronizar feedback de erro | ⏳ | |
 | 7 — Dinheiro fecha no centavo | ⏳ | |
 | 8 — Unificar permissões | ⏳ | |
@@ -186,6 +186,35 @@ Sem paginação (`NegotiationsPage.tsx:373`, renderiza todos os cards); busca/fi
 - **`sales` (WIP):** `createSale` mantém `reservationId`/`proposalId` non-nullable; venda direta (sem reserva/proposta) usa cast `null as string` no chamador. **Alargar a assinatura p/ `string|null` quando o repo de vendas (WIP) aterrissar.**
 
 **Contratação Supabase Pro + Vercel Pro — ADIADA:** de 03/07 para a **semana de 06/07/2026** (decisão do Rubiam). Até lá, mantém-se: **dump lógico obrigatório antes de qualquer DDL** + **dump extra no próximo ciclo de merge+deploy**. Bloco 2 (CHECK de `unit_queue`) **não inicia** sem autorização explícita do Rubiam.
+
+## Etapa 5 — Bloco 2: CHECK constraint de `unit_queue_entries` (2026-07-03) — AUTORIZADO pelo Rubiam
+**Objetivo:** travar a **última** tabela do fluxo sem CHECK de status, completando o invariante "o banco se defende" em TODAS as tabelas comerciais. Governança #2 e #3.
+
+**Verdade do banco (antes do DDL):** `unit_queue_entries` com 1 registro, `status='waiting'` (canônico); única tabela do fluxo sem CHECK; nenhuma função/trigger do Postgres escreve nela — toda escrita vem do frontend, 100% via `unitQueueSupabaseRepository` (Bloco 1).
+
+**Backup (plano free, sem PITR — inegociável):** dump lógico pré-DDL em `supabase/backups/20260703_unit_queue_pre_etapa5b.json` (schema via migrations + dados). Re-verificação imediata antes do DDL: `SELECT status,count(*) … GROUP BY status` → **só `waiting` (1)**. Zero valor fora do canônico → seguiu.
+
+**Migrations (padrão consolidado da Etapa 2 — NOT VALID + VALIDATE, valores derivados de `UNIT_QUEUE_DB_VALUES`):**
+- `supabase/migrations/20260703121000_unit_queue_status_check_add_not_valid.sql` — `ADD CONSTRAINT unit_queue_entries_status_check CHECK (status IN ('active','promoted','cancelled','waiting','removed','expired')) NOT VALID`.
+- `supabase/migrations/20260703121100_unit_queue_status_check_validate.sql` — `VALIDATE CONSTRAINT`.
+- Aplicadas em **produção** via MCP (`apply_migration`), ambas `{"success":true}`.
+
+**Manifesto no mesmo commit (regra da Etapa 4):** `db-constraints.ts` ganhou `unit_queue_entries: ['active','promoted','cancelled','waiting','removed','expired']`; teste de contrato deixou de ser exceção — **contrato pleno de 8 tabelas** (TODO "sem CHECK até Etapa 5" removido). `check:contracts` 9 casos.
+
+**Prova de que MORDE (produção, `BEGIN…ROLLBACK` com status inválido):**
+```
+ERROR: 23514: new row for relation "unit_queue_entries" violates check constraint "unit_queue_entries_status_check"
+DETAIL: Failing row contains (..., not_a_real_status, 999, ...).
+```
+Rollback confirmado: `count(*)=1`, `waiting=1` (nada persistido).
+
+**Estado da constraint (pg_constraint):** `convalidated = true`; def = `CHECK ((status = ANY (ARRAY['active','promoted','cancelled','waiting','removed','expired'])))`.
+
+**Isto encerra as pendências abertas nas Etapas 2/3/4** sobre a fila: (Etapa 2) "CHECK ADIADO para Etapa 5" ✅; (Etapa 3) "Exceção `unit_queue` mantida" — tolerância de leitura já removida no Bloco 1, agora o banco também trava ✅; (Etapa 4) "unit_queue sem CHECK → TODO Etapa 5" ✅.
+
+**Validação:** `tsc --noEmit` 0 erro; `npm run build` verde; `check:contracts` 9/9; suíte **785** (baseline 784 + 1 caso de contrato da fila). **SEM merge na main, SEM deploy** — próximo ciclo (merge + deploy + validação em produção) será autorizado à parte pelo Rubiam.
+
+**Decisão de produto reconfirmada neste checkpoint (Rubiam):** `counter_proposal` fica **FORA** da cascata de cancelamento (`rejectActiveProposals` varre só `{draft,sent,under_analysis}` via `PROPOSAL_ACTIVE_CANCELLABLE_DB_VALUES`). Registrada no Bloco 1, ratificada aqui.
 
 ## Etapa 3b — lógica estrita vs exibição de histórico (2026-07-03)
 - **DECISÃO DE PRODUTO:** o histórico (`negotiation_history`, `unit_history`) é **trilha de auditoria imutável**. **NÃO** normalizar via UPDATE. Quem **exibe** histórico usa tradutor de exibição **tolerante** (`src/shared/utils/formatHistoricalStatus.ts`); quem faz **lógica** usa só o **canônico** (`src/domain/status/`). `negotiation_history` contém legado UPPER de proposta/reserva (DRAFT, SENT, UNDER_ANALYSIS, REQUESTED, APPROVED, IN_PROGRESS + null) — preservado.

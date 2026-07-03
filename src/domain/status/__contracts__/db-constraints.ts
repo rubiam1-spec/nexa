@@ -33,4 +33,6 @@ export const DB_STATUS_CONSTRAINTS: Record<string, readonly string[]> = {
   pipeline_simulations: ["ativa", "convertida", "expirada", "cancelada"],
   // migration: 20260413134807_create_simulation_groups
   simulation_groups: ["active", "converted", "expired", "cancelled"],
+  // migration: 20260703121000_unit_queue_status_check_add_not_valid (Fase 3 — Etapa 5 Bloco 2)
+  unit_queue_entries: ["active", "promoted", "cancelled", "waiting", "removed", "expired"],
 };

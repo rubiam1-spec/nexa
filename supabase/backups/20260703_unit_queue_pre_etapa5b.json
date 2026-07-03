@@ -1,0 +1,33 @@
+{
+  "_meta": {
+    "purpose": "Backup lógico (schema via migrations + dados aqui) de unit_queue_entries ANTES do DDL da Fase 3 — Etapa 5 Bloco 2 (CHECK constraint de status da fila).",
+    "project": "phpbsiyxwsbzeevqgixk (NEXA)",
+    "plan": "free (sem backup automático diário / sem PITR — por isso este dump manual)",
+    "exported_at": "2026-07-03T20:49:29.648891+00:00",
+    "pre_ddl_status_counts": [{ "status": "waiting", "n": 1 }],
+    "restore_note": "Tabela pequena (1 linha). Para restaurar dados: INSERT a partir do array abaixo. Schema: ver supabase/migrations/. As migrations 20260703121000/121100 adicionam unit_queue_entries_status_check — reversível com DROP CONSTRAINT public.unit_queue_entries_status_check."
+  },
+  "data": {
+    "exported_at": "2026-07-03T20:49:29.648891+00:00",
+    "unit_queue_entries": [
+      {
+        "id": "2a61718e-f11b-4442-b3af-071e54605ebe",
+        "unit_id": "66a82922-c481-4134-aca2-f7fd843d96e4",
+        "negotiation_id": null,
+        "account_id": "16d4b82f-880f-4818-bb07-93c3b606f982",
+        "development_id": "909c1a4a-165b-483f-9ebb-73929c01bf70",
+        "requested_by": "5c4bc290-d7dc-4d70-81ed-9eb592463be1",
+        "status": "waiting",
+        "position": 1,
+        "created_at": "2026-04-30T21:02:59.277192+00:00",
+        "updated_at": "2026-04-30T21:02:59.277192+00:00",
+        "client_id": "58c1634b-377d-4e44-a511-ff19a97da7b2",
+        "broker_id": null,
+        "reason": null,
+        "promoted_at": null,
+        "removed_at": null,
+        "removed_reason": null
+      }
+    ]
+  }
+}

@@ -37,13 +37,12 @@ describe("Contrato enum × CHECK constraint", () => {
     assertContract("pipeline_simulations", PIPELINE_SIMULATION_DB_VALUES, DB_STATUS_CONSTRAINTS.pipeline_simulations));
   it("simulation_groups", () =>
     assertContract("simulation_groups", SIMULATION_GROUP_DB_VALUES, DB_STATUS_CONSTRAINTS.simulation_groups));
-});
-
-describe("unit_queue_entries — SEM CHECK no banco até a Etapa 5", () => {
-  // TODO(Fase3-Etapa5): unit_queue_entries ganha CHECK junto com o fix de escrita M1
-  // (que hoje grava em UPPER). Quando isso ocorrer: adicionar unit_queue_entries ao
-  // manifesto DB_STATUS_CONSTRAINTS e o caso de contrato aqui; remover a tolerância.
-  it("consistência interna do enum (sem contrato de banco por ora)", () => {
+  // Fase 3 — Etapa 5 Bloco 2: unit_queue_entries ganhou CHECK (convalidated=true em
+  // 2026-07-03). Deixa de ser exceção — contrato pleno como as demais (8 tabelas).
+  it("unit_queue_entries", () =>
+    assertContract("unit_queue_entries", UNIT_QUEUE_DB_VALUES, DB_STATUS_CONSTRAINTS.unit_queue_entries));
+  // Consistência interna do enum da fila (sem duplicatas; cobre todos os membros).
+  it("unit_queue_entries — consistência interna do enum", () => {
     expect(new Set(UNIT_QUEUE_DB_VALUES).size).toBe(UNIT_QUEUE_DB_VALUES.length);
     expect(UNIT_QUEUE_DB_VALUES.length).toBe(Object.keys(UnitQueueStatus).length);
   });
