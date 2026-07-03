@@ -4,7 +4,7 @@ import type { CentralData, FocusItem, PulseKPI } from "../hooks/useCentral";
 import type { IntelligenceAlert } from "../hooks/useIntelligenceAlerts";
 import { useDailyBriefing } from "../../../shared/hooks/useDailyBriefing";
 import { formatWeekdayLongBRT } from "../../../shared/utils/dateUtils";
-import { normalizeNegotiationStatus } from "../../../shared/utils/normalizeStatus";
+import { NegotiationStatus } from "../../../domain/status/negotiation";
 
 const T = {
   ink: "var(--surface-base)",
@@ -365,8 +365,8 @@ function IntelligenceAlertList({ alerts, onNavigate }: { alerts: IntelligenceAle
 }
 
 function FunnelHorizontal({ data }: { data: CentralData }) {
-  const openNegs = data.negotiations.filter((n) => normalizeNegotiationStatus(n.status) === "OPEN").length;
-  const inProg = data.negotiations.filter((n) => normalizeNegotiationStatus(n.status) === "IN_PROGRESS").length;
+  const openNegs = data.negotiations.filter((n) => n.status === NegotiationStatus.OPEN).length;
+  const inProg = data.negotiations.filter((n) => n.status === NegotiationStatus.IN_PROGRESS).length;
   const stages = [
     { label: "Negociações", count: openNegs + inProg, color: "#60A5FA" },
     { label: "Reservas", count: data.stock.reserved, color: "#D97706" },
@@ -880,8 +880,8 @@ function CentralMobileConsultant(props: BaseProps) {
 function CentralMobileBroker(props: BaseProps) {
   const navigate = useNavigate();
   const go = (path: string) => navigate(path);
-  const openNegs = props.data.negotiations.filter((n) => normalizeNegotiationStatus(n.status) === "OPEN").length;
-  const inProg = props.data.negotiations.filter((n) => normalizeNegotiationStatus(n.status) === "IN_PROGRESS").length;
+  const openNegs = props.data.negotiations.filter((n) => n.status === NegotiationStatus.OPEN).length;
+  const inProg = props.data.negotiations.filter((n) => n.status === NegotiationStatus.IN_PROGRESS).length;
   const pipelinePills = [
     { label: "Abertas", value: openNegs, color: "#60A5FA" },
     { label: "Andamento", value: inProg, color: "#FBBF24" },

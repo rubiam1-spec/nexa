@@ -11,3 +11,19 @@ export const NegotiationDbStatus: Record<string, string> = Object.fromEntries(
 );
 
 export const NEGOTIATION_DB_VALUES = Object.values(NegotiationStatus) as string[];
+
+/** Estados terminais (não-ativos) de negociação. */
+export const NEGOTIATION_DONE_VALUES: string[] = [
+  NegotiationStatus.WON,
+  NegotiationStatus.LOST,
+  NegotiationStatus.CANCELLED,
+];
+
+/**
+ * Negociação ativa = não está num estado terminal. Comparação ESTRITA contra o
+ * canônico (status vivo é sempre canônico — garantido pelo CHECK). Substitui o
+ * antigo shared/utils/normalizeStatus.isNegotiationActive (que era tolerante).
+ */
+export function isNegotiationActive(status: string | null | undefined): boolean {
+  return !NEGOTIATION_DONE_VALUES.includes(status ?? "");
+}

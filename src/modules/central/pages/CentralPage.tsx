@@ -9,7 +9,7 @@ import { supabase } from "../../../infra/supabase/supabaseClient";
 import CentralAgenda from "../components/CentralAgenda";
 import WeeklyPlanCard from "../components/WeeklyPlanCard";
 import CentralMobile from "../components/CentralMobile";
-import { normalizeNegotiationStatus } from "../../../shared/utils/normalizeStatus";
+import { NegotiationStatus } from "../../../domain/status/negotiation";
 import { formatWeekdayLongBRT, formatTimeBRT, formatDateShortBRT, getTodayDateStringBRT } from "../../../shared/utils/dateUtils";
 import { useDailyBriefing, type BriefingHighlight, type BriefingAction } from "../../../shared/hooks/useDailyBriefing";
 import { useIntelligenceAlerts, type IntelligenceAlert } from "../hooks/useIntelligenceAlerts";
@@ -522,8 +522,8 @@ export default function CentralPage() {
   }
 
   // Derive funnel from negotiations — normalize status to avoid case mismatch
-  const openNegs = data.negotiations.filter((n) => normalizeNegotiationStatus(n.status) === "OPEN").length;
-  const inProgressNegs = data.negotiations.filter((n) => normalizeNegotiationStatus(n.status) === "IN_PROGRESS").length;
+  const openNegs = data.negotiations.filter((n) => n.status === NegotiationStatus.OPEN).length;
+  const inProgressNegs = data.negotiations.filter((n) => n.status === NegotiationStatus.IN_PROGRESS).length;
   const lostNegs = data.lostCount;
   const wonNegs = data.wonCount;
   const funnelMax = Math.max(openNegs, inProgressNegs, data.stock.reserved, wonNegs, lostNegs, 1);

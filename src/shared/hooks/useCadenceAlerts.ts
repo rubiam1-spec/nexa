@@ -1,5 +1,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { supabase } from "../../infra/supabase/supabaseClient";
+import { NegotiationStatus } from "../../domain/status/negotiation";
+import { RESERVATION_ACTIVE_DB } from "../../domain/status/reservation";
 
 const TYPE_LABELS: Record<string, string> = {
   visit_client: "Visita", visit_broker: "Visita corretor", visit_development: "Visita empreendimento",
@@ -103,7 +105,7 @@ export function useCadenceAlerts(
         if (cadCfg?.negotiation_idle_hours) idleHours = Number(cadCfg.negotiation_idle_hours);
       } catch { /* use default */ }
       const idleSince = new Date(Date.now() - idleHours * 3600000).toISOString();
-      const { data: stale } = await supabase.from("negotiations").select("id, updated_at, broker_id, clients(name), units(quadra, lote)").eq("account_id", accountId).in("status", ["IN_PROGRESS", "OPEN", "in_progress", "open"]).lt("updated_at", idleSince).limit(10);
+      const { data: stale } = await supabase.from("negotiations").select("id, updated_at, broker_id, clients(name), units(quadra, lote)").eq("account_id", accountId).in("status", [NegotiationStatus.IN_PROGRESS, NegotiationStatus.OPEN]).lt("updated_at", idleSince).limit(10);
       if (stale && stale.length > 0) {
         const { data: existingStale } = await supabase.from("notifications").select("id").eq("type", "negotiation_stale").eq("account_id", accountId).gte("created_at", today + "T00:00:00Z").limit(1);
         if (!existingStale || existingStale.length === 0) {
@@ -119,7 +121,7 @@ export function useCadenceAlerts(
       // ── Reservations expiring in 24h ──
       const in24h = new Date(Date.now() + 24 * 3600000).toISOString();
       const now = new Date().toISOString();
-      const { data: expiring } = await supabase.from("reservations").select("id, expires_at, negotiation_id, negotiations(broker_id, clients(name), units(quadra, lote))").eq("account_id", accountId).in("status", ["ativa", "active"]).lt("expires_at", in24h).gt("expires_at", now);
+      const { data: expiring } = await supabase.from("reservations").select("id, expires_at, negotiation_id, negotiations(broker_id, clients(name), units(quadra, lote))").eq("account_id", accountId).eq("status", RESERVATION_ACTIVE_DB).lt("expires_at", in24h).gt("expires_at", now);
       if (expiring && expiring.length > 0) {
         const { data: existingExp } = await supabase.from("notifications").select("id").eq("type", "reservation_expiring").eq("account_id", accountId).gte("created_at", today + "T00:00:00Z").limit(1);
         if (!existingExp || existingExp.length === 0) {

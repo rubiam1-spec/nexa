@@ -33,7 +33,7 @@ export interface CentralData {
 export const LEADERSHIP_ROLES = ["owner", "director", "manager", "administrative"];
 const INTERNAL_ROLES = ["manager", "commercial_consultant"];
 const EXTERNAL_ROLES = ["broker"];
-import { normalizeNegotiationStatus, NEGOTIATION_DONE_STATUSES } from "../../../shared/utils/normalizeStatus";
+import { NegotiationStatus, isNegotiationActive } from "../../../domain/status/negotiation";
 import { getTodayDateStringBRT, toDateStringBRT } from "../../../shared/utils/dateUtils";
 
 export function useCentral(role: string | null, userId: string | null, accountId: string | null, developmentId: string | null) {
@@ -140,10 +140,10 @@ export function useCentral(role: string | null, userId: string | null, accountId
 
         // ── PULSE ──
         const pulse: PulseKPI[] = [];
-        const activeNegs = negs.filter((n) => !NEGOTIATION_DONE_STATUSES.includes(normalizeNegotiationStatus(n.status as string)));
+        const activeNegs = negs.filter((n) => isNegotiationActive(n.status as string));
         const allMyNegs = isManager ? negs : negs.filter((n) => n.owner_profile_id === userId || n.broker_id === userId);
-        const lostCount = allMyNegs.filter((n) => normalizeNegotiationStatus(n.status as string) === "LOST").length;
-        const wonFromNegotiations = allMyNegs.filter((n) => normalizeNegotiationStatus(n.status as string) === "WON").length;
+        const lostCount = allMyNegs.filter((n) => n.status === NegotiationStatus.LOST).length;
+        const wonFromNegotiations = allMyNegs.filter((n) => n.status === NegotiationStatus.WON).length;
         const soldFromUnits = units.filter((u) => u.status === "sold").length;
         // Managers see the greater of WON negotiations vs sold units (covers pre-NEXA sales)
         const wonCount = isManager ? Math.max(wonFromNegotiations, soldFromUnits) : wonFromNegotiations;
@@ -236,7 +236,7 @@ export function useCentral(role: string | null, userId: string | null, accountId
           const ROLE_LABELS: Record<string, string> = { owner: "Diretor", director: "Diretor", manager: "Gestor", commercial_consultant: "Consultora", broker: "Corretor" };
           return {
             id: mid, name: (p?.name as string) ?? "—", role: ROLE_LABELS[t.role as string] ?? (t.role as string), avatarUrl: (p?.avatar_url as string) ?? null,
-            negotiations: negs.filter((n) => (n.owner_profile_id === mid || n.broker_id === mid) && !NEGOTIATION_DONE_STATUSES.includes(normalizeNegotiationStatus(n.status as string))).length,
+            negotiations: negs.filter((n) => (n.owner_profile_id === mid || n.broker_id === mid) && isNegotiationActive(n.status as string)).length,
             activitiesWeek: activities.filter((a) => a.profile_id === mid).length,
             followupsOverdue: clients.filter((c) => c.assigned_to === mid && c.next_follow_up_at && new Date(c.next_follow_up_at as string) < new Date()).length,
           };

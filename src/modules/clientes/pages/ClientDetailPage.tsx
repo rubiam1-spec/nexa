@@ -16,7 +16,7 @@ import SpousePeek from "../components/SpousePeek";
 import type { Client, LegalRegime, MaritalStatus } from "../../../shared/types/client";
 import { getClientWithSpouse, unlinkSpouses } from "../../../infra/repositories/clientsSupabaseRepository";
 import { ConfirmacaoDestructiva } from "../../../shared/components/ConfirmacaoDestructiva";
-import { isNegotiationActive } from "../../../shared/utils/normalizeStatus";
+import { isNegotiationActive } from "../../../domain/status/negotiation";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 

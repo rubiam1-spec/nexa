@@ -11,11 +11,7 @@ import {
 } from "../repositories/relatorioIndividualSupabaseRepository";
 import { ACTIVITY_TYPE_SCHEMA } from "../../atividades/config/activityTypeSchema";
 import { getNegotiationStatusLabel } from "../../../domain/negociacao/NegotiationStatusLabel";
-import type { NegotiationStatus } from "../../../domain/negociacao/NegotiationStatus";
-import {
-  NEGOTIATION_DONE_STATUSES,
-  normalizeNegotiationStatus,
-} from "../../../shared/utils/normalizeStatus";
+import { NegotiationStatus, isNegotiationActive } from "../../../domain/status/negotiation";
 
 export interface RelatorioIndividualData {
   atividades: {
@@ -107,7 +103,8 @@ function aggregateNegocios(
   semDono: number,
 ): RelatorioIndividualData["negocios"] {
   const total = rows.length;
-  const norm = rows.map((n) => normalizeNegotiationStatus(n.status));
+  // status vivo é canônico (garantido pelo CHECK) — comparação estrita, sem normalizar.
+  const norm = rows.map((n) => n.status);
 
   const statusCounts: Record<string, number> = {};
   for (const s of norm) statusCounts[s] = (statusCounts[s] ?? 0) + 1;
@@ -119,10 +116,10 @@ function aggregateNegocios(
     }))
     .sort((a, b) => b.count - a.count);
 
-  const ativas = norm.filter((s) => !NEGOTIATION_DONE_STATUSES.includes(s)).length;
-  const propostas = norm.filter((s) => s === "PROPOSAL").length;
-  const reservas = norm.filter((s) => s === "RESERVATION").length;
-  const vendas = norm.filter((s) => s === "WON").length;
+  const ativas = norm.filter((s) => isNegotiationActive(s)).length;
+  const propostas = norm.filter((s) => s === NegotiationStatus.PROPOSAL).length;
+  const reservas = norm.filter((s) => s === NegotiationStatus.RESERVATION).length;
+  const vendas = norm.filter((s) => s === NegotiationStatus.WON).length;
 
   return {
     porStatus,
