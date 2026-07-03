@@ -5,6 +5,7 @@ import { useAccount } from "../../../app/contexts/AccountContext";
 import { useDevelopment } from "../../../app/contexts/DevelopmentContext";
 import { useAuth } from "../../../app/contexts/AuthContext";
 import { supabase } from "../../../infra/supabase/supabaseClient";
+import { createNegotiationFromClient, markClientActiveNegotiationsLost } from "../../../infra/repositories/negotiationsSupabaseRepository";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
 import { useClientDocuments, type ClientDoc } from "../hooks/useClientDocuments";
 import { getNegotiationStatusLabel } from "../../../domain/negociacao/NegotiationStatusLabel";
@@ -1120,24 +1121,13 @@ export default function ClientDetailPage() {
             lost_reason_detail: detail || null,
           }).eq("id", id);
           setClient((p) => p ? { ...p, status: "inactive", lost_at: nowIso, lost_reason: reason } : null);
-          // Cascade: mark active negotiations as LOST
+          // Cascade: mark active negotiations as LOST (regra + escrita no repositório;
+          // Etapa 5c). Erro na cascata não aborta o arquivamento — só loga, como antes.
           if (cascadeToNegotiations && accountId) {
-            const { data: activeNegs } = await supabase
-              .from("negotiations")
-              .select("id, status")
-              .eq("client_id", id)
-              .eq("account_id", accountId)
-              .in("status", ["OPEN", "IN_PROGRESS"]);
-            if (activeNegs && activeNegs.length > 0) {
-              for (const neg of activeNegs) {
-                const { error: negErr } = await supabase.from("negotiations").update({
-                  status: "LOST",
-                  lost_reason: reason,
-                  lost_at: nowIso,
-                  lost_at_stage: neg.status,
-                }).eq("id", neg.id);
-                if (negErr) console.error("Erro ao cascatear negociação:", neg.id, negErr);
-              }
+            try {
+              await markClientActiveNegotiationsLost(id, accountId, reason);
+            } catch (e) {
+              console.error("Erro ao cascatear negociações:", e);
             }
           }
           setToast("Contato arquivado" + (cascadeToNegotiations ? " e negociações marcadas como perdidas" : ""));
@@ -1174,17 +1164,18 @@ export default function ClientDetailPage() {
                     return;
                   }
                   const assignedTo = client.assigned_to as string | null;
-                  const { data: neg } = await supabase.from("negotiations").insert({
-                    account_id: accountId, development_id: convDevId, client_id: id,
-                    broker_id: assignedTo || null, owner_profile_id: userId,
-                    status: "OPEN", origem: client.origin || "manual",
-                    notes: convNote.trim() || null,
-                  }).select("id").single();
-                  if (neg) {
-                    await supabase.from("clients").update({ status: "negotiating", converted_at: new Date().toISOString(), converted_to: "negotiation", converted_negotiation_id: neg.id }).eq("id", id);
-                    await supabase.from("contact_interactions").insert({ account_id: accountId, client_id: id, type: "status_change", title: "Convertido em negociação", metadata: { from: client.status, to: "negotiating", negotiation_id: neg.id }, performed_by: userId });
+                  // Escrita da negociação via repositório (Etapa 5c). clients e
+                  // contact_interactions ficam inline (tabelas fora do fluxo comercial).
+                  const negId = await createNegotiationFromClient({
+                    accountId, developmentId: convDevId, clientId: id,
+                    brokerId: assignedTo || null, ownerProfileId: userId,
+                    origem: client.origin || "manual", notes: convNote.trim() || null,
+                  });
+                  if (negId) {
+                    await supabase.from("clients").update({ status: "negotiating", converted_at: new Date().toISOString(), converted_to: "negotiation", converted_negotiation_id: negId }).eq("id", id);
+                    await supabase.from("contact_interactions").insert({ account_id: accountId, client_id: id, type: "status_change", title: "Convertido em negociação", metadata: { from: client.status, to: "negotiating", negotiation_id: negId }, performed_by: userId });
                     setShowConvertModal(false);
-                    navigate(`/negociacoes/${neg.id}`);
+                    navigate(`/negociacoes/${negId}`);
                   }
                 } catch (err) { setToast(err instanceof Error ? err.message : "Erro ao criar negociação"); }
                 finally { setSaving(false); }

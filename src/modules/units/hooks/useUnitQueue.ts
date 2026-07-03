@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../../infra/supabase/supabaseClient";
+import { createUnitQueueEntry, removeUnitQueueEntry, promoteUnitQueueEntry, updateUnitQueuePosition } from "../../../infra/repositories/unitQueueSupabaseRepository";
 
 export interface QueueEntry {
   id: string;
@@ -55,13 +56,13 @@ export function useUnitQueue(unitId: string | null, accountId: string | null, de
     const existingByUser = queue.find((q) => q.requested_by === params.userId);
     if (existingByUser) throw new Error("Você já está na fila desta unidade");
     const nextPosition = queue.length > 0 ? Math.max(...queue.map((q) => q.position)) + 1 : 1;
-    const { error } = await supabase.from("unit_queue_entries").insert({
-      unit_id: unitId, account_id: accountId, development_id: developmentId,
-      requested_by: params.userId, client_id: params.clientId,
-      broker_id: params.brokerId || null, negotiation_id: params.negotiationId || null,
-      reason: params.reason || null, status: "waiting", position: nextPosition,
+    // Escrita via repositório (Etapa 5c). O repo grava status "waiting" canônico.
+    await createUnitQueueEntry({
+      unitId, accountId, developmentId,
+      requestedBy: params.userId, clientId: params.clientId,
+      brokerId: params.brokerId || null, negotiationId: params.negotiationId || null,
+      reason: params.reason || null, position: nextPosition,
     });
-    if (error) throw error;
     await fetchQueue();
     return { position: nextPosition };
   }, [unitId, accountId, developmentId, queue, fetchQueue]);
@@ -72,11 +73,10 @@ export function useUnitQueue(unitId: string | null, accountId: string | null, de
     if (!supabase) throw new Error("Supabase não configurado");
     const entry = queue.find((q) => q.requested_by === userId);
     if (!entry) throw new Error("Você não está na fila");
-    const { error } = await supabase.from("unit_queue_entries").update({ status: "removed", removed_at: new Date().toISOString(), removed_reason: "desistiu" }).eq("id", entry.id);
-    if (error) throw error;
+    await removeUnitQueueEntry(entry.id, "desistiu");
     const remaining = queue.filter((q) => q.id !== entry.id && q.position > entry.position);
     for (const q of remaining) {
-      await supabase.from("unit_queue_entries").update({ position: q.position - 1 }).eq("id", q.id);
+      await updateUnitQueuePosition(q.id, q.position - 1);
     }
     await fetchQueue();
   }, [queue, fetchQueue]);
@@ -84,11 +84,10 @@ export function useUnitQueue(unitId: string | null, accountId: string | null, de
   const promoteFirst = useCallback(async () => {
     if (!supabase || queue.length === 0) return null;
     const first = queue[0];
-    const { error } = await supabase.from("unit_queue_entries").update({ status: "promoted", promoted_at: new Date().toISOString() }).eq("id", first.id);
-    if (error) throw error;
+    await promoteUnitQueueEntry(first.id);
     const remaining = queue.filter((q) => q.id !== first.id);
     for (let i = 0; i < remaining.length; i++) {
-      await supabase.from("unit_queue_entries").update({ position: i + 1 }).eq("id", remaining[i].id);
+      await updateUnitQueuePosition(remaining[i].id, i + 1);
     }
     await fetchQueue();
     return first;
@@ -96,8 +95,7 @@ export function useUnitQueue(unitId: string | null, accountId: string | null, de
 
   const removeFromQueue = useCallback(async (entryId: string, reason: string) => {
     if (!supabase) throw new Error("Supabase não configurado");
-    const { error } = await supabase.from("unit_queue_entries").update({ status: "removed", removed_at: new Date().toISOString(), removed_reason: reason }).eq("id", entryId);
-    if (error) throw error;
+    await removeUnitQueueEntry(entryId, reason);
     await fetchQueue();
   }, [fetchQueue]);
 

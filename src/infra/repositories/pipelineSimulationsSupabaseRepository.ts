@@ -171,3 +171,87 @@ export async function unlinkSimulationFromNegotiation(
     );
   }
 }
+
+// ── CRUD de simulação (Fase 3 — Etapa 5c) ──
+// Migração das escritas cruas de useEnviarParaPipeline / SimuladorPage / KanbanPage.
+// Status "ativa" derivado da fonte única (PT canônico). created_by/follow_up_at só
+// entram no payload quando fornecidos — espelha EXATAMENTE o objeto inline (que os
+// omitia quando ausentes, preservando o default do banco / valor existente no update).
+
+export interface SimulationWriteInput {
+  accountId: string;
+  developmentId: string;
+  unitId: string | null;
+  clientId: string | null;
+  brokerId: string | null;
+  valorTotal: number;
+  entradaPercentual: number;
+  entradaValor: number;
+  parcelasQuantidade: number;
+  parcelasValor: number;
+  balaoQuantidade?: number | null;
+  balaoValor?: number | null;
+  permutaValor?: number | null;
+  permutaDescricao?: string | null;
+  thirdPartyPropertyId?: string | null;
+  propertyName?: string | null;
+  negotiationId?: string | null;
+  createdBy?: string | null;
+  followUpAt?: Date | null;
+}
+
+function buildSimulationRow(input: SimulationWriteInput): Record<string, unknown> {
+  const row: Record<string, unknown> = {
+    account_id: input.accountId,
+    development_id: input.developmentId,
+    unit_id: input.unitId ?? null,
+    client_id: input.clientId ?? null,
+    broker_id: input.brokerId ?? null,
+    valor_total: input.valorTotal,
+    entrada_percentual: input.entradaPercentual,
+    entrada_valor: input.entradaValor,
+    parcelas_quantidade: input.parcelasQuantidade,
+    parcelas_valor: input.parcelasValor,
+    balao_quantidade: input.balaoQuantidade ?? null,
+    balao_valor: input.balaoValor ?? null,
+    permuta_valor: input.permutaValor ?? null,
+    permuta_descricao: input.permutaDescricao ?? null,
+    third_party_property_id: input.thirdPartyPropertyId ?? null,
+    property_name: input.propertyName ?? null,
+    negotiation_id: input.negotiationId ?? null,
+    status: PipelineSimulationStatus.ATIVA,
+  };
+  // created_by e follow_up_at: só no payload quando presentes (fiel ao inline).
+  if (input.createdBy) row.created_by = input.createdBy;
+  if (input.followUpAt) row.follow_up_at = input.followUpAt.toISOString();
+  return row;
+}
+
+export async function createSimulation(input: SimulationWriteInput): Promise<string | null> {
+  const supabase = getSupabaseClientOrThrow("pipeline simulations repository");
+  const { data, error } = await supabase
+    .from("pipeline_simulations")
+    .insert(buildSimulationRow(input))
+    .select("id")
+    .single();
+  if (error) throw new Error(`Failed to create simulation: ${error.message}`);
+  return (data as { id: string } | null)?.id ?? null;
+}
+
+export async function updateSimulation(simulationId: string, input: SimulationWriteInput): Promise<void> {
+  const supabase = getSupabaseClientOrThrow("pipeline simulations repository");
+  const { error } = await supabase
+    .from("pipeline_simulations")
+    .update(buildSimulationRow(input))
+    .eq("id", simulationId);
+  if (error) throw new Error(`Failed to update simulation ${simulationId}: ${error.message}`);
+}
+
+export async function deleteSimulation(simulationId: string): Promise<void> {
+  const supabase = getSupabaseClientOrThrow("pipeline simulations repository");
+  const { error } = await supabase
+    .from("pipeline_simulations")
+    .delete()
+    .eq("id", simulationId);
+  if (error) throw new Error(`Failed to delete simulation ${simulationId}: ${error.message}`);
+}

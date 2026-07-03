@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../../../infra/supabase/supabaseClient";
 import { useAuth } from "../../../app/contexts/AuthContext";
 import { useAccount } from "../../../app/contexts/AccountContext";
+import { createSimulation, updateSimulation, type SimulationWriteInput } from "../../../infra/repositories/pipelineSimulationsSupabaseRepository";
+import { createNegotiationForConversion } from "../../../infra/repositories/negotiationsSupabaseRepository";
 
 export interface SimInput {
   unitId: string; clientId: string | null; brokerId: string | null;
@@ -35,29 +37,27 @@ export function useEnviarParaPipeline(accountId: string | null, developmentId: s
       if (!input.unitId && !input.propertyId) throw new Error("Selecione uma unidade ou imóvel.");
 
       const effectiveBrokerId = isBroker ? brokerId : input.brokerId;
-      const payload: Record<string, unknown> = {
-        account_id: accountId, development_id: developmentId, unit_id: input.unitId || null,
-        client_id: input.clientId, broker_id: effectiveBrokerId,
-        valor_total: input.valorTotal, entrada_percentual: input.entradaPercentual, entrada_valor: input.entradaValor,
-        parcelas_quantidade: input.parcelasQuantidade, parcelas_valor: input.parcelasValor,
-        balao_quantidade: input.balaoQuantidade ?? null, balao_valor: input.balaoValor ?? null,
-        permuta_valor: input.permutaValor ?? null, permuta_descricao: input.permutaDescricao ?? null,
-        third_party_property_id: input.propertyId || null, property_name: input.propertyName || null,
-        negotiation_id: input.negotiationId ?? null,
-        status: "ativa",
+      // Escrita via repositório (Etapa 5c). created_by/follow_up_at só entram quando
+      // presentes — o builder do repo espelha o payload inline anterior.
+      const simInput: SimulationWriteInput = {
+        accountId, developmentId,
+        unitId: input.unitId || null,
+        clientId: input.clientId, brokerId: effectiveBrokerId,
+        valorTotal: input.valorTotal, entradaPercentual: input.entradaPercentual, entradaValor: input.entradaValor,
+        parcelasQuantidade: input.parcelasQuantidade, parcelasValor: input.parcelasValor,
+        balaoQuantidade: input.balaoQuantidade ?? null, balaoValor: input.balaoValor ?? null,
+        permutaValor: input.permutaValor ?? null, permutaDescricao: input.permutaDescricao ?? null,
+        thirdPartyPropertyId: input.propertyId || null, propertyName: input.propertyName || null,
+        negotiationId: input.negotiationId ?? null,
+        createdBy: userId, followUpAt: input.followUpAt ?? null,
       };
-      if (userId) payload.created_by = userId;
-      if (input.followUpAt) payload.follow_up_at = input.followUpAt.toISOString();
 
       let savedId: string | null = null;
       if (input.editingSimulationId) {
-        const { error } = await supabase.from("pipeline_simulations").update(payload).eq("id", input.editingSimulationId);
-        if (error) throw error;
+        await updateSimulation(input.editingSimulationId, simInput);
         savedId = input.editingSimulationId;
       } else {
-        const { data: inserted, error } = await supabase.from("pipeline_simulations").insert(payload).select("id").single();
-        if (error) throw error;
-        savedId = inserted?.id ?? null;
+        savedId = await createSimulation(simInput);
       }
 
       setSucesso(input.editingSimulationId ? "Simulação atualizada!" : "Simulação salva com sucesso!");
@@ -92,16 +92,15 @@ export function useEnviarParaPipeline(accountId: string | null, developmentId: s
       }
 
       const effectiveBrokerId = isBroker ? brokerId : input.brokerId;
-      const payload: Record<string, unknown> = {
-        account_id: accountId, development_id: developmentId,
-        unit_id: input.unitId || null, client_id: input.clientId,
-        broker_id: effectiveBrokerId, status: "IN_PROGRESS",
-      };
-      if (userId) payload.owner_profile_id = userId;
-
-      console.log("[NEXA] iniciarNegociacao payload:", payload);
-      const { error: nErr } = await supabase.from("negotiations").insert(payload);
-      if (nErr) throw nErr;
+      // Escrita via repositório (Etapa 5c). createNegotiationForConversion grava status
+      // IN_PROGRESS + owner (quando presente); sem unidade vira negociação sem unit_id.
+      await createNegotiationForConversion({
+        accountId, developmentId,
+        unitId: input.unitId || null,
+        clientId: input.clientId,
+        brokerId: effectiveBrokerId,
+        ownerProfileId: userId,
+      });
 
       setSucesso("Negociação criada com sucesso!");
       setTimeout(() => navigate("/pipeline"), 1500);

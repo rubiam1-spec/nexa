@@ -5,6 +5,7 @@ import { useAccount } from "../../../app/contexts/AccountContext";
 import { useDevelopment } from "../../../app/contexts/DevelopmentContext";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
 import { supabase } from "../../../infra/supabase/supabaseClient";
+import { removeUnitQueueEntry } from "../../../infra/repositories/unitQueueSupabaseRepository";
 import { NegotiationStatus } from "../../../domain/negociacao/NegotiationStatus";
 import { getNegotiationStatusLabel } from "../../../domain/negociacao/NegotiationStatusLabel";
 import NexaBadge from "../../../shared/components/NexaBadge";
@@ -253,7 +254,11 @@ export default function BrokerDashboard() {
   }, [userId]);
   function dismissPromotion(id: string) {
     if (!supabase) return;
-    supabase.from("unit_queue_entries").update({ status: "removed", removed_at: new Date().toISOString(), removed_reason: "desistiu" }).eq("id", id).then(() => setPromotions((p) => p.filter((x) => x.id !== id)));
+    // Escrita via repositório (Etapa 5c). Mantém o comportamento: remove o card
+    // sempre (sucesso ou erro), sem propagar rejeição.
+    void removeUnitQueueEntry(id, "desistiu")
+      .catch(() => {})
+      .finally(() => setPromotions((p) => p.filter((x) => x.id !== id)));
   }
 
   const saudacao = useMemo(() => {

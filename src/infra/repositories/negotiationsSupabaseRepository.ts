@@ -188,7 +188,7 @@ export async function touchNegotiation(negotiationId: string) {
 export async function createNegotiationForConversion(input: {
   accountId: string;
   developmentId: string;
-  unitId: string;
+  unitId: string | null;
   clientId: string | null;
   brokerId: string | null;
   ownerProfileId: string | null;
@@ -229,4 +229,69 @@ export async function markNegotiationLost(
     })
     .eq("id", negotiationId);
   if (error) throw new Error(`Failed to mark negotiation lost: ${error.message}`);
+}
+
+// Cria negociação a partir da conversão de um CLIENTE (ClientDetailPage — Etapa 5c).
+// Sem unit_id (contato sem unidade ainda); carrega origem/notes exatamente como o
+// insert inline. Status OPEN da fonte única. Retorna o id para o redirecionamento.
+export async function createNegotiationFromClient(input: {
+  accountId: string;
+  developmentId: string;
+  clientId: string;
+  brokerId: string | null;
+  ownerProfileId: string | null;
+  origem: string | null;
+  notes: string | null;
+}): Promise<string | null> {
+  const supabase = getSupabaseClientOrThrow("negotiations repository");
+  const { data, error } = await supabase
+    .from("negotiations")
+    .insert({
+      account_id: input.accountId,
+      development_id: input.developmentId,
+      client_id: input.clientId,
+      broker_id: input.brokerId,
+      owner_profile_id: input.ownerProfileId,
+      status: enumToDbStatus[NegotiationStatus.OPEN],
+      origem: input.origem,
+      notes: input.notes,
+    })
+    .select("id")
+    .single();
+  if (error) throw new Error(`Failed to create negotiation from client: ${error.message}`);
+  return (data as { id: string } | null)?.id ?? null;
+}
+
+// Cascata: marca como LOST as negociações ATIVAS (OPEN/IN_PROGRESS — conjunto derivado
+// do enum, sem literais) de um cliente ao arquivá-lo (ClientDetailPage — Etapa 5c).
+// Move a regra "quais negociações" para o repositório; lost_at_stage = status anterior
+// por linha (preservado exatamente como o loop inline). Retorna quantas foram afetadas.
+export async function markClientActiveNegotiationsLost(
+  clientId: string,
+  accountId: string,
+  reason: string,
+): Promise<number> {
+  const supabase = getSupabaseClientOrThrow("negotiations repository");
+  const { data: active, error: readErr } = await supabase
+    .from("negotiations")
+    .select("id, status")
+    .eq("client_id", clientId)
+    .eq("account_id", accountId)
+    .in("status", [NegotiationStatus.OPEN, NegotiationStatus.IN_PROGRESS]);
+  if (readErr) throw new Error(`Failed to read active negotiations for client: ${readErr.message}`);
+  const rows = (active ?? []) as { id: string; status: string }[];
+  const nowIso = new Date().toISOString();
+  for (const neg of rows) {
+    const { error } = await supabase
+      .from("negotiations")
+      .update({
+        status: enumToDbStatus[NegotiationStatus.LOST],
+        lost_reason: reason,
+        lost_at: nowIso,
+        lost_at_stage: neg.status,
+      })
+      .eq("id", neg.id);
+    if (error) throw new Error(`Failed to cascade negotiation ${neg.id} to LOST: ${error.message}`);
+  }
+  return rows.length;
 }

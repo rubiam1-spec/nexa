@@ -15,6 +15,7 @@ import { useScreen } from "../../../shared/hooks/useIsMobile";
 import { useCelebration, CelebrationToasts } from "../../../shared/components/Celebration";
 import { getPermissions } from "../../../shared/utils/permissoes";
 import { supabase } from "../../../infra/supabase/supabaseClient";
+import { deleteSimulation } from "../../../infra/repositories/pipelineSimulationsSupabaseRepository";
 import { timeAgo } from "../../../shared/utils/timeAgo";
 import { fetchMyQueuePositions } from "../../units/hooks/useUnitQueue";
 import CancelNegotiationModal from "../../../shared/components/CancelNegotiationModal";
@@ -630,8 +631,7 @@ export default function KanbanPage() {
               if (!supabase) return;
               setDeletingSim(true);
               try {
-                const { error: delErr } = await supabase.from("pipeline_simulations").delete().eq("id", simDetail.id);
-                if (delErr) throw delErr;
+                await deleteSimulation(simDetail.id);
                 celebrate("Simulação excluída");
                 setSimDetail(null);
                 onActionSuccess();

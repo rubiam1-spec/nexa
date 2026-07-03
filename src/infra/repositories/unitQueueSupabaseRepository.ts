@@ -56,11 +56,14 @@ export async function getUnitQueueEntriesByUnit(unitId: string) {
 
 export async function createUnitQueueEntry(input: {
   unitId: string;
-  negotiationId: string;
+  negotiationId: string | null;
   accountId: string;
   developmentId: string;
   requestedBy: string | null;
   position: number;
+  clientId?: string | null;
+  brokerId?: string | null;
+  reason?: string | null;
 }) {
   const supabase = getSupabaseClientOrThrow("unit queue repository");
 
@@ -72,6 +75,9 @@ export async function createUnitQueueEntry(input: {
       account_id: input.accountId,
       development_id: input.developmentId,
       requested_by: input.requestedBy,
+      client_id: input.clientId ?? null,
+      broker_id: input.brokerId ?? null,
+      reason: input.reason ?? null,
       status: toUnitQueueDb(UnitQueueStatus.WAITING),
       position: input.position,
       updated_at: new Date().toISOString(),
@@ -158,4 +164,38 @@ export async function promoteFirstWaiting(
     .maybeSingle();
   if (error) throw new Error(`Failed to promote unit queue entry: ${error.message}`);
   return data ? mapUnitQueueRow(data as UnitQueueRow) : null;
+}
+
+// ── Escritas da fila migradas do units/useUnitQueue e BrokerDashboard (Etapa 5c) ──
+// Status sempre da fonte única; campos removed_*/promoted_at/position preservam
+// EXATAMENTE o que as escritas cruas gravavam (sem updated_at, como no inline).
+
+// Promove uma entrada específica (por id) — a fila (useUnitQueue) já escolheu a 1ª.
+export async function promoteUnitQueueEntry(entryId: string): Promise<void> {
+  const supabase = getSupabaseClientOrThrow("unit queue repository");
+  const { error } = await supabase
+    .from("unit_queue_entries")
+    .update({ status: toUnitQueueDb(UnitQueueStatus.PROMOTED), promoted_at: new Date().toISOString() })
+    .eq("id", entryId);
+  if (error) throw new Error(`Failed to promote unit queue entry ${entryId}: ${error.message}`);
+}
+
+// Remove (desistência/expurgo) preservando removed_at + removed_reason.
+export async function removeUnitQueueEntry(entryId: string, reason: string): Promise<void> {
+  const supabase = getSupabaseClientOrThrow("unit queue repository");
+  const { error } = await supabase
+    .from("unit_queue_entries")
+    .update({ status: toUnitQueueDb(UnitQueueStatus.REMOVED), removed_at: new Date().toISOString(), removed_reason: reason })
+    .eq("id", entryId);
+  if (error) throw new Error(`Failed to remove unit queue entry ${entryId}: ${error.message}`);
+}
+
+// Reordenação da fila (a lógica de posição segue no hook; aqui só a escrita).
+export async function updateUnitQueuePosition(entryId: string, position: number): Promise<void> {
+  const supabase = getSupabaseClientOrThrow("unit queue repository");
+  const { error } = await supabase
+    .from("unit_queue_entries")
+    .update({ position })
+    .eq("id", entryId);
+  if (error) throw new Error(`Failed to update unit queue position ${entryId}: ${error.message}`);
 }

@@ -19,6 +19,7 @@ import { useEnviarParaPipeline } from "../hooks/useEnviarParaPipeline";
 import FollowUpModal from "../../../shared/components/FollowUpModal";
 import { createClient } from "../../../infra/repositories/clientsSupabaseRepository";
 import { supabase } from "../../../infra/supabase/supabaseClient";
+import { salvarGrupoSimulacao } from "../services/salvarGrupoSimulacao";
 import { useThirdPartyProperties, type ThirdPartyProperty } from "../../imoveis/hooks/useThirdPartyProperties";
 // ConfirmacaoNegociacaoModal removed — two-button flow replaces it
 import { getSaldoLabel } from "../utils/getSaldoLabel";
@@ -818,40 +819,29 @@ export default function SimuladorPage() {
           setShowFollowUp(false);
           // Save current unit (always)
           void salvarComoSimulacao({ ...montarInput(), followUpAt: date });
-          // Save additional group items as individual pipeline_simulations
+          // Salva o grupo multi-unidade via serviço (Etapa 5c — regra/escrita fora do JSX).
           if (groupItems.length > 0 && accountId && developmentId && supabase) {
-            for (const g of groupItems) {
-              await supabase.from("pipeline_simulations").insert({
-                account_id: accountId, development_id: developmentId,
-                unit_id: g.unitId, client_id: pdfClienteId || null, broker_id: pdfCorretorId || authenticatedProfile?.id || null,
-                created_by: authenticatedProfile?.id || null,
-                valor_total: g.valorTotal, entrada_percentual: g.entradaPct, entrada_valor: g.entradaValor,
-                parcelas_quantidade: g.parcelas, parcelas_valor: g.parcelaValor,
-                balao_quantidade: g.balaoQtd || null, balao_valor: g.balaoValor || null,
-                permuta_valor: g.permutaValor || null, permuta_descricao: g.permutaDesc || null,
-                status: "ativa",
-              }).then(() => {}, () => {});
-            }
-            // Save group metadata
-            await supabase.from("simulation_groups").insert({
-              account_id: accountId, development_id: developmentId,
-              client_id: pdfClienteId || null, broker_id: pdfCorretorId || authenticatedProfile?.id || null,
-              created_by: authenticatedProfile?.id || null,
+            const grupoBrokerId = pdfCorretorId || authenticatedProfile?.id || null;
+            const grupoCreatedBy = authenticatedProfile?.id || null;
+            const grupoClientId = pdfClienteId || null;
+            const currentItem = selectedUnit ? {
+              unitId: selectedUnit.id,
+              valorTotal: c.valorNegociado, entradaPct: Math.round(c.entradaPctEfetivo), entradaValor: c.entradaValor,
+              parcelas: sim.numeroParcelas, parcelaValor: c.parcelaValor,
+              balaoQtd: sim.balaoAtivo ? sim.balaoQuantidade : 0, balaoValor: sim.balaoAtivo ? c.balaoValorEfetivo : 0,
+              permutaValor: sim.permutaAtiva ? c.totalPermuta : 0, permutaDesc: "",
+            } : null;
+            await salvarGrupoSimulacao({
+              accountId, developmentId, clientId: grupoClientId, brokerId: grupoBrokerId, createdBy: grupoCreatedBy,
               title: `Simulação ${groupItems.length + (selectedUnit ? 1 : 0)} unidades`,
-              valor_total_grupo: groupTotalValor, status: "active",
-            }).select("id").single().then(async ({ data: grp }) => {
-              if (!grp) return;
-              const allItems = [...groupItems.map((g, i) => ({ ...g, ordem: i }))];
-              if (selectedUnit) allItems.push({ unitId: selectedUnit.id, label: `Q${selectedUnit.quadra}·L${selectedUnit.lote}`, valorTotal: c.valorNegociado, entradaPct: Math.round(c.entradaPctEfetivo), entradaValor: c.entradaValor, parcelas: sim.numeroParcelas, parcelaValor: c.parcelaValor, balaoQtd: sim.balaoAtivo ? sim.balaoQuantidade : 0, balaoValor: sim.balaoAtivo ? c.balaoValorEfetivo : 0, permutaValor: sim.permutaAtiva ? c.totalPermuta : 0, permutaDesc: "", ordem: allItems.length });
-              await supabase!.from("simulation_group_items").insert(allItems.map((g) => ({
-                group_id: grp.id, unit_id: g.unitId, valor_unidade: g.valorTotal,
-                entrada_percentual: g.entradaPct, entrada_valor: g.entradaValor,
-                parcelas_quantidade: g.parcelas, parcelas_valor: g.parcelaValor,
-                balao_quantidade: g.balaoQtd || null, balao_valor: g.balaoValor || null,
-                permuta_valor: g.permutaValor || null, permuta_descricao: g.permutaDesc || null,
-                ordem: g.ordem,
-              }))).then(() => {}, () => {});
-            }, () => {});
+              valorTotalGrupo: groupTotalValor,
+              groupItems: groupItems.map((g) => ({
+                unitId: g.unitId, valorTotal: g.valorTotal, entradaPct: g.entradaPct, entradaValor: g.entradaValor,
+                parcelas: g.parcelas, parcelaValor: g.parcelaValor,
+                balaoQtd: g.balaoQtd, balaoValor: g.balaoValor, permutaValor: g.permutaValor, permutaDesc: g.permutaDesc,
+              })),
+              currentItem,
+            });
             setGroupItems([]);
           }
         }}

@@ -107,7 +107,7 @@ Sem paginação (`NegotiationsPage.tsx:373`, renderiza todos os cards); busca/fi
 | 3 — Remover tolerância de leitura (Kanban) | ✅ | `67c5bec` |
 | 3b — Lógica estrita + tradutor de exibição de histórico | ✅ | `fad0988` |
 | 4 — Teste de contrato enum × banco (check:contracts) | ✅ | `065a417` |
-| 5 — Fechar funil de escrita (tudo via repositório) + CHECK da fila | ✅ **COMPLETA** (Bloco 1 `6e273a7` + Bloco 2 `20260703121000`/`121100`) | ver "Etapa 5 — Bloco 1/2" |
+| 5 — Fechar funil de escrita (tudo via repositório) + CHECK da fila | ✅ **COMPLETA** (Bloco 1 `6e273a7` + Bloco 2 `20260703121000`/`121100` + **5c: funil global**) | ver "Etapa 5 — Bloco 1/2/5c" |
 | 6 — Padronizar feedback de erro | ⏳ | |
 | 7 — Dinheiro fecha no centavo | ⏳ | |
 | 8 — Unificar permissões | ⏳ | |
@@ -143,6 +143,31 @@ Sem paginação (`NegotiationsPage.tsx:373`, renderiza todos os cards); busca/fi
 ### Pendências do importador (WIP) — itens de ação para quando aterrissar
 - **`sales`:** o importador DEVE derivar o status de `src/domain/status/sale.ts` (senão viola `sales_status_check`). Nota também na migration `20260702120000`.
 - **Bug latente `NegotiationDetailPage.tsx:1661`** (arquivo do WIP): `reservation.status === "ACTIVE"` (literal MAIÚSCULO) contra `reservations`, cujo canônico é `active` **minúsculo**. Como a ficha lê pelo repositório (que normaliza para o enum UPPER `ReservationStatus.ACTIVE`), hoje o ramo funciona por acaso — MAS é um literal solto e frágil. **Corrigir para `ReservationStatus.ACTIVE` (fonte única) quando o WIP aterrissar** consumindo `src/domain/status/`.
+
+## Etapa 5c — funil de escrita GLOBAL: 6 superfícies via repositórios (2026-07-03) — AUTORIZADO pelo Rubiam
+**Objetivo:** eliminar TODA escrita crua nas tabelas do fluxo fora de repositórios. O inventário (grep global) revelou **6 superfícies** (não 4): as 4 nomeadas + **`units/useUnitQueue.ts`** e **`dashboard/BrokerDashboard.tsx`** (fila) + a tabela **`simulation_group_items`**. Rubiam autorizou "tudo agora, 1 commit".
+
+**Métodos de repositório novos (status sempre da fonte única; testes em `__tests__/writeFunnelEtapa5c.test.ts`, 11 casos):**
+- `pipeline_simulations`: `createSimulation` / `updateSimulation` / `deleteSimulation` (builder grava `status "ativa"` canônico; `created_by`/`follow_up_at` só quando presentes — fiel ao inline).
+- **`simulationGroupsSupabaseRepository.ts` (novo):** `createSimulationGroup` (`status "active"`) + `createSimulationGroupItems`.
+- `negotiations`: `createNegotiationFromClient` (OPEN + origem/notes, sem unit_id); `markClientActiveNegotiationsLost` (varre `{OPEN,IN_PROGRESS}` derivado do enum, LOST + `lost_at_stage` por linha); `createNegotiationForConversion.unitId` alargado p/ `string|null`.
+- `unit_queue_entries`: `createUnitQueueEntry` expandido (`client_id`/`broker_id`/`reason`, `negotiationId` nullable); `promoteUnitQueueEntry` (+`promoted_at`); `removeUnitQueueEntry` (+`removed_at`/`removed_reason`); `updateUnitQueuePosition`. **Paridade mock** (`negociacoes/repositories/unitQueueRepository.ts`) mantida (guarda-corpo 5).
+
+**Diff lógico por superfície (antes → agora; efeitos preservados):**
+1. `useEnviarParaPipeline`: `pipeline_simulations` ins/upd → `createSimulation`/`updateSimulation`; `negotiations` ins → `createNegotiationForConversion` (IN_PROGRESS + owner).
+2. `SimuladorPage`: orquestração multi-tabela do grupo (sims em loop + `simulation_groups` + `simulation_group_items`, com `ordem`/unidade-atual-no-fim) **extraída do JSX** para `services/salvarGrupoSimulacao.ts` (guarda-corpo 4); best-effort preservado (falhas engolidas como os `.then(()=>{},()=>{})`).
+3. `KanbanPage`: `pipeline_simulations` del → `deleteSimulation`.
+4. `ClientDetailPage`: cascata LOST → `markClientActiveNegotiationsLost` (erro não aborta arquivamento, só loga); converter → `createNegotiationFromClient`; `clients`/`contact_interactions` seguem inline (fora do fluxo).
+5. `units/useUnitQueue`: entrar/sair/promover/remover → `createUnitQueueEntry`/`removeUnitQueueEntry`/`promoteUnitQueueEntry`/`updateUnitQueuePosition`. **Reordenação de posição continua no hook** (orquestração legítima em hook; escrita no repo).
+6. `BrokerDashboard`: dispensar promoção → `removeUnitQueueEntry` (remove o card sempre, engole rejeição — comportamento preservado).
+
+**Preservações estritas (guarda-corpo 6):** `|| null` (0→null) mantido nos campos de balão/permuta do grupo; `created_by`/`follow_up_at` omitidos quando ausentes; sem `updated_at` onde o inline não gravava.
+
+**GREP FINAL DECISIVO:** `.from(<tabela do fluxo>).insert/update/delete/upsert` fora de `infra/repositories/` = **apenas `NegotiationDetailPage.tsx` (`:934/:936/:1814`) — arquivo do WIP importador** (exceção listada). `third_party_properties` (3 syncs no `usePipelineActions`) permanece como pendência já registrada (tabela periférica sem repo).
+
+**DECLARAÇÃO FORMAL:** *governança 4 ("escrita só via repositório") vale GLOBALMENTE em `src/`, com as únicas exceções sendo o WIP do importador (fecha na aterrissagem) e `third_party_properties` (pendência própria registrada).*
+
+**Validação:** `tsc --noEmit` 0 erro; `npm run build` verde; `check:contracts` 9/9; suíte **796** (baseline 785 + 11 testes novos). **SEM merge, SEM deploy, SEM DDL.**
 
 ## Ciclo de produção — Fase 3 Etapas 3→5 no ar (2026-07-03) — AUTORIZADO pelo Rubiam
 **Merge:** `feat/atividades-mobile-onda1` → `main` por **fast-forward SEM squash** (`14f0fb8..adb3c33`), preservando todos os hashes registrados neste doc (67c5bec, 04b84da, 065a417, c1fe737, fad0988, 6c7439f, 6cf505c, 6e273a7, a10362e + backup `adb3c33`). Executado via `git worktree` para **não tocar** o WIP do importador (21 arquivos, seguem não-commitados no working tree). Push validado ff no remoto (`main == origin/main` antes e depois).
