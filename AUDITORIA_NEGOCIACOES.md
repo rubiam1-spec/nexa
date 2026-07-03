@@ -107,7 +107,7 @@ Sem paginação (`NegotiationsPage.tsx:373`, renderiza todos os cards); busca/fi
 | 3 — Remover tolerância de leitura (Kanban) | ✅ | `67c5bec` |
 | 3b — Lógica estrita + tradutor de exibição de histórico | ✅ | `fad0988` |
 | 4 — Teste de contrato enum × banco (check:contracts) | ✅ | `065a417` |
-| 5 — Fechar funil de escrita (tudo via repositório) | ⏳ | |
+| 5 — Fechar funil de escrita (tudo via repositório) | 🔵 Bloco 1 ✅ (`usePipelineActions`) / Bloco 2 ⏳ (CHECK `unit_queue`, aguarda Rubiam) | ver "Etapa 5 — Bloco 1" |
 | 6 — Padronizar feedback de erro | ⏳ | |
 | 7 — Dinheiro fecha no centavo | ⏳ | |
 | 8 — Unificar permissões | ⏳ | |
@@ -143,6 +143,49 @@ Sem paginação (`NegotiationsPage.tsx:373`, renderiza todos os cards); busca/fi
 ### Pendências do importador (WIP) — itens de ação para quando aterrissar
 - **`sales`:** o importador DEVE derivar o status de `src/domain/status/sale.ts` (senão viola `sales_status_check`). Nota também na migration `20260702120000`.
 - **Bug latente `NegotiationDetailPage.tsx:1661`** (arquivo do WIP): `reservation.status === "ACTIVE"` (literal MAIÚSCULO) contra `reservations`, cujo canônico é `active` **minúsculo**. Como a ficha lê pelo repositório (que normaliza para o enum UPPER `ReservationStatus.ACTIVE`), hoje o ramo funciona por acaso — MAS é um literal solto e frágil. **Corrigir para `ReservationStatus.ACTIVE` (fonte única) quando o WIP aterrissar** consumindo `src/domain/status/`.
+
+## Etapa 5 — Bloco 1: funil de escrita do `usePipelineActions` (2026-07-03)
+**Objetivo do bloco:** toda escrita de `usePipelineActions.ts` nas tabelas do fluxo comercial passa a ir por método de repositório (governança #4 — hook não faz insert/update/delete direto). Muda o **caminho**, não o comportamento.
+
+**Métodos de repositório adicionados (fonte única de status, zero literal novo):**
+- `proposals`: `updateProposalDetails(id, {...})`, `rejectActiveProposals(negId)` (varre `PROPOSAL_ACTIVE_CANCELLABLE_DB_VALUES`).
+- `negotiations`: `touchNegotiation(id)`, `createNegotiationForConversion({...})`, `markNegotiationLost(id, {reason, lostAtStage})`.
+- `reservation_requests`: `cancelPendingRequests(negId)` (varre `RESERVATION_REQUEST_PENDING_DB`); `createReservationRequest.proposalId` alargado p/ `string|null`.
+- `reservations`: `createReservation.reservationRequestId` alargado p/ `string|null`.
+- `pipeline_simulations`: `updateSimulationStatus(id, PipelineSimulationStatus)` (vocabulário PT — valor do enum = valor do banco).
+
+**GUARDRAIL 1 (semântica de lote = domínio):** divergência encontrada em `rejectActiveProposals` — o filtro atual varre `{draft, sent, under_analysis}`, o "não-encerrado" canônico incluiria também `counter_proposal`. **Decisão do Rubiam: preservar exatamente (excluir `counter_proposal`)** → criado `PROPOSAL_ACTIVE_CANCELLABLE_DB_VALUES` na fonte única, com teste que prova o conjunto exato. `cancelPendingRequests` = `{requested}`, idêntico ao canônico `RESERVATION_REQUEST_PENDING_DB` (sem divergência).
+
+**GUARDRAIL 3 (owner na conversão):** `createNegotiationForConversion` preserva `owner_profile_id = userId` (perfil autenticado), exatamente como o fluxo definia. NULL do importador WIP é regra própria dele — **não** copiada.
+
+**Diff lógico por escrita (antes → agora; efeitos colaterais preservados em ordem):**
+1. `criarProposta` — proposta rascunho existente: `proposals.update(amount/entradas/parcelas)` → `updateProposalDetails`. | touch negociação: `negotiations.update(updated_at)` → `touchNegotiation`.
+2. `criarProposta` — nova: `proposals.insert(...)` → `createProposal({... createdBy:null, entradaTipo:"percentual"})`; touch → `touchNegotiation`. (auditoria + notificação a gestores inalteradas.)
+3. `solicitarReserva`: `reservation_requests.insert(status:"requested")` → `createReservationRequest({... requestedBy:null})`; touch → `touchNegotiation`. (notificação inalterada.)
+4. `aprovarReserva`: `reservations.insert(active)` → `createReservation(status:ACTIVE, startedAt/expiresAt:Date)`; `units.update("reserved")` → `updateUnitStatus(RESERVADO)`; `reservation_requests.update("approved")` → `updateReservationRequestStatus(APPROVED)`; touch → `touchNegotiation`. (2 logs + notificação ao solicitante inalterados.)
+5. `registrarVenda`: `sales.insert(awaiting_documents)` → `createSale(status:AWAITING_DOCUMENTS, createdBy:null)` (cast `null as string` p/ res/proposta — repo de vendas é WIP, ver pendência); `units.update("sold")` → `updateUnitStatus(VENDIDO)`; `negotiations.update("WON")` → `updateNegotiationStatus(WON)`; `reservations.update("converted")` → `updateReservationStatus(CONVERTED)`. (sync TPP + 3 logs + notificação global inalterados.)
+6. `converterSimulacao`: `negotiations.insert(IN_PROGRESS)` → `createNegotiationForConversion`; `pipeline_simulations.update("convertida")` → `updateSimulationStatus(CONVERTIDA)`. (sync TPP inalterado.)
+7. `cancelarNegociacao` (cascata): `proposals.update("rejected").in(...)` → `rejectActiveProposals`; `reservation_requests.update("cancelled").eq("requested")` → `cancelPendingRequests`; por reserva ativa: `reservations.update("cancelled")` → `updateReservationStatus(CANCELLED)` + `units.update("available")` → `updateUnitStatus(DISPONIVEL)` + `promoteQueueFirst`; `negotiations.update("LOST"+campos)` → `markNegotiationLost`. (log + sync TPP inalterados.)
+
+**Preservações de comportamento (fidelidade estrita, não melhorias):**
+- `createdBy`/`requestedBy` passados como **`null`** onde o insert inline não os setava (mantém o default do banco). Capturar o ator é melhoria latente — fora de escopo.
+- `updated_at` que o repo escreve = `now()` ≡ default do banco nos inserts que o omitiam.
+
+**GREP DECISIVO:** `usePipelineActions.ts` tem **zero** escrita direta em tabela do fluxo comercial. Restam nele apenas: `activity_logs` (helper de auditoria — fora do fluxo, permanece), `notifications` (fora do fluxo) e `third_party_properties` ×3 (tabela periférica **sem repositório** e ausente do §9 do CLAUDE.md).
+
+**Validação:** `tsc --noEmit` 0 erro; `npm run build` verde; `check:contracts` 8/8; suíte **784** (baseline 782 + 2 testes de lote novos em `src/infra/repositories/__tests__/pipelineBatchWrites.test.ts`, que provam a varredura exata do agrupamento canônico). Commit: **este commit** `fase3 etapa5a(2)`.
+
+**PENDÊNCIA — funil de escrita GLOBAL (fora do `usePipelineActions`, requer decisão de escopo do Rubiam):** o grep de tabelas do fluxo achou escritas diretas **pré-existentes** em 5 superfícies que **nunca** estiveram no mapa aprovado deste bloco:
+- `src/modules/simulador/hooks/useEnviarParaPipeline.ts` (:54 update / :58 insert `pipeline_simulations`; :103 insert `negotiations`) — **já documentado no header do `pipelineSimulationsSupabaseRepository.ts` como "sprint futura de consolidação"**.
+- `src/modules/simulador/pages/SimuladorPage.tsx` (:824 insert `pipeline_simulations`).
+- `src/modules/negociacoes/pages/KanbanPage.tsx` (:633 delete `pipeline_simulations`).
+- `src/modules/clientes/pages/ClientDetailPage.tsx` (:1133 update / :1177 insert `negotiations`).
+- `src/modules/negociacoes/pages/NegotiationDetailPage.tsx` (:934/:936/:1814 `negotiations`) — arquivo com **WIP importador** por cima; tratar junto do desembarque do WIP.
+  → Bloco 1 fecha o funil do **`usePipelineActions`** (deliverable nomeado). Fechar o funil **global** (CRUD de `pipeline_simulations` do simulador + escritas de negociação da ficha/cliente) é um **Bloco próprio**, a autorizar. Não tocado aqui (sem scope creep).
+- **`third_party_properties`** (3 syncs fire-and-forget no `usePipelineActions`): tabela periférica sem repo — criar `thirdPartyPropertiesSupabaseRepository` numa etapa futura.
+- **`sales` (WIP):** `createSale` mantém `reservationId`/`proposalId` non-nullable; venda direta (sem reserva/proposta) usa cast `null as string` no chamador. **Alargar a assinatura p/ `string|null` quando o repo de vendas (WIP) aterrissar.**
+
+**Contratação Supabase Pro + Vercel Pro — ADIADA:** de 03/07 para a **semana de 06/07/2026** (decisão do Rubiam). Até lá, mantém-se: **dump lógico obrigatório antes de qualquer DDL** + **dump extra no próximo ciclo de merge+deploy**. Bloco 2 (CHECK de `unit_queue`) **não inicia** sem autorização explícita do Rubiam.
 
 ## Etapa 3b — lógica estrita vs exibição de histórico (2026-07-03)
 - **DECISÃO DE PRODUTO:** o histórico (`negotiation_history`, `unit_history`) é **trilha de auditoria imutável**. **NÃO** normalizar via UPDATE. Quem **exibe** histórico usa tradutor de exibição **tolerante** (`src/shared/utils/formatHistoricalStatus.ts`); quem faz **lógica** usa só o **canônico** (`src/domain/status/`). `negotiation_history` contém legado UPPER de proposta/reserva (DRAFT, SENT, UNDER_ANALYSIS, REQUESTED, APPROVED, IN_PROGRESS + null) — preservado.

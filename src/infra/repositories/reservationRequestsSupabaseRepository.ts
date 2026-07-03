@@ -2,7 +2,7 @@ import {
   ReservationStatus,
   type ReservationStatus as ReservationStatusType,
 } from "../../domain/reserva/ReservationStatus";
-import { ReservationDbStatus, ReservationStatusFromDb } from "../../domain/status/reservation";
+import { ReservationDbStatus, ReservationStatusFromDb, RESERVATION_REQUEST_PENDING_DB } from "../../domain/status/reservation";
 import type { ReservationRequest } from "../../shared/types/reservationRequest";
 import { getSupabaseClientOrThrow, unwrapSupabaseListResult } from "./baseRepository";
 
@@ -107,7 +107,7 @@ export async function getReservationRequests(
 
 export async function createReservationRequest(input: {
   negotiationId: string;
-  proposalId: string;
+  proposalId: string | null;
   accountId: string;
   developmentId: string;
   unitId: string;
@@ -174,4 +174,16 @@ export async function updateReservationRequestStatus(
   }
 
   return mapReservationRequestRow(data as ReservationRequestRow);
+}
+
+// Cancela em lote as solicitações "pendentes" (= requested) de uma negociação
+// (cascata de cancelamento). Conjunto vem da fonte única (Fase 3 — Etapa 5).
+export async function cancelPendingRequests(negotiationId: string) {
+  const supabase = getSupabaseClientOrThrow("reservation requests repository");
+  const { error } = await supabase
+    .from("reservation_requests")
+    .update({ status: enumToDbStatus[ReservationStatus.CANCELLED], updated_at: new Date().toISOString() })
+    .eq("negotiation_id", negotiationId)
+    .eq("status", RESERVATION_REQUEST_PENDING_DB);
+  if (error) throw new Error(`Failed to cancel pending reservation requests: ${error.message}`);
 }

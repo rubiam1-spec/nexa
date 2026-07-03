@@ -168,3 +168,65 @@ export async function updateNegotiationStatus(
 
   return mapNegotiationRowToNegotiation(data as NegotiationRow);
 }
+
+// ── Migrações de escrita do usePipelineActions (Fase 3 — Etapa 5) ──
+
+// Toca updated_at (o "estágio" é derivado da existência de proposta/reserva).
+export async function touchNegotiation(negotiationId: string) {
+  const supabase = getSupabaseClientOrThrow("negotiations repository");
+  const { error } = await supabase
+    .from("negotiations")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", negotiationId);
+  if (error) throw new Error(`Failed to touch negotiation: ${error.message}`);
+}
+
+// Cria a negociação ao converter uma simulação. Preserva EXATAMENTE o payload de
+// usePipelineActions.converterSimulacao: owner_profile_id = dono definido pelo fluxo
+// (perfil autenticado); se imóvel de terceiro (TPP), development_id = null. Sem updated_at
+// (usa o default do banco, como o insert cru).
+export async function createNegotiationForConversion(input: {
+  accountId: string;
+  developmentId: string;
+  unitId: string;
+  clientId: string | null;
+  brokerId: string | null;
+  ownerProfileId: string | null;
+  thirdPartyPropertyId?: string | null;
+}) {
+  const supabase = getSupabaseClientOrThrow("negotiations repository");
+  const payload: Record<string, unknown> = {
+    account_id: input.accountId,
+    development_id: input.developmentId,
+    unit_id: input.unitId,
+    client_id: input.clientId,
+    broker_id: input.brokerId,
+    status: enumToDbStatus[NegotiationStatus.IN_PROGRESS],
+  };
+  if (input.ownerProfileId) payload.owner_profile_id = input.ownerProfileId;
+  if (input.thirdPartyPropertyId) {
+    payload.third_party_property_id = input.thirdPartyPropertyId;
+    payload.development_id = null;
+  }
+  const { error } = await supabase.from("negotiations").insert(payload);
+  if (error) throw new Error(`Failed to create negotiation (conversion): ${error.message}`);
+}
+
+// Marca a negociação como perdida (cascata de cancelamento), com os campos de perda.
+export async function markNegotiationLost(
+  negotiationId: string,
+  input: { reason: string; lostAtStage: string | null },
+) {
+  const supabase = getSupabaseClientOrThrow("negotiations repository");
+  const { error } = await supabase
+    .from("negotiations")
+    .update({
+      status: enumToDbStatus[NegotiationStatus.LOST],
+      lost_reason: input.reason,
+      lost_at: new Date().toISOString(),
+      lost_at_stage: input.lostAtStage,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", negotiationId);
+  if (error) throw new Error(`Failed to mark negotiation lost: ${error.message}`);
+}

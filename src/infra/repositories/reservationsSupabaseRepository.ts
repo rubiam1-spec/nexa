@@ -98,7 +98,7 @@ export async function getReservations(accountId: string, developmentId: string) 
 }
 
 export async function createReservation(input: {
-  reservationRequestId: string;
+  reservationRequestId: string | null;
   negotiationId: string;
   accountId: string;
   developmentId: string;

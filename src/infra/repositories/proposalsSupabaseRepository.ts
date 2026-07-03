@@ -1,5 +1,5 @@
 import { ProposalStatus, type ProposalStatus as ProposalStatusType } from "../../domain/proposta/ProposalStatus";
-import { ProposalDbStatus, ProposalStatusFromDb } from "../../domain/status/proposal";
+import { ProposalDbStatus, ProposalStatusFromDb, PROPOSAL_ACTIVE_CANCELLABLE_DB_VALUES } from "../../domain/status/proposal";
 import type { Proposal } from "../../shared/types/proposal";
 import { getSupabaseClientOrThrow, unwrapSupabaseListResult } from "./baseRepository";
 import { getSimulationById } from "./pipelineSimulationsSupabaseRepository";
@@ -217,6 +217,45 @@ export async function updateProposalStatus(
   }
 
   return mapProposalRowToProposal(data as ProposalRow);
+}
+
+// Edita os campos financeiros de uma proposta em rascunho (sem mudar status).
+// Migração da escrita crua de usePipelineActions.criarProposta (Fase 3 — Etapa 5).
+export async function updateProposalDetails(
+  proposalId: string,
+  input: {
+    amount: number;
+    entradaPercentual: number;
+    entradaValor: number;
+    parcelasQuantidade: number;
+    parcelasValor: number;
+  },
+) {
+  const supabase = getSupabaseClientOrThrow("proposals repository");
+  const { error } = await supabase
+    .from("proposals")
+    .update({
+      amount: input.amount,
+      entrada_percentual: input.entradaPercentual,
+      entrada_valor: input.entradaValor,
+      parcelas_quantidade: input.parcelasQuantidade,
+      parcelas_valor: input.parcelasValor,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", proposalId);
+  if (error) throw new Error(`Failed to update proposal details: ${error.message}`);
+}
+
+// Rejeita em lote as propostas "ativas canceláveis" de uma negociação (cascata de
+// cancelamento). O conjunto vem da fonte única (exclui counter_proposal por design).
+export async function rejectActiveProposals(negotiationId: string) {
+  const supabase = getSupabaseClientOrThrow("proposals repository");
+  const { error } = await supabase
+    .from("proposals")
+    .update({ status: enumToDbStatus[ProposalStatus.REJECTED], updated_at: new Date().toISOString() })
+    .eq("negotiation_id", negotiationId)
+    .in("status", PROPOSAL_ACTIVE_CANCELLABLE_DB_VALUES);
+  if (error) throw new Error(`Failed to reject active proposals: ${error.message}`);
 }
 
 // ── Engrenagem Comercial v1 — vínculo Simulation → Proposta ──

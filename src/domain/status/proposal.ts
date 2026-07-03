@@ -24,6 +24,15 @@ export const PROPOSAL_CLOSED_DB_VALUES = [
   ProposalDbStatus[ProposalStatus.ACCEPTED],
 ];
 
+// Propostas "ativas canceláveis" pela cascata de cancelamento de negociação.
+// Espelha EXATAMENTE o conjunto que usePipelineActions varria (Fase 3 — Etapa 5):
+// EXCLUI counter_proposal por design atual (decisão de produto — preservar comportamento).
+export const PROPOSAL_ACTIVE_CANCELLABLE_DB_VALUES = [
+  ProposalDbStatus[ProposalStatus.DRAFT],
+  ProposalDbStatus[ProposalStatus.SENT],
+  ProposalDbStatus[ProposalStatus.UNDER_ANALYSIS],
+];
+
 /** valor do banco → membro do enum. */
 export const ProposalStatusFromDb: Record<string, ProposalStatusType> = Object.fromEntries(
   Object.entries(ProposalDbStatus).map(([k, v]) => [v, k as ProposalStatusType]),

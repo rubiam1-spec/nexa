@@ -12,6 +12,7 @@
 // métodos é responsabilidade de uma sprint futura de consolidação.
 
 import type { PipelineSimulation } from "../../shared/types/simulation";
+import { PipelineSimulationStatus } from "../../domain/status/pipelineSimulation";
 import { getSupabaseClientOrThrow, unwrapSupabaseListResult } from "./baseRepository";
 
 type PipelineSimulationRow = {
@@ -132,6 +133,24 @@ export async function linkSimulationToNegotiation(
   if (error) {
     throw new Error(
       `Failed to link simulation ${simulationId} to negotiation: ${error.message}`,
+    );
+  }
+}
+
+// Atualiza status da simulação (vocabulário PT — o valor do enum É o valor do banco;
+// fonte única em domain/status/pipelineSimulation). Usado ao converter simulação → negociação.
+export async function updateSimulationStatus(
+  simulationId: string,
+  status: PipelineSimulationStatus,
+): Promise<void> {
+  const supabase = getSupabaseClientOrThrow("pipeline simulations repository");
+  const { error } = await supabase
+    .from("pipeline_simulations")
+    .update({ status })
+    .eq("id", simulationId);
+  if (error) {
+    throw new Error(
+      `Failed to update simulation ${simulationId} status: ${error.message}`,
     );
   }
 }
