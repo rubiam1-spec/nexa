@@ -1,4 +1,5 @@
 import { UnitQueueStatus, type UnitQueueStatus as UnitQueueStatusType } from "../../domain/fila/UnitQueueStatus";
+import { UnitQueueDbStatus, UnitQueueStatusFromDb, toUnitQueueDb } from "../../domain/status/unitQueue";
 import type { UnitQueueEntry } from "../../shared/types/unitQueueEntry";
 import { getSupabaseClientOrThrow, unwrapSupabaseListResult } from "./baseRepository";
 
@@ -15,17 +16,10 @@ type UnitQueueRow = {
   updated_at: string;
 };
 
-const dbStatusToEnum: Record<string, UnitQueueStatusType> = {
-  active: UnitQueueStatus.ACTIVE, ACTIVE: UnitQueueStatus.ACTIVE,
-  promoted: UnitQueueStatus.PROMOTED, PROMOTED: UnitQueueStatus.PROMOTED,
-  cancelled: UnitQueueStatus.CANCELLED, CANCELLED: UnitQueueStatus.CANCELLED,
-  waiting: UnitQueueStatus.WAITING, WAITING: UnitQueueStatus.WAITING,
-  removed: UnitQueueStatus.REMOVED, REMOVED: UnitQueueStatus.REMOVED,
-  expired: UnitQueueStatus.EXPIRED, EXPIRED: UnitQueueStatus.EXPIRED,
-};
-
+// Vocabulário centralizado em src/domain/status/unitQueue.ts (Fase 3 — Etapa 5).
+// Leitura estrita (só lowercase canônico); fallback seguro para não quebrar.
 function normalizeUnitQueueStatus(status: string): UnitQueueStatusType {
-  return dbStatusToEnum[status] ?? UnitQueueStatus.ACTIVE; // Graceful fallback, never throw
+  return UnitQueueStatusFromDb[status] ?? UnitQueueStatus.WAITING;
 }
 
 function mapUnitQueueRow(row: UnitQueueRow): UnitQueueEntry {
@@ -78,7 +72,7 @@ export async function createUnitQueueEntry(input: {
       account_id: input.accountId,
       development_id: input.developmentId,
       requested_by: input.requestedBy,
-      status: UnitQueueStatus.ACTIVE,
+      status: toUnitQueueDb(UnitQueueStatus.WAITING),
       position: input.position,
       updated_at: new Date().toISOString(),
     })
@@ -107,7 +101,7 @@ export async function updateUnitQueueEntryStatus(
   const { data, error } = await supabase
     .from("unit_queue_entries")
     .update({
-      status,
+      status: toUnitQueueDb(status),
       updated_at: new Date().toISOString(),
     })
     .eq("id", entryId)
@@ -125,4 +119,43 @@ export async function updateUnitQueueEntryStatus(
   }
 
   return mapUnitQueueRow(data as UnitQueueRow);
+}
+
+/**
+ * Promove a primeira entrada "na fila" (waiting) de uma unidade quando ela é
+ * liberada. Substitui a escrita crua do usePipelineActions (fix M1: filtrava
+ * "ACTIVE" — inexistente nos dados — e gravava UPPER; agora filtra o canônico
+ * "waiting" e grava "promoted" minúsculo, tudo via fonte única). Retorna a
+ * entrada promovida, ou null se a fila estiver vazia.
+ */
+export async function promoteFirstWaiting(
+  unitId: string,
+  accountId: string,
+): Promise<UnitQueueEntry | null> {
+  const supabase = getSupabaseClientOrThrow("unit queue repository");
+  const { data: first } = await supabase
+    .from("unit_queue_entries")
+    .select("id")
+    .eq("unit_id", unitId)
+    .eq("account_id", accountId)
+    .eq("status", UnitQueueDbStatus[UnitQueueStatus.WAITING])
+    .order("position", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (!first) return null;
+
+  const { data, error } = await supabase
+    .from("unit_queue_entries")
+    .update({
+      status: toUnitQueueDb(UnitQueueStatus.PROMOTED),
+      promoted_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", (first as { id: string }).id)
+    .select(
+      "id, unit_id, negotiation_id, account_id, development_id, requested_by, status, position, created_at, updated_at",
+    )
+    .maybeSingle();
+  if (error) throw new Error(`Failed to promote unit queue entry: ${error.message}`);
+  return data ? mapUnitQueueRow(data as UnitQueueRow) : null;
 }

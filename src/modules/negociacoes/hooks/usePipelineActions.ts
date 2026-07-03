@@ -6,6 +6,7 @@ import { useDevelopment } from "../../../app/contexts/DevelopmentContext";
 import { createNotificationWithEmail, createNotificationsWithEmail } from "../../../shared/utils/notificationHelper";
 import { formatDateBRT } from "../../../shared/utils/dateUtils";
 import { RESERVATION_ACTIVE_DB } from "../../../domain/status/reservation";
+import { promoteFirstWaiting } from "../../../infra/repositories/unitQueueSupabaseRepository";
 
 function logActivity(accountId: string, developmentId: string | null, entity: string, entityId: string, action: string, userId: string | null, details?: string) {
   if (!supabase) return;
@@ -195,20 +196,12 @@ export function usePipelineActions(accountId: string | null, developmentId: stri
   }, [accountId, developmentId, isBroker, brokerId, userId, onSuccess]);
 
   // Promote first from queue when a unit becomes available
+  // Fila via repositório (fonte única). Fix M1: antes filtrava "ACTIVE" (inexistente
+  // nos dados) e gravava UPPER — nunca promovia; agora promove a 1ª "waiting" → "promoted".
   const promoteQueueFirst = useCallback(async (unitId: string) => {
-    if (!supabase || !accountId) return;
+    if (!accountId) return;
     try {
-      const { data: queueEntries } = await supabase
-        .from("unit_queue_entries")
-        .select("id")
-        .eq("unit_id", unitId)
-        .eq("account_id", accountId)
-        .eq("status", "ACTIVE")
-        .order("position", { ascending: true })
-        .limit(1);
-      if (queueEntries && queueEntries.length > 0) {
-        await supabase.from("unit_queue_entries").update({ status: "PROMOTED", promoted_at: new Date().toISOString() }).eq("id", queueEntries[0].id);
-      }
+      await promoteFirstWaiting(unitId, accountId);
     } catch (queueErr) {
       console.error("[QUEUE] Erro ao promover:", queueErr);
     }
