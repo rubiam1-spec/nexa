@@ -16,6 +16,14 @@ export const ProposalDbStatus: Record<ProposalStatusType, string> = {
 
 export const PROPOSAL_DB_VALUES = Object.values(ProposalDbStatus);
 
+// Proposta encerrada (não requer mais ação): rejeitada/expirada/aceita — valores do banco.
+// Usado por leitores estritos do Kanban (Fase 3 — Etapa 3).
+export const PROPOSAL_CLOSED_DB_VALUES = [
+  ProposalDbStatus[ProposalStatus.REJECTED],
+  ProposalDbStatus[ProposalStatus.EXPIRED],
+  ProposalDbStatus[ProposalStatus.ACCEPTED],
+];
+
 /** valor do banco → membro do enum. */
 export const ProposalStatusFromDb: Record<string, ProposalStatusType> = Object.fromEntries(
   Object.entries(ProposalDbStatus).map(([k, v]) => [v, k as ProposalStatusType]),

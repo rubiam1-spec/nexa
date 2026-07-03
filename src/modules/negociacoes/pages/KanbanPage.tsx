@@ -6,6 +6,9 @@ import { useAccount } from "../../../app/contexts/AccountContext";
 import { useDevelopment } from "../../../app/contexts/DevelopmentContext";
 import { useAuth } from "../../../app/contexts/AuthContext";
 import { useKanbanData, type KanbanCard } from "../hooks/useKanbanData";
+import { NegotiationStatus } from "../../../domain/status/negotiation";
+import { RESERVATION_TERMINAL_DB_VALUES, RESERVATION_REQUEST_PENDING_DB } from "../../../domain/status/reservation";
+import { PROPOSAL_CLOSED_DB_VALUES } from "../../../domain/status/proposal";
 import { usePipelineActions } from "../hooks/usePipelineActions";
 import { CriarPropostaModal, SolicitarReservaModal, AprovarReservaModal, RegistrarVendaModal } from "../components/PipelineActionModals";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
@@ -46,15 +49,17 @@ const CAN_HOVER = typeof window !== "undefined" && typeof window.matchMedia === 
 
 function getEstagio(c: KanbanCard): EstagioId {
   if (c.isSimulacao) return "simulacao";
-  const s = (c.status || "").toUpperCase();
-  const us = (c.unitStatus || "").toLowerCase();
-  if (s === "LOST" || s === "CANCELLED") return "perdido";
-  if (s === "WON" || s === "SOLD" || us === "sold" || us === "vendido") return "venda";
-  if (c.reservaStatus && !["expirada", "cancelada", "convertida", "expired", "cancelled", "converted"].includes(c.reservaStatus)) return "reserva";
+  // Comparação estrita contra o canônico (Fase 3 — Etapa 3). negotiations no banco
+  // é UPPER (CHECK); reservas/propostas em lowercase (valores da fonte única).
+  const s = c.status || "";
+  const us = (c.unitStatus || "").toLowerCase(); // unitStatus: fora do escopo da Etapa 3
+  if (s === NegotiationStatus.LOST || s === NegotiationStatus.CANCELLED) return "perdido";
+  if (s === NegotiationStatus.WON || us === "sold" || us === "vendido") return "venda";
+  if (c.reservaStatus && !RESERVATION_TERMINAL_DB_VALUES.includes(c.reservaStatus)) return "reserva";
   if (us === "reserved" || us === "reservado") return "reserva";
-  if (c.reservaRequestId && (c.reservaRequestStatus === "pending" || c.reservaRequestStatus === "requested")) return "reserva";
+  if (c.reservaRequestId && c.reservaRequestStatus === RESERVATION_REQUEST_PENDING_DB) return "reserva";
   if (c.propostaId) return "proposta";
-  if (s === "IN_PROGRESS" || s === "OPEN") return "negociacao";
+  if (s === NegotiationStatus.IN_PROGRESS || s === NegotiationStatus.OPEN) return "negociacao";
   return "simulacao";
 }
 
@@ -373,7 +378,7 @@ export default function KanbanPage() {
                         {mobileTab === "simulacao" && c.isSimulacao ? <HoverBtn label={convertingSimId === c.id ? "..." : "Negociação"} cor="#4ADE80" onClick={() => { if (convertingSimId) return; setConvertingSimId(c.id); void converterSimulacao({ simulationId: c.id, unitId: c.unitId!, clientId: c.clienteId, brokerId: c.corretorId }).then(() => celebrate("Negociação iniciada!")).catch((e: unknown) => { console.error("[Kanban] converterSimulacao:", e); celebrateError("Falha ao iniciar negociação", e instanceof Error ? e.message : undefined); }).finally(() => setConvertingSimId(null)); }} /> : null}
                         {mobileTab === "negociacao" ? <HoverBtn label="Proposta" cor="#FBBF24" onClick={() => setModalProposta(c)} /> : null}
                         {mobileTab === "proposta" ? <HoverBtn label="Reserva" cor="#A78BFA" onClick={() => setModalReserva(c)} /> : null}
-                        {mobileTab === "reserva" ? <>{perms.canCompleteSale ? <HoverBtn label="Venda" cor="#4ADE80" onClick={() => setModalVenda(c)} /> : null}{perms.canApproveReservation && c.reservaRequestId && (c.reservaRequestStatus === "pending" || c.reservaRequestStatus === "requested") ? <HoverBtn label="Aprovar" cor="#A78BFA" onClick={() => setModalAprovar(c)} /> : null}</> : null}
+                        {mobileTab === "reserva" ? <>{perms.canCompleteSale ? <HoverBtn label="Venda" cor="#4ADE80" onClick={() => setModalVenda(c)} /> : null}{perms.canApproveReservation && c.reservaRequestId && c.reservaRequestStatus === RESERVATION_REQUEST_PENDING_DB ? <HoverBtn label="Aprovar" cor="#A78BFA" onClick={() => setModalAprovar(c)} /> : null}</> : null}
                         <span style={{ marginLeft: "auto", fontSize: 10, color: "#5C5647", fontFamily: MONO }}>{dRel(c.updatedAt)}</span>
                       </div>
                     ) : c.lostReason ? <div style={{ fontSize: 11, color: "#F87171", marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(61,58,48,0.06)" }}>Motivo: {c.lostReason}</div> : null}
@@ -501,7 +506,7 @@ export default function KanbanPage() {
                             {est.id === "simulacao" && c.isSimulacao ? <HoverBtn label={convertingSimId === c.id ? "Criando..." : "Iniciar negociação"} cor="#4ADE80" onClick={() => { if (convertingSimId) return; setConvertingSimId(c.id); void converterSimulacao({ simulationId: c.id, unitId: c.unitId!, clientId: c.clienteId, brokerId: c.corretorId }).then(() => celebrate("Negociação iniciada!")).catch((e: unknown) => { console.error("[Kanban] converterSimulacao:", e); celebrateError("Falha ao iniciar negociação", e instanceof Error ? e.message : undefined); }).finally(() => setConvertingSimId(null)); }} /> : null}
                             {est.id === "negociacao" ? <HoverBtn label="Criar proposta" cor="#FBBF24" onClick={() => setModalProposta(c)} /> : null}
                             {est.id === "proposta" ? <HoverBtn label="Solicitar reserva" cor="#A78BFA" onClick={() => setModalReserva(c)} /> : null}
-                            {est.id === "reserva" ? <>{perms.canCompleteSale ? <HoverBtn label="Registrar venda" cor="#4ADE80" onClick={() => setModalVenda(c)} /> : null}{perms.canApproveReservation && c.reservaRequestId && (c.reservaRequestStatus === "pending" || c.reservaRequestStatus === "requested") ? <HoverBtn label="Aprovar" cor="#A78BFA" onClick={() => setModalAprovar(c)} /> : null}</> : null}
+                            {est.id === "reserva" ? <>{perms.canCompleteSale ? <HoverBtn label="Registrar venda" cor="#4ADE80" onClick={() => setModalVenda(c)} /> : null}{perms.canApproveReservation && c.reservaRequestId && c.reservaRequestStatus === RESERVATION_REQUEST_PENDING_DB ? <HoverBtn label="Aprovar" cor="#A78BFA" onClick={() => setModalAprovar(c)} /> : null}</> : null}
                             {/* ⋮ menu trigger (portal rendered at page bottom) */}
                             <div style={{ marginLeft: "auto" }}>
                               <button type="button" onClick={(e) => {
@@ -570,8 +575,8 @@ export default function KanbanPage() {
       isOpen={!!cancelTarget}
       onClose={() => setCancelTarget(null)}
       negotiation={{ id: cancelTarget?.id ?? "", clientName: cancelTarget?.clienteNome || "Cliente", unitLabel: `Q${cancelTarget?.quadra || "?"} · L${cancelTarget?.lote || "?"}`, value: cancelTarget?.valor ?? 0, brokerName: cancelTarget?.corretorNome || "—" }}
-      hasActiveReservation={!!cancelTarget?.reservaStatus && !["cancelada", "expirada", "convertida", "cancelled", "expired", "converted"].includes(cancelTarget.reservaStatus)}
-      hasActiveProposals={!!cancelTarget?.propostaStatus && !["REJECTED", "EXPIRED", "ACCEPTED", "rejected", "expired", "accepted"].includes(cancelTarget.propostaStatus)}
+      hasActiveReservation={!!cancelTarget?.reservaStatus && !RESERVATION_TERMINAL_DB_VALUES.includes(cancelTarget.reservaStatus)}
+      hasActiveProposals={!!cancelTarget?.propostaStatus && !PROPOSAL_CLOSED_DB_VALUES.includes(cancelTarget.propostaStatus)}
       onConfirm={async (reason) => { if (!cancelTarget) return; try { await cancelarNegociacao({ negotiationId: cancelTarget.id, unitId: cancelTarget.unitId!, reason, currentStatus: cancelTarget.status }); celebrate("Negociação cancelada", `${cancelTarget.clienteNome || "Cliente"} — Q${cancelTarget.quadra}·L${cancelTarget.lote}`); setCancelTarget(null); } catch (e) { console.error("[Kanban] cancelarNegociacao:", e); celebrateError("Falha ao cancelar negociação", e instanceof Error ? e.message : undefined); } }}
     />
 

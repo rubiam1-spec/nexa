@@ -5,6 +5,7 @@ import { useAccount } from "../../../app/contexts/AccountContext";
 import { useDevelopment } from "../../../app/contexts/DevelopmentContext";
 import { createNotificationWithEmail, createNotificationsWithEmail } from "../../../shared/utils/notificationHelper";
 import { formatDateBRT } from "../../../shared/utils/dateUtils";
+import { RESERVATION_ACTIVE_DB } from "../../../domain/status/reservation";
 
 function logActivity(accountId: string, developmentId: string | null, entity: string, entityId: string, action: string, userId: string | null, details?: string) {
   if (!supabase) return;
@@ -218,7 +219,7 @@ export function usePipelineActions(accountId: string | null, developmentId: stri
     if (!supabase || !accountId) throw new Error("Contexto invalido");
     await supabase.from("proposals").update({ status: "rejected", updated_at: new Date().toISOString() }).eq("negotiation_id", input.negotiationId).in("status", ["draft", "sent", "under_analysis"]);
     await supabase.from("reservation_requests").update({ status: "cancelled", updated_at: new Date().toISOString() }).eq("negotiation_id", input.negotiationId).eq("status", "requested");
-    const { data: activeRes } = await supabase.from("reservations").select("id, unit_id").eq("negotiation_id", input.negotiationId).in("status", ["active", "ativa", "ACTIVE"]);
+    const { data: activeRes } = await supabase.from("reservations").select("id, unit_id").eq("negotiation_id", input.negotiationId).eq("status", RESERVATION_ACTIVE_DB);
     if (activeRes && activeRes.length > 0) {
       for (const r of activeRes) {
         await supabase.from("reservations").update({ status: "cancelled" }).eq("id", r.id);

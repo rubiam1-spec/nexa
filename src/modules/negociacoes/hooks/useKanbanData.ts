@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../../infra/supabase/supabaseClient";
+import { RESERVATION_ACTIVE_DB } from "../../../domain/status/reservation";
+import { PipelineSimulationStatus } from "../../../domain/status/pipelineSimulation";
 
 export interface KanbanCard {
   id: string;
@@ -61,7 +63,7 @@ export function useKanbanData(accountId: string | null, developmentId: string | 
           const propostas = Array.isArray(n.proposals) ? n.proposals as Record<string, unknown>[] : [];
           const ultimaProposta = propostas.sort((a, b) => new Date(b.created_at as string).getTime() - new Date(a.created_at as string).getTime())[0] ?? null;
           const reservas = Array.isArray(n.reservations) ? n.reservations as Record<string, unknown>[] : [];
-          const reservaAtiva = reservas.find((r) => r.status === "active" || r.status === "ativa" || r.status === "ACTIVE") ?? reservas[0] ?? null;
+          const reservaAtiva = reservas.find((r) => r.status === RESERVATION_ACTIVE_DB) ?? reservas[0] ?? null;
           return {
             id: n.id as string,
             status: (n.status as string) ?? "",
@@ -93,7 +95,7 @@ export function useKanbanData(accountId: string | null, developmentId: string | 
         // Also fetch pipeline_simulations (filtered by profile)
         let simCards: KanbanCard[] = [];
         try {
-          let simQuery = supabase!.from("pipeline_simulations").select("id, created_at, updated_at, unit_id, client_id, broker_id, created_by, valor_total, third_party_property_id, property_name, clients ( name ), units ( quadra, lote, valor, status ), brokers ( name )").eq("account_id", accountId).in("status", ["ativa", "draft"]);
+          let simQuery = supabase!.from("pipeline_simulations").select("id, created_at, updated_at, unit_id, client_id, broker_id, created_by, valor_total, third_party_property_id, property_name, clients ( name ), units ( quadra, lote, valor, status ), brokers ( name )").eq("account_id", accountId).eq("status", PipelineSimulationStatus.ATIVA);
           if (developmentId) simQuery = simQuery.or(`development_id.eq.${developmentId},development_id.is.null`);
           if (filters?.brokerId) simQuery = simQuery.eq("broker_id", filters.brokerId);
           if (filters?.ownerProfileId) simQuery = simQuery.eq("created_by", filters.ownerProfileId);

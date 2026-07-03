@@ -25,6 +25,16 @@ export const RESERVATION_REQUEST_DB_VALUES = [
 
 export const RESERVATION_DB_VALUES = Object.values(ReservationDbStatus);
 
+// Valores canônicos (banco) usados por leitores estritos do Kanban (Fase 3 — Etapa 3).
+export const RESERVATION_ACTIVE_DB = ReservationDbStatus[ReservationStatus.ACTIVE];
+export const RESERVATION_REQUEST_PENDING_DB = ReservationDbStatus[ReservationStatus.REQUESTED];
+/** Reserva encerrada (não-ativa): cancelada/expirada/convertida — valores do banco. */
+export const RESERVATION_TERMINAL_DB_VALUES = [
+  ReservationDbStatus[ReservationStatus.CANCELLED],
+  ReservationDbStatus[ReservationStatus.EXPIRED],
+  ReservationDbStatus[ReservationStatus.CONVERTED],
+];
+
 /** valor do banco → membro do enum. */
 export const ReservationStatusFromDb: Record<string, ReservationStatusType> = Object.fromEntries(
   Object.entries(ReservationDbStatus).map(([k, v]) => [v, k as ReservationStatusType]),

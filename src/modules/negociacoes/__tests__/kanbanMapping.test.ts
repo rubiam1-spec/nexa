@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
 import type { KanbanCard } from "../hooks/useKanbanData";
+import { RESERVATION_ACTIVE_DB, RESERVATION_TERMINAL_DB_VALUES } from "../../../domain/status/reservation";
+import { PROPOSAL_CLOSED_DB_VALUES } from "../../../domain/status/proposal";
+import { NegotiationStatus } from "../../../domain/status/negotiation";
 
 function mapRow(n: Record<string, unknown>): KanbanCard {
   const client = Array.isArray(n.clients) ? n.clients[0] : n.clients;
@@ -8,7 +11,7 @@ function mapRow(n: Record<string, unknown>): KanbanCard {
   const propostas = Array.isArray(n.proposals) ? n.proposals as Record<string, unknown>[] : [];
   const ultimaProposta = propostas.sort((a, b) => new Date(b.created_at as string).getTime() - new Date(a.created_at as string).getTime())[0] ?? null;
   const reservas = Array.isArray(n.reservations) ? n.reservations as Record<string, unknown>[] : [];
-  const reservaAtiva = reservas.find((r) => r.status === "ativa" || r.status === "ACTIVE") ?? reservas[0] ?? null;
+  const reservaAtiva = reservas.find((r) => r.status === RESERVATION_ACTIVE_DB) ?? reservas[0] ?? null;
   return {
     id: n.id as string,
     status: (n.status as string) ?? "",
@@ -93,17 +96,17 @@ describe("Kanban — mapeamento de dados Supabase → KanbanCard", () => {
       client_id: null, unit_id: null, broker_id: null,
       clients: null, units: null, brokers: null,
       proposals: [
-        { id: "p-old", status: "REJECTED", created_at: "2026-04-01T10:00:00Z" },
-        { id: "p-new", status: "SENT", created_at: "2026-04-10T10:00:00Z" },
+        { id: "p-old", status: "rejected", created_at: "2026-04-01T10:00:00Z" },
+        { id: "p-new", status: "sent", created_at: "2026-04-10T10:00:00Z" },
       ],
       reservations: [],
       lost_reason: null, score: null, stage_changed_at: null,
     });
     expect(card.propostaId).toBe("p-new");
-    expect(card.propostaStatus).toBe("SENT");
+    expect(card.propostaStatus).toBe("sent");
   });
 
-  it("seleciona reserva ACTIVE sobre outras", () => {
+  it("seleciona reserva active (canônico) sobre outras", () => {
     const card = mapRow({
       id: "neg-5", status: "IN_PROGRESS",
       created_at: "2026-04-10", updated_at: "2026-04-10",
@@ -111,12 +114,30 @@ describe("Kanban — mapeamento de dados Supabase → KanbanCard", () => {
       clients: null, units: null, brokers: null,
       proposals: [],
       reservations: [
-        { id: "r-exp", status: "EXPIRED", expires_at: "2026-04-01" },
-        { id: "r-act", status: "ACTIVE", expires_at: "2026-04-20" },
+        { id: "r-exp", status: "expired", expires_at: "2026-04-01" },
+        { id: "r-act", status: "active", expires_at: "2026-04-20" },
       ],
       lost_reason: null, score: null, stage_changed_at: null,
     });
-    expect(card.reservaStatus).toBe("ACTIVE");
+    expect(card.reservaStatus).toBe("active");
+    expect(card.reservaExpiresAt).toBe("2026-04-20");
+  });
+
+  it("leitura estrita: variante não-canônica (ATIVA/ACTIVE) NÃO é selecionada como ativa", () => {
+    const card = mapRow({
+      id: "neg-strict", status: "IN_PROGRESS",
+      created_at: "2026-04-10", updated_at: "2026-04-10",
+      client_id: null, unit_id: null, broker_id: null,
+      clients: null, units: null, brokers: null,
+      proposals: [],
+      reservations: [
+        { id: "r-pt", status: "ATIVA", expires_at: "2026-04-01" },
+        { id: "r-canon", status: "active", expires_at: "2026-04-20" },
+      ],
+      lost_reason: null, score: null, stage_changed_at: null,
+    });
+    // O find estrito casa só "active"; "ATIVA"/"ACTIVE" não são reconhecidos.
+    expect(card.reservaStatus).toBe("active");
     expect(card.reservaExpiresAt).toBe("2026-04-20");
   });
 
@@ -163,17 +184,18 @@ describe("Kanban — mapeamento de dados Supabase → KanbanCard", () => {
 describe("Kanban — agrupamento por estágio", () => {
   const cards: KanbanCard[] = [
     { id: "1", status: "OPEN", propostaStatus: null, reservaStatus: null } as KanbanCard,
-    { id: "2", status: "IN_PROGRESS", propostaStatus: "SENT", reservaStatus: null } as KanbanCard,
-    { id: "3", status: "IN_PROGRESS", propostaStatus: "ACCEPTED", reservaStatus: "ACTIVE" } as KanbanCard,
-    { id: "4", status: "WON", propostaStatus: "ACCEPTED", reservaStatus: "CONVERTED" } as KanbanCard,
+    { id: "2", status: "IN_PROGRESS", propostaStatus: "sent", reservaStatus: null } as KanbanCard,
+    { id: "3", status: "IN_PROGRESS", propostaStatus: "accepted", reservaStatus: "active" } as KanbanCard,
+    { id: "4", status: "WON", propostaStatus: "accepted", reservaStatus: "converted" } as KanbanCard,
     { id: "5", status: "LOST", propostaStatus: null, reservaStatus: null } as KanbanCard,
   ];
 
+  // Estágio estrito (espelha getEstagio do KanbanPage): compara com o canônico da fonte única.
   function getStage(c: KanbanCard): string {
-    if (c.status === "WON") return "sale";
-    if (c.status === "LOST" || c.status === "CANCELLED") return "lost";
-    if (c.reservaStatus === "ACTIVE" || c.reservaStatus === "REQUESTED") return "reservation";
-    if (c.propostaStatus && !["REJECTED", "EXPIRED"].includes(c.propostaStatus)) return "proposal";
+    if (c.status === NegotiationStatus.WON) return "sale";
+    if (c.status === NegotiationStatus.LOST || c.status === NegotiationStatus.CANCELLED) return "lost";
+    if (c.reservaStatus && !RESERVATION_TERMINAL_DB_VALUES.includes(c.reservaStatus)) return "reservation";
+    if (c.propostaStatus && !PROPOSAL_CLOSED_DB_VALUES.includes(c.propostaStatus)) return "proposal";
     return "negotiation";
   }
 
@@ -191,5 +213,13 @@ describe("Kanban — agrupamento por estágio", () => {
   });
   it("card LOST = lost", () => {
     expect(getStage(cards[4])).toBe("lost");
+  });
+  it("estrito: reserva terminal (converted) NÃO conta como reservation", () => {
+    const c = { id: "6", status: "IN_PROGRESS", propostaStatus: null, reservaStatus: "converted" } as KanbanCard;
+    expect(getStage(c)).toBe("negotiation");
+  });
+  it("estrito: proposta encerrada (accepted) NÃO conta como proposal", () => {
+    const c = { id: "7", status: "IN_PROGRESS", propostaStatus: "accepted", reservaStatus: null } as KanbanCard;
+    expect(getStage(c)).toBe("negotiation");
   });
 });
