@@ -105,7 +105,7 @@ Sem paginação (`NegotiationsPage.tsx:373`, renderiza todos os cards); busca/fi
 | 1 — Fonte única de vocabulário (src/domain/status/) | ✅ | `f081a4a` |
 | 2 — CHECK constraints de status (dados já canônicos, sem normalização) | ✅ | `7c8063c` |
 | 3 — Remover tolerância de leitura (Kanban) | ✅ | `67c5bec` |
-| 4 — Teste de contrato enum × banco (check:contracts) | ⏳ | |
+| 4 — Teste de contrato enum × banco (check:contracts) | ✅ | `065a417` |
 | 5 — Fechar funil de escrita (tudo via repositório) | ⏳ | |
 | 6 — Padronizar feedback de erro | ⏳ | |
 | 7 — Dinheiro fecha no centavo | ⏳ | |
@@ -132,6 +132,16 @@ Sem paginação (`NegotiationsPage.tsx:373`, renderiza todos os cards); busca/fi
   - `src/shared/hooks/useCadenceAlerts.ts` — filtros `.in("status", ["IN_PROGRESS","OPEN","in_progress","open"])` (negociações) e `.in("status", ["ativa","active"])` (reservas).
   - **Recomendação:** tornar estritos numa etapa própria (ou dentro da 5), com teste dedicado — não embutir aqui. `NegotiationDetailPage.tsx:1661` tem `=== "ACTIVE"` (literal solto) mas é arquivo do WIP importador — corrigir quando o WIP aterrissar.
 - **Fora de escopo (não tocado):** tolerância de `unitStatus` (`vendido`/`reservado`) no `getEstagio` — units não está na lista de tabelas da Etapa 3.
+
+## Etapa 4 — contrato enum × banco (2026-07-03)
+- **Teste:** `src/domain/status/__contracts__/contracts.test.ts` prova, por tabela com CHECK, que os valores canônicos de `src/domain/status/` == o conjunto aceito pela constraint. 7 tabelas cobertas (negotiations, proposals, reservations, reservation_requests, sales, pipeline_simulations, **+ simulation_groups**, que também tem CHECK). `unit_queue` sem CHECK → só consistência interna + TODO Etapa 5. Commit `065a417`. `check:contracts` 8/8, suíte 794.
+- **Abordagem escolhida = manifesto estático** (`__contracts__/db-constraints.ts`), não parsing de migration. **Justificativa:** a CHECK de `negotiations` resulta de múltiplas migrations (create + `normalize_negotiation_status_uppercase`) e o formato varia (`IN(...)` nas migrations da Etapa 2, `ANY(ARRAY[...])` nas antigas) — um parser precisaria resolver precedência multi-migration + múltiplos formatos, mais frágil que um manifesto revisado.
+- **📌 REGRA DE MANUTENÇÃO DO CONTRATO (governança):** toda migration que **criar/alterar** um `*_status_check` **DEVE** atualizar o array correspondente em `src/domain/status/__contracts__/db-constraints.ts` **no mesmo commit**. Senão o `check:contracts` (na suíte padrão) falha. Regra também no header do arquivo.
+- **Prova de mordida:** alterar um valor de enum fez o teste falhar com mensagem `soNoCodigo/soNoBanco` clara (revertido, não commitado).
+
+### Pendências do importador (WIP) — itens de ação para quando aterrissar
+- **`sales`:** o importador DEVE derivar o status de `src/domain/status/sale.ts` (senão viola `sales_status_check`). Nota também na migration `20260702120000`.
+- **Bug latente `NegotiationDetailPage.tsx:1661`** (arquivo do WIP): `reservation.status === "ACTIVE"` (literal MAIÚSCULO) contra `reservations`, cujo canônico é `active` **minúsculo**. Como a ficha lê pelo repositório (que normaliza para o enum UPPER `ReservationStatus.ACTIVE`), hoje o ramo funciona por acaso — MAS é um literal solto e frágil. **Corrigir para `ReservationStatus.ACTIVE` (fonte única) quando o WIP aterrissar** consumindo `src/domain/status/`.
 
 ## Notas de escopo
 - `src/services/negotiationImport/*` e componentes `*Import*` são **WIP não-commitado, fora de produção** — não auditados a fundo.
