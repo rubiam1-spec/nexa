@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
+    "check:contracts": "vitest run src/domain/status/__contracts__",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:report": "vitest run --reporter=json --outputFile=test-report.json"
