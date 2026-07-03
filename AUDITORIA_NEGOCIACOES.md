@@ -144,6 +144,17 @@ Sem paginação (`NegotiationsPage.tsx:373`, renderiza todos os cards); busca/fi
 - **`sales`:** o importador DEVE derivar o status de `src/domain/status/sale.ts` (senão viola `sales_status_check`). Nota também na migration `20260702120000`.
 - **Bug latente `NegotiationDetailPage.tsx:1661`** (arquivo do WIP): `reservation.status === "ACTIVE"` (literal MAIÚSCULO) contra `reservations`, cujo canônico é `active` **minúsculo**. Como a ficha lê pelo repositório (que normaliza para o enum UPPER `ReservationStatus.ACTIVE`), hoje o ramo funciona por acaso — MAS é um literal solto e frágil. **Corrigir para `ReservationStatus.ACTIVE` (fonte única) quando o WIP aterrissar** consumindo `src/domain/status/`.
 
+## Ciclo de produção — Fase 3 Etapas 3→5 no ar (2026-07-03) — AUTORIZADO pelo Rubiam
+**Merge:** `feat/atividades-mobile-onda1` → `main` por **fast-forward SEM squash** (`14f0fb8..adb3c33`), preservando todos os hashes registrados neste doc (67c5bec, 04b84da, 065a417, c1fe737, fad0988, 6c7439f, 6cf505c, 6e273a7, a10362e + backup `adb3c33`). Executado via `git worktree` para **não tocar** o WIP do importador (21 arquivos, seguem não-commitados no working tree). Push validado ff no remoto (`main == origin/main` antes e depois).
+
+**Dump extra pré-deploy** (plano free, sem PITR): `supabase/backups/20260703_module_tables_pre_prod_deploy.json` — tabelas do fluxo comercial, contagens `{negotiations:4, proposals:2, reservation_requests:1, reservations:1, sales:0, units:187, unit_queue_entries:1, pipeline_simulations:9, simulation_groups:0}`. Commitado na feat ANTES do merge (viaja junto).
+
+**Deploy Vercel (integração git):** `dpl_9agCvVHqaX6WbtkcpgKWKw8D4YTi` — `source: git`, `target: production`, `githubCommitSha=adb3c33` (ref `main`), estado **READY** (build ~45s, região iad1), aliasado a **`app.nexacomercial.com.br`**. Sanidade: domínio de produção HTTP **200**; commit do deploy == tip da `main` (`adb3c33`). Deploy anterior de produção era `dpl_GD7b9iE…` (14f0fb8).
+
+**Delta no ar:** Etapa 3 (tolerância de leitura removida no Kanban) · 3b (lógica estrita + tradutor de histórico) · 4 (contrato enum×banco) · 5 Bloco 1 (funil de escrita via repositórios + fix M1 da fila) · 5 Bloco 2 (CHECK de `unit_queue_entries`, já aplicado em prod nas migrations). **Nenhum DDL neste ciclo** (o DDL da fila foi no Bloco 2, à parte); **nenhuma mudança de código** — só merge + deploy.
+
+**Rollback padrão (se necessário, só com autorização do Rubiam):** `git revert <sha> && git push` na `main` (integração git redeploya), ou promover deploy anterior `dpl_GD7b9iE…` no dashboard. Não executado.
+
 ## Etapa 5 — Bloco 1: funil de escrita do `usePipelineActions` (2026-07-03)
 **Objetivo do bloco:** toda escrita de `usePipelineActions.ts` nas tabelas do fluxo comercial passa a ir por método de repositório (governança #4 — hook não faz insert/update/delete direto). Muda o **caminho**, não o comportamento.
 
