@@ -105,6 +105,7 @@ Sem paginação (`NegotiationsPage.tsx:373`, renderiza todos os cards); busca/fi
 | 1 — Fonte única de vocabulário (src/domain/status/) | ✅ | `f081a4a` |
 | 2 — CHECK constraints de status (dados já canônicos, sem normalização) | ✅ | `7c8063c` |
 | 3 — Remover tolerância de leitura (Kanban) | ✅ | `67c5bec` |
+| 3b — Lógica estrita + tradutor de exibição de histórico | ✅ | `fad0988` |
 | 4 — Teste de contrato enum × banco (check:contracts) | ✅ | `065a417` |
 | 5 — Fechar funil de escrita (tudo via repositório) | ⏳ | |
 | 6 — Padronizar feedback de erro | ⏳ | |
@@ -142,6 +143,13 @@ Sem paginação (`NegotiationsPage.tsx:373`, renderiza todos os cards); busca/fi
 ### Pendências do importador (WIP) — itens de ação para quando aterrissar
 - **`sales`:** o importador DEVE derivar o status de `src/domain/status/sale.ts` (senão viola `sales_status_check`). Nota também na migration `20260702120000`.
 - **Bug latente `NegotiationDetailPage.tsx:1661`** (arquivo do WIP): `reservation.status === "ACTIVE"` (literal MAIÚSCULO) contra `reservations`, cujo canônico é `active` **minúsculo**. Como a ficha lê pelo repositório (que normaliza para o enum UPPER `ReservationStatus.ACTIVE`), hoje o ramo funciona por acaso — MAS é um literal solto e frágil. **Corrigir para `ReservationStatus.ACTIVE` (fonte única) quando o WIP aterrissar** consumindo `src/domain/status/`.
+
+## Etapa 3b — lógica estrita vs exibição de histórico (2026-07-03)
+- **DECISÃO DE PRODUTO:** o histórico (`negotiation_history`, `unit_history`) é **trilha de auditoria imutável**. **NÃO** normalizar via UPDATE. Quem **exibe** histórico usa tradutor de exibição **tolerante** (`src/shared/utils/formatHistoricalStatus.ts`); quem faz **lógica** usa só o **canônico** (`src/domain/status/`). `negotiation_history` contém legado UPPER de proposta/reserva (DRAFT, SENT, UNDER_ANALYSIS, REQUESTED, APPROVED, IN_PROGRESS + null) — preservado.
+- **Inventário (Parte A):** os 5 consumidores do util compartilhado `normalizeStatus` eram **todos status vivo (i)** — `CentralPage`, `CentralMobile`, `useCentral`, `useRelatorioIndividual`, `ClientDetailPage`. **Zero categoria (ii)**. Nenhum consumidor usa normalização para lógica sobre histórico.
+- **Feito:** `isNegotiationActive`/`NEGOTIATION_DONE_VALUES` movidos para `src/domain/status/negotiation.ts` (estrito); 5 consumidores migrados; `useCadenceAlerts` estrito; **`src/shared/utils/normalizeStatus.ts` + teste DELETADOS**; tradutor `formatHistoricalStatus` criado (com testes dos legados reais + fallback). Commit `fad0988`. Build verde, 0 TS, check:contracts OK, suíte 780.
+- **Nota:** o tradutor ainda **não tem consumidor** — o histórico de negociação não é renderizado como label hoje (só `unit_history` no `UnitsPanel`). Fica pronto para a timeline (WIP).
+- **PENDÊNCIA (fora de escopo, futura):** `vocabulário de units/unit_history fora de src/domain/status/` — `UnitsPanel` traduz `unit_history.toStatus` (DISPONIVEL/RESERVADO) via `getUnidadeStatusLabel`; avaliar levar o vocabulário de unidade para a fonte única + um contrato numa etapa futura.
 
 ## Notas de escopo
 - `src/services/negotiationImport/*` e componentes `*Import*` são **WIP não-commitado, fora de produção** — não auditados a fundo.
