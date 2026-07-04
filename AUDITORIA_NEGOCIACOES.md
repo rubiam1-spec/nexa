@@ -169,6 +169,17 @@ Sem paginação (`NegotiationsPage.tsx:373`, renderiza todos os cards); busca/fi
 
 **Validação:** `tsc --noEmit` 0 erro; `npm run build` verde; `check:contracts` 9/9; suíte **796** (baseline 785 + 11 testes novos). **SEM merge, SEM deploy, SEM DDL.**
 
+## Ciclo de produção — Etapa 5c no ar (2026-07-04) — AUTORIZADO pelo Rubiam
+**Merge:** `feat` → `main` por **fast-forward SEM squash** (`adb3c33..940c80f`), preservando os hashes (`1b83b18` doc do ciclo anterior + `91394ff` Etapa 5c + `940c80f` backup). Via `git worktree` — WIP do importador (21 arquivos) intocado. `main == origin/main` antes e depois.
+
+**Dump extra pré-deploy:** `supabase/backups/20260704_module_tables_pre_prod_deploy_etapa5c.json` — 10 tabelas do fluxo (units:187, pipeline_simulations:9, negotiations:4, simulation_groups:0, simulation_group_items:0, …). Commitado na feat antes do merge.
+
+**Deploy Vercel (integração git):** `dpl_JBbQqjK35vmkqZzgn7YN2SA65kTJ` — `source: git`, `target: production`, `githubCommitSha=940c80f`, estado **READY** (build ~44s, iad1), aliasado a **`app.nexacomercial.com.br`**. Sanidade: domínio HTTP **200**; commit do deploy == tip da `main`. Deploy anterior: `dpl_9agCvV…` (adb3c33).
+
+**Delta no ar:** Etapa 5c — funil de escrita GLOBAL (6 superfícies via repositórios; governança 4 global exceto WIP e TPP). **Nenhum DDL, nenhuma mudança de código** — só merge + deploy.
+
+**Rollback padrão (só com autorização):** `git revert 91394ff && git push` na `main`, ou promover `dpl_9agCvV…` (adb3c33) no dashboard. Não executado.
+
 ## Ciclo de produção — Fase 3 Etapas 3→5 no ar (2026-07-03) — AUTORIZADO pelo Rubiam
 **Merge:** `feat/atividades-mobile-onda1` → `main` por **fast-forward SEM squash** (`14f0fb8..adb3c33`), preservando todos os hashes registrados neste doc (67c5bec, 04b84da, 065a417, c1fe737, fad0988, 6c7439f, 6cf505c, 6e273a7, a10362e + backup `adb3c33`). Executado via `git worktree` para **não tocar** o WIP do importador (21 arquivos, seguem não-commitados no working tree). Push validado ff no remoto (`main == origin/main` antes e depois).
 
