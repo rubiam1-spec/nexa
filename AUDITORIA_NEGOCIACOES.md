@@ -349,3 +349,27 @@ Rollback confirmado: `count(*)=1`, `waiting=1` (nada persistido).
   ```
 - **Verificação pós-migração:** contagem `{PROPOSAL:1, RESERVATION:1, IN_PROGRESS:3}`; `3fe48512…`=`PROPOSAL`, `3fd28a03…`=`RESERVATION`; **2** eventos `NEGOTIATION_STAGE_CHANGED` (`from IN_PROGRESS`, `performed_by=null`); `negotiation_history` 8 → 10. As outras 3 negociações permanecem `IN_PROGRESS`. **Aplicado via MCP `execute_sql`. Sem merge, sem deploy, sem DDL.**
 - **Reversão (se preciso):** `UPDATE negotiations SET status='IN_PROGRESS' WHERE id IN (…);` + `DELETE FROM negotiation_history WHERE action='NEGOTIATION_STAGE_CHANGED';` (ver `_meta.restore_note` do dump).
+
+## Funil Unificado — Fase B (Bloco 1): fonte única + Kanban + Lista (2026-07-09)
+**Objetivo:** unificar Pipeline+Negociações sobre a MESMA fonte de verdade; fim da divergência de números entre telas. Estágio vem EXCLUSIVAMENTE de `negotiations.status` (Fase A).
+
+**Decisões de produto (aprovadas pelo Rubiam) — registradas:**
+- **Mapeamento estágio→coluna:** Em negociação = OPEN+IN_PROGRESS · Proposta = PROPOSAL · Reserva = RESERVATION · Venda = WON · Perdido = LOST+CANCELLED.
+- **Solicitação de reserva PENDENTE não muda coluna/estágio** (pedido ≠ marco; o marco é a aprovação). Aparece na faixa de decisões pendentes e como indicação no card ("solicitação aguardando aprovação"), sem mover o card.
+- **Simulações são PRÉ-FUNIL:** fora de contagens/VGV; faixa própria recolhível no Kanban.
+- **Rótulos canônicos:** Em negociação, Proposta, Reserva, Venda, Perdido (encerra "Ganhas/Aberta"). **Cores:** sprout `#4ADE80`, azul `#7DA7F4`, âmbar `#E8B45A`, verde `#34D399`, cinza `#706B5F`.
+
+**Feito (Bloco 1):**
+- `src/modules/negociacoes/board/stageColumn.ts` — PURO: `columnOfStatus`, `STAGES` (labels+cores), `FUNNEL_FLOW`. Fonte única do mapeamento/rótulos/cores.
+- `board/semaphore.ts` — PURO: `semaphoreOf` (verde=ação agendada · âmbar=sem próxima ação · vermelho=parada há Xd/prazo vencido). Degrada com honestidade (sem dado → âmbar).
+- `board/buildBoard.ts` — PURO: agrega os cards da fonte única em contadores/VGV por estágio, abertas, pendências e pré-funil. **Contadores calculados AQUI, uma vez** → números idênticos nas visões por construção.
+- `hooks/useNegotiationsBoard.ts` — FONTE ÚNICA (envolve `useKanbanData` + busca + `buildBoard`). `useKanbanData` ganhou `next_action_at/last_activity_at/follow_up_at` (semáforo).
+- **Kanban** refatorado: `getEstagio` **morreu**; colunas = mapeamento; card **enxuto de 3 linhas** (unidade+valor / cliente / semáforo) + indicação de solicitação pendente; **faixa de decisões pendentes** (topo) e **faixa de pré-funil recolhível** (rodapé). Todas as ações preservadas (hover + menu + modais + simDetail).
+- **Lista** refatorada: chips de estágio **com contadores** (no lugar das abas) + tabela (Negociação · Corretor · Estágio · Valor · Próxima ação/semáforo · Atualizada), ordenação valor/data. Consome a MESMA fonte (mata a divergência: antes o VGV vinha de `useUnits` separado; agora do mesmo join).
+- Testes: mapeamento, semáforo, `buildBoard` (coerência contador×agrupamento, abertas, pendências, pré-funil).
+
+**Realocação de ações (nada se perde):** a ficha (`NegotiationDetailPage`, camada `useNegotiationDetail`) já cobre todas as capacidades do Kanban + mais; o card enxuto mantém as ações no hover/menu, então nenhuma ação foi movida/perdida e a **ficha WIP não foi tocada**. `converterSimulacao` (exclusivo do Kanban) segue no modal de simulação da faixa pré-funil.
+
+**Pendências novas (fora do escopo desta fase):** metas como entidade (KPI "meta do mês" adiado); SLA configurável; alinhar sub-estágios (Fase E, precisa DDL). **BLOCO 2 (Funil) e BLOCO 3 (rota+menu) — a seguir.**
+
+**Validação:** `tsc` 0 erro; `vite build` verde; `check:contracts` 9/9; suíte **852** (baseline 833 + 19). Sem merge, sem deploy, sem DDL. WIP do importador fora do stage.

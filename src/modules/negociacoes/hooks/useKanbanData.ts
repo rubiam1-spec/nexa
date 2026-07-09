@@ -27,6 +27,9 @@ export interface KanbanCard {
   lostReason?: string | null;
   score?: number | null;
   stageChangedAt?: string | null;
+  nextActionAt?: string | null;
+  lastActivityAt?: string | null;
+  followUpAt?: string | null;
   thirdPartyPropertyId?: string | null;
   thirdPartyPropertyTitulo?: string | null;
   thirdPartyPropertyTipo?: string | null;
@@ -47,7 +50,7 @@ export function useKanbanData(accountId: string | null, developmentId: string | 
 
     let query = supabase!
       .from("negotiations")
-      .select("id, status, created_at, updated_at, unit_id, client_id, broker_id, lost_reason, score, stage_changed_at, third_party_property_id, clients ( name ), units ( quadra, lote, valor, status ), brokers ( name ), proposals ( id, status, created_at ), reservations ( id, status, expires_at ), reservation_requests ( id, status ), third_party_property:third_party_properties ( id, titulo, tipo )")
+      .select("id, status, created_at, updated_at, unit_id, client_id, broker_id, lost_reason, score, stage_changed_at, next_action_at, last_activity_at, follow_up_at, third_party_property_id, clients ( name ), units ( quadra, lote, valor, status ), brokers ( name ), proposals ( id, status, created_at ), reservations ( id, status, expires_at ), reservation_requests ( id, status ), third_party_property:third_party_properties ( id, titulo, tipo )")
       .eq("account_id", accountId).or(`development_id.eq.${developmentId},development_id.is.null`);
     if (filters?.brokerId) query = query.eq("broker_id", filters.brokerId);
     if (filters?.ownerProfileId) query = query.eq("owner_profile_id", filters.ownerProfileId);
@@ -87,6 +90,9 @@ export function useKanbanData(accountId: string | null, developmentId: string | 
             lostReason: n.lost_reason as string | null ?? null,
             score: n.score as number | null ?? null,
             stageChangedAt: n.stage_changed_at as string | null ?? null,
+            nextActionAt: n.next_action_at as string | null ?? null,
+            lastActivityAt: n.last_activity_at as string | null ?? null,
+            followUpAt: n.follow_up_at as string | null ?? null,
             thirdPartyPropertyId: n.third_party_property_id as string | null ?? null,
             thirdPartyPropertyTitulo: ((Array.isArray(n.third_party_property) ? n.third_party_property[0] : n.third_party_property) as Record<string, unknown> | null)?.titulo as string | null ?? null,
             thirdPartyPropertyTipo: ((Array.isArray(n.third_party_property) ? n.third_party_property[0] : n.third_party_property) as Record<string, unknown> | null)?.tipo as string | null ?? null,

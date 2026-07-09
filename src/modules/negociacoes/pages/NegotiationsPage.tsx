@@ -3,8 +3,13 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../../../app/contexts/AuthContext";
 import { useAccount } from "../../../app/contexts/AccountContext";
 import { UnidadeStatus } from "../../../domain/unidade/UnidadeStatus";
-import { getNegotiationStatusLabel } from "../../../domain/negociacao/NegotiationStatusLabel";
 import { useNegotiationsOverview } from "../hooks/useNegotiationsOverview";
+import { useNegotiationsBoard } from "../hooks/useNegotiationsBoard";
+import type { KanbanCard } from "../hooks/useKanbanData";
+import { STAGES, stageMeta, columnOfStatus, type BoardStage } from "../board/stageColumn";
+import { semaphoreOf, type SemaphoreLevel } from "../board/semaphore";
+import { NegotiationStatus, type NegotiationStatus as NegotiationStatusType } from "../../../domain/status/negotiation";
+import { RESERVATION_TERMINAL_DB_VALUES } from "../../../domain/status/reservation";
 import NegotiationImportWizard from "../components/NegotiationImportWizard";
 import { EmptyState } from "../../../shared/components/EmptyState";
 import { SearchableSelect } from "../../../shared/components/SearchableSelect";
@@ -13,32 +18,27 @@ import { getPermissions } from "../../../shared/utils/permissoes";
 import { formatCurrency } from "../../../shared/utils/masks";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
 
-const STATUS_PILLS = [
-  { value: "all", label: "Todos" },
-  { value: "OPEN", label: "Aberta" },
-  { value: "IN_PROGRESS", label: "Em negociação" },
-  { value: "PROPOSAL", label: "Proposta" },
-  { value: "RESERVATION", label: "Reserva" },
-  { value: "WON", label: "Ganhas" },
-  { value: "LOST", label: "Perdidas" },
-  { value: "CANCELLED", label: "Canceladas" },
-];
+// Rótulos/cores de estágio vêm da fonte única (board/stageColumn) — sem vocabulário
+// local. "Todas" + 5 estágios canônicos, cada chip com contador da fonte única.
+const SEMA_COLOR: Record<SemaphoreLevel, string> = { green: "#4ADE80", amber: "#E8B45A", red: "#F87171" };
 
-const STATUS_COLOR: Record<string, { fg: string; bg: string }> = {
-  OPEN: { fg: "#60A5FA", bg: "rgba(96,165,250,0.1)" },
-  IN_PROGRESS: { fg: "#4ADE80", bg: "rgba(74,222,128,0.1)" },
-  PROPOSAL: { fg: "#A78BFA", bg: "rgba(167,139,250,0.1)" },
-  RESERVATION: { fg: "#60A5FA", bg: "rgba(96,165,250,0.1)" },
-  WON: { fg: "#22C55E", bg: "rgba(34,197,94,0.1)" },
-  LOST: { fg: "#F87171", bg: "rgba(248,113,113,0.1)" },
-  CANCELLED: { fg: "#706B5F", bg: "rgba(112,107,95,0.1)" },
-};
-
-const daysSince = (d: string | Date) => {
-  const t = (d instanceof Date ? d : new Date(d)).getTime();
-  if (Number.isNaN(t)) return 0;
-  return Math.max(0, Math.floor((Date.now() - t) / 86400000));
-};
+function boardUnitLabel(c: KanbanCard): string {
+  if (c.thirdPartyPropertyId) return c.thirdPartyPropertyTitulo || "Imóvel";
+  if (c.quadra) return `Q${c.quadra} · L${c.lote}`;
+  return "Sem unidade";
+}
+function boardUnitDot(unitStatus: string | null): string {
+  const s = (unitStatus || "").toLowerCase();
+  if (s === "vendido" || s === "sold") return "#34D399";
+  if (s === "reservado" || s === "reserved") return "#E8B45A";
+  if (s === "em_negociacao") return "#7DA7F4";
+  return "#4ADE80";
+}
+const NEG_STATUS_VALUES = new Set<string>(Object.values(NegotiationStatus));
+function coerceStatus(raw: string): NegotiationStatusType {
+  const up = (raw || "").trim().toUpperCase();
+  return (NEG_STATUS_VALUES.has(up) ? up : NegotiationStatus.IN_PROGRESS) as NegotiationStatusType;
+}
 
 const btnPrimary: React.CSSProperties = {
   background: "var(--color-sprout)",
@@ -67,7 +67,7 @@ export default function NegotiationsPage() {
   const [searchParams] = useSearchParams();
   const preselectedUnitId = searchParams.get("unitId");
   const { authenticatedProfile } = useAuth();
-  const { isBroker, brokerId } = useAccount();
+  const { isBroker, brokerId, isConsultant, ownerProfileId } = useAccount();
   const screen = useScreen();
   const {
     accountContext: {
@@ -85,7 +85,6 @@ export default function NegotiationsPage() {
       errorMessage: negotiationErrorMessage,
       isLoading: isLoadingNegotiations,
       isUpdating,
-      negotiations,
       status: negotiationStatus,
     },
     clientsState: { clients, isLoading: isLoadingClients, refetch: refetchClients },
@@ -116,9 +115,24 @@ export default function NegotiationsPage() {
 
   // Table filters (director/manager only)
   const [filterBroker, setFilterBroker] = useState("all");
-  const [filterStatus, setFilterStatus] = useState("all");
-  const [sortBy, setSortBy] = useState<"date" | "score">("date");
+  const [selectedStage, setSelectedStage] = useState<BoardStage | "all">("all");
+  const [sortBy, setSortBy] = useState<"date" | "valor">("date");
   const canFilter = getPermissions(account?.role ?? null).canViewFullDashboard;
+
+  // Fonte ÚNICA da Lista (mesma do Kanban/Funil): números idênticos por construção.
+  const listFilters = isBroker
+    ? { brokerId }
+    : isConsultant
+      ? { ownerProfileId }
+      : filterBroker !== "all"
+        ? { brokerId: filterBroker }
+        : undefined;
+  const { board, thresholdDays } = useNegotiationsBoard({
+    accountId: account?.accountId ?? null,
+    developmentId: development?.developmentId ?? null,
+    filters: listFilters,
+    search,
+  });
   // Importar negociações é restrito a MANAGER_ROLES (owner/director/manager).
   const canImport = ["owner", "director", "manager"].includes(account?.role ?? "");
 
@@ -128,9 +142,6 @@ export default function NegotiationsPage() {
 
   const isLoading =
     isLoadingNegotiations || isLoadingUnits || isLoadingClients || isLoadingBrokers;
-  const unitsById = new Map(units.map((unit) => [unit.id, unit]));
-  const clientsById = new Map(clients.map((c) => [c.id, c]));
-  const brokersById = new Map(brokers.map((b) => [b.id, b]));
   const availableUnits = units.filter(
     (unit) => unit.status === UnidadeStatus.DISPONIVEL,
   );
@@ -211,14 +222,10 @@ export default function NegotiationsPage() {
           </h1>
           <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-fog)", marginTop: 4, letterSpacing: "0.05em" }}>
             {(() => {
-              const total = negotiations.length;
-              const emAndamento = negotiations.filter((n) => n.status === "IN_PROGRESS" || n.status === "OPEN").length;
-              const totalVGV = negotiations
-                .filter((n) => n.status !== "LOST" && n.status !== "CANCELLED")
-                .reduce((acc, n) => acc + (unitsById.get(n.unitId)?.valor ?? 0), 0);
-              let s = `${total} ${total === 1 ? "registro" : "registros"}`;
-              if (emAndamento > 0) s += ` · ${emAndamento} em andamento`;
-              if (totalVGV > 0) s += ` · ${formatCurrency(totalVGV)} em pipeline`;
+              // Números canônicos da fonte única — idênticos ao Kanban/Funil.
+              let s = `${board.openCount} ${board.openCount === 1 ? "aberta" : "abertas"}`;
+              if (board.openVGV > 0) s += ` · ${formatCurrency(board.openVGV)} no funil`;
+              if (board.wonCount > 0) s += ` · ${board.wonCount} ${board.wonCount === 1 ? "venda" : "vendas"}`;
               return s;
             })()}
           </div>
@@ -307,43 +314,39 @@ export default function NegotiationsPage() {
       ) : null}
 
       {/* Busca — disponível a todos os perfis */}
-      {negotiations.length > 0 ? (
+      {board.totalCount > 0 ? (
         <div style={{ marginBottom: 12 }}>
           <input value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} placeholder="Buscar por cliente, unidade ou corretor..." style={{ width: "100%", maxWidth: 420, background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 8, padding: "10px 14px", color: "var(--text-primary)", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
         </div>
       ) : null}
 
-      {/* Filters */}
-      {canFilter && negotiations.length > 0 ? (
+      {/* Filtros — chips de estágio com contadores (todos os perfis) + corretor (gestão) */}
+      {board.totalCount > 0 ? (
         <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-          <div style={{ minWidth: 220, maxWidth: 260, flex: "0 1 260px" }}>
-            <SearchableSelect
-              options={brokers.filter((b) => b.status === "active").map((b) => ({ value: b.id, label: b.name }))}
-              value={filterBroker === "all" ? "" : filterBroker}
-              onChange={(v) => setFilterBroker(v || "all")}
-              placeholder="Buscar corretor..."
-              emptyOptionLabel="Todos os corretores"
-            />
-          </div>
+          {canFilter ? (
+            <div style={{ minWidth: 220, maxWidth: 260, flex: "0 1 260px" }}>
+              <SearchableSelect
+                options={brokers.filter((b) => b.status === "active").map((b) => ({ value: b.id, label: b.name }))}
+                value={filterBroker === "all" ? "" : filterBroker}
+                onChange={(v) => setFilterBroker(v || "all")}
+                placeholder="Buscar corretor..."
+                emptyOptionLabel="Todos os corretores"
+              />
+            </div>
+          ) : null}
 
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-            {STATUS_PILLS.map((opt) => {
-              const active = filterStatus === opt.value || (filterStatus === "all" && opt.value === "all");
+            {[{ id: "all" as const, label: "Todas", count: board.totalCount, color: "#9C9686" },
+              ...STAGES.map((s) => ({ id: s.id, label: s.label, count: board.countByStage[s.id], color: s.color }))].map((chip) => {
+              const active = selectedStage === chip.id;
               return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setFilterStatus(opt.value)}
-                  style={{
-                    padding: "6px 12px", borderRadius: 8,
-                    border: active ? "1px solid rgba(74,222,128,0.3)" : "1px solid rgba(42,40,34,0.5)",
-                    background: active ? "rgba(74,222,128,0.08)" : "transparent",
-                    color: active ? "#4ADE80" : "#9C9686",
-                    fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 600,
-                    cursor: "pointer", transition: "all 0.15s",
-                  }}
-                >
-                  {opt.label}
+                <button key={chip.id} type="button" onClick={() => { setSelectedStage(chip.id); setPage(0); }}
+                  style={{ padding: "6px 12px", borderRadius: 8,
+                    border: active ? `1px solid ${chip.color}55` : "1px solid rgba(42,40,34,0.5)",
+                    background: active ? `${chip.color}14` : "transparent",
+                    color: active ? chip.color : "var(--color-fog)",
+                    fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                  {chip.label} · {chip.count}
                 </button>
               );
             })}
@@ -351,7 +354,7 @@ export default function NegotiationsPage() {
 
           <select
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as "date" | "score")}
+            onChange={(e) => setSortBy(e.target.value as "date" | "valor")}
             style={{
               padding: "8px 32px 8px 12px", borderRadius: 8,
               background: "linear-gradient(145deg, var(--surface-raised), var(--surface-base))",
@@ -364,109 +367,69 @@ export default function NegotiationsPage() {
             }}
           >
             <option value="date">Ordenar por data</option>
-            <option value="score">Ordenar por score</option>
+            <option value="valor">Ordenar por valor</option>
           </select>
         </div>
       ) : null}
 
       {(() => {
-        let filtered = negotiations;
-        if (filterBroker !== "all") filtered = filtered.filter((n) => n.brokerId === filterBroker);
-        if (filterStatus !== "all") filtered = filtered.filter((n) => n.status === filterStatus);
-        const q = search.trim().toLowerCase();
-        if (q) filtered = filtered.filter((n) => {
-          const u = unitsById.get(n.unitId);
-          const c = n.clientId ? clientsById.get(n.clientId) : null;
-          const b = n.brokerId ? brokersById.get(n.brokerId) : null;
-          const unitLabel = u ? `q${u.quadra} l${u.lote} ${u.quadra}${u.lote}` : "";
-          return (c?.name ?? "").toLowerCase().includes(q) || (b?.name ?? "").toLowerCase().includes(q) || unitLabel.toLowerCase().includes(q);
-        });
-        if (sortBy === "score") filtered = [...filtered].sort((a, b) => (b.score ?? 50) - (a.score ?? 50));
+        // Lista consome a MESMA fonte (board.negotiations, já filtrada por busca/corretor
+        // pelo hook). Aqui só: filtro por chip de estágio, ordenação e paginação.
+        const nowMs = Date.now();
+        let filtered = selectedStage === "all"
+          ? board.negotiations
+          : board.negotiations.filter((c) => columnOfStatus(coerceStatus(c.status)) === selectedStage);
+        filtered = [...filtered].sort((a, b) =>
+          sortBy === "valor"
+            ? (b.valor ?? 0) - (a.valor ?? 0)
+            : new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+        );
         const PAGE_SIZE = 25;
-        const pageCount = Math.ceil((filtered?.length ?? 0) / PAGE_SIZE);
+        const pageCount = Math.ceil(filtered.length / PAGE_SIZE);
         const safePage = Math.min(page, Math.max(0, pageCount - 1));
-        return !filtered || filtered.length === 0 ? (
+        return filtered.length === 0 ? (
           <EmptyState icone={"\u2197"} titulo="Nenhuma negociação ainda" descricao="Comece simulando uma condição comercial para um cliente e envie para o pipeline." ctaLabel="Abrir Simulador" onCta={() => navigateToSimulador("/simulador")} />
         ) : (
           <>
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE).map((negotiation) => {
-              const unit = unitsById.get(negotiation.unitId);
-              const cl = negotiation.clientId ? clientsById.get(negotiation.clientId) : null;
-              const br = negotiation.brokerId ? brokersById.get(negotiation.brokerId) : null;
-              const days = daysSince(negotiation.createdAt);
-              const isUrgent = days > 7;
-              const isWarning = days > 4 && !isUrgent;
-              const statusColor = STATUS_COLOR[negotiation.status] ?? { fg: "#9C9686", bg: "rgba(156,150,134,0.08)" };
-              const score = negotiation.score ?? 0;
-
+            {filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE).map((c) => {
+              const meta = stageMeta(columnOfStatus(coerceStatus(c.status)));
+              const s = semaphoreOf({
+                nextActionAt: c.nextActionAt, followUpAt: c.followUpAt, lastActivityAt: c.lastActivityAt,
+                updatedAt: c.updatedAt, stageChangedAt: c.stageChangedAt, reservaExpiresAt: c.reservaExpiresAt,
+                reservaAtiva: !!c.reservaStatus && !RESERVATION_TERMINAL_DB_VALUES.includes(c.reservaStatus),
+              }, thresholdDays, nowMs);
+              const upd = Math.max(0, Math.floor((nowMs - new Date(c.updatedAt).getTime()) / 86400000));
               return (
-                <div
-                  key={negotiation.id}
-                  onClick={() => navigateToSimulador(`/negociacoes/${negotiation.id}`)}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 14,
-                    padding: "12px 16px", cursor: "pointer",
-                    background: isUrgent
-                      ? "linear-gradient(145deg, rgba(248,113,113,0.04), var(--surface-base))"
-                      : "linear-gradient(145deg, var(--surface-raised), var(--surface-base))",
-                    border: isUrgent ? "1px solid rgba(248,113,113,0.15)" : "1px solid var(--border-default)",
-                    borderRadius: 10,
-                    transition: "border-color 0.15s, transform 0.1s",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = "rgba(74,222,128,0.15)";
-                    e.currentTarget.style.transform = "translateY(-1px)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = isUrgent ? "rgba(248,113,113,0.15)" : "var(--border-default)";
-                    e.currentTarget.style.transform = "none";
-                  }}
-                >
-                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 700, color: "var(--text-primary)", minWidth: 70 }}>
-                    {unit ? `Q${unit.quadra} L${unit.lote}` : (negotiation.unitId?.slice(0, 8) ?? "Imóvel")}
-                  </div>
-
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {cl?.name ?? <span style={{ color: "#706B5F", fontStyle: "italic" }}>Sem cliente</span>}
-                    </div>
-                    <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {br?.name ?? "—"}
+                <div key={c.id} onClick={() => navigateToSimulador(`/negociacoes/${c.id}`)}
+                  style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", cursor: "pointer",
+                    background: "linear-gradient(145deg, var(--surface-raised), var(--surface-base))",
+                    border: "1px solid var(--border-default)", borderRadius: 10, transition: "border-color 0.15s, transform 0.1s" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(74,222,128,0.15)"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border-default)"; e.currentTarget.style.transform = "none"; }}>
+                  {/* Negociação: bolinha unidade + cliente + código */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: boardUnitDot(c.unitStatus), flexShrink: 0 }} />
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {c.clienteNome ?? <span style={{ color: "#706B5F", fontStyle: "italic" }}>Sem cliente</span>}
+                      </div>
+                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{boardUnitLabel(c)}</div>
                     </div>
                   </div>
-
-                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 700, color: "#4ADE80", minWidth: 110, textAlign: "right" }}>
-                    {unit ? formatCurrency(unit.valor) : "—"}
+                  {/* Corretor */}
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-muted)", minWidth: 90, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.corretorNome ?? "—"}</div>
+                  {/* Estágio */}
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 700, color: meta.color, background: meta.soft, padding: "3px 8px", borderRadius: 4, letterSpacing: "0.05em", whiteSpace: "nowrap", textTransform: "uppercase", minWidth: 92, textAlign: "center" }}>{meta.label}</div>
+                  {/* Valor */}
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 700, color: "var(--color-bone)", minWidth: 100, textAlign: "right" }}>{c.valor ? formatCurrency(c.valor) : "—"}</div>
+                  {/* Próxima ação (semáforo) */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 120 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: SEMA_COLOR[s.level], flexShrink: 0 }} />
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: SEMA_COLOR[s.level], whiteSpace: "nowrap" }}>{s.label}</span>
                   </div>
-
-                  {score > 0 ? (
-                    <div style={{
-                      fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700,
-                      color: score >= 70 ? "#4ADE80" : score >= 40 ? "#FBBF24" : "#F87171",
-                      background: score >= 70 ? "rgba(74,222,128,0.1)" : score >= 40 ? "rgba(251,191,36,0.1)" : "rgba(248,113,113,0.1)",
-                      padding: "3px 8px", borderRadius: 6, minWidth: 32, textAlign: "center",
-                    }}>
-                      {score}
-                    </div>
-                  ) : null}
-
-                  <div style={{
-                    fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 600,
-                    color: statusColor.fg, background: statusColor.bg,
-                    padding: "3px 8px", borderRadius: 4,
-                    letterSpacing: "0.05em", whiteSpace: "nowrap", textTransform: "uppercase",
-                  }}>
-                    {getNegotiationStatusLabel(negotiation.status)}
-                  </div>
-
-                  <div style={{
-                    fontFamily: "var(--font-mono)", fontSize: 10,
-                    color: isUrgent ? "#F87171" : isWarning ? "#FBBF24" : "var(--text-muted)",
-                    minWidth: 50, textAlign: "right",
-                  }}>
-                    {days === 0 ? "hoje" : `há ${days}d`}
-                  </div>
+                  {/* Atualizada */}
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)", minWidth: 54, textAlign: "right" }}>{upd === 0 ? "hoje" : `há ${upd}d`}</div>
                 </div>
               );
             })}
