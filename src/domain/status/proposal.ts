@@ -24,6 +24,17 @@ export const PROPOSAL_CLOSED_DB_VALUES = [
   ProposalDbStatus[ProposalStatus.ACCEPTED],
 ];
 
+// Proposta "aberta" para efeito de ESTÁGIO da negociação (Fase A do Funil):
+// draft/sent/under_analysis/counter_proposal. Valores ENUM (não banco) — usado
+// pela derivação pura do estágio. DISTINTO de PROPOSAL_ACTIVE_CANCELLABLE, que
+// exclui counter_proposal por design da cascata de cancelamento.
+export const PROPOSAL_OPEN_VALUES: ProposalStatusType[] = [
+  ProposalStatus.DRAFT,
+  ProposalStatus.SENT,
+  ProposalStatus.UNDER_ANALYSIS,
+  ProposalStatus.COUNTER_PROPOSAL,
+];
+
 // Propostas "ativas canceláveis" pela cascata de cancelamento de negociação.
 // Espelha EXATAMENTE o conjunto que usePipelineActions varria (Fase 3 — Etapa 5):
 // EXCLUI counter_proposal por design atual (decisão de produto — preservar comportamento).

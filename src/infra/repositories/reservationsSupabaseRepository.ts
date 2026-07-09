@@ -5,6 +5,7 @@ import {
 import { ReservationDbStatus, ReservationStatusFromDb } from "../../domain/status/reservation";
 import type { Reservation } from "../../shared/types/reservation";
 import { getSupabaseClientOrThrow, unwrapSupabaseListResult } from "./baseRepository";
+import { recomputeNegotiationStage } from "./recomputeNegotiationStage";
 
 // Vocabulário de status centralizado em src/domain/status/reservation.ts (Fase 3 — Etapa 1).
 const dbStatusToEnum = ReservationStatusFromDb;
@@ -135,7 +136,10 @@ export async function createReservation(input: {
     throw new Error("Reservation was not returned after insert.");
   }
 
-  return mapReservationRow(data as ReservationRow);
+  const reservation = mapReservationRow(data as ReservationRow);
+  // Fase A do Funil: reserva criada (ativa) é marco → recalcula o estágio.
+  await recomputeNegotiationStage(reservation.negotiationId);
+  return reservation;
 }
 
 export async function updateReservationStatus(
@@ -166,5 +170,9 @@ export async function updateReservationStatus(
     throw new Error("Reservation not found for update.");
   }
 
-  return mapReservationRow(data as ReservationRow);
+  const reservation = mapReservationRow(data as ReservationRow);
+  // Fase A do Funil: reserva cancelada/expirada/convertida ou ativada muda o
+  // marco ativo → recalcula o estágio (permite regressão para PROPOSAL/IN_PROGRESS).
+  await recomputeNegotiationStage(reservation.negotiationId);
+  return reservation;
 }

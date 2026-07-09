@@ -196,6 +196,10 @@ describe("Kanban — agrupamento por estágio", () => {
     if (c.status === NegotiationStatus.LOST || c.status === NegotiationStatus.CANCELLED) return "lost";
     if (c.reservaStatus && !RESERVATION_TERMINAL_DB_VALUES.includes(c.reservaStatus)) return "reservation";
     if (c.propostaStatus && !PROPOSAL_CLOSED_DB_VALUES.includes(c.propostaStatus)) return "proposal";
+    // Fase A do Funil: backstop pelo status (o estágio agora vive na negociação)
+    // para não sumir card cujo filho não veio no join.
+    if (c.status === NegotiationStatus.RESERVATION) return "reservation";
+    if (c.status === NegotiationStatus.PROPOSAL) return "proposal";
     return "negotiation";
   }
 
@@ -221,5 +225,13 @@ describe("Kanban — agrupamento por estágio", () => {
   it("estrito: proposta encerrada (accepted) NÃO conta como proposal", () => {
     const c = { id: "7", status: "IN_PROGRESS", propostaStatus: "accepted", reservaStatus: null } as KanbanCard;
     expect(getStage(c)).toBe("negotiation");
+  });
+  it("Fase A: status RESERVATION sem filho no join cai em reservation (backstop)", () => {
+    const c = { id: "8", status: "RESERVATION", propostaStatus: null, reservaStatus: null } as KanbanCard;
+    expect(getStage(c)).toBe("reservation");
+  });
+  it("Fase A: status PROPOSAL sem filho no join cai em proposal (backstop)", () => {
+    const c = { id: "9", status: "PROPOSAL", propostaStatus: null, reservaStatus: null } as KanbanCard;
+    expect(getStage(c)).toBe("proposal");
   });
 });

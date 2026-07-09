@@ -1,6 +1,7 @@
 import { SaleStatus, type SaleStatus as SaleStatusType } from "../../domain/venda/SaleStatus";
 import type { Sale } from "../../shared/types/sale";
 import { getSupabaseClientOrThrow, unwrapSupabaseListResult } from "./baseRepository";
+import { recomputeNegotiationStage } from "./recomputeNegotiationStage";
 
 const dbStatusToEnum: Record<string, SaleStatusType> = {
   created: SaleStatus.CREATED,
@@ -137,7 +138,10 @@ export async function createSale(input: {
     throw new Error("Sale was not returned after insert.");
   }
 
-  return mapSaleRow(data as SaleRow);
+  const sale = mapSaleRow(data as SaleRow);
+  // Fase A do Funil: venda criada (não-cancelada) é o marco mais avançado → WON.
+  await recomputeNegotiationStage(sale.negotiationId);
+  return sale;
 }
 
 export async function updateSaleStatus(
@@ -168,7 +172,11 @@ export async function updateSaleStatus(
     throw new Error("Sale not found for update.");
   }
 
-  return mapSaleRow(data as SaleRow);
+  const sale = mapSaleRow(data as SaleRow);
+  // Fase A do Funil: venda cancelada deixa de contar como marco → recalcula o
+  // estágio (regride para reserva/proposta/IN_PROGRESS conforme os demais filhos).
+  await recomputeNegotiationStage(sale.negotiationId);
+  return sale;
 }
 
 export async function deleteSalesByDevelopment(developmentId: string): Promise<void> {

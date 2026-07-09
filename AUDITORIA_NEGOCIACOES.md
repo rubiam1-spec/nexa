@@ -309,3 +309,28 @@ Rollback confirmado: `count(*)=1`, `waiting=1` (nada persistido).
 **Passo manual pendente do Rubiam (uma vez):** criar o secret `SUPABASE_DB_URL` em *Settings → Secrets and variables → Actions* (valor = connection string **direta**/porta 5432 ou *Session pooler* — **não** o *Transaction pooler* 6543) e disparar o workflow manualmente uma vez para validar (run verde + artifact baixável). Detalhes em `BACKUP.md §2`.
 
 **Validação:** YAML válido (`js-yaml` load OK). **Sem merge, sem deploy, sem DDL.** WIP do importador (21 arquivos) fora do stage.
+
+## Funil Unificado — Fase A: `negotiations.status` como verdade única do estágio (2026-07-09)
+**Contexto/problema (verificado no banco em 04/07, reconfirmado 09/07):** as 5 negociações estavam **todas `IN_PROGRESS`**, inclusive `3fe48512…` (proposta `under_analysis`) e `3fd28a03…` (proposta `under_analysis` + reserva `active`). Nada avançava o estágio — a Lista lia `status` (abas mentiam) e o Kanban derivava o estágio dos filhos por conta própria (duas verdades divergentes). A partir da Fase A, `negotiations.status` **carrega o estágio**, mantido automaticamente pelos repositórios a cada escrita de marco.
+
+**Decisão de produto — regra de derivação (`deriveNegotiationStage`, pura):** o estágio reflete o **marco ATIVO mais avançado**: (1) venda não-cancelada → `WON`; (2) senão reserva **ATIVA** → `RESERVATION`; (3) senão proposta **aberta** (`draft/sent/under_analysis/counter_proposal`) → `PROPOSAL`; (4) senão base. **`LOST`/`CANCELLED` são terminais e NUNCA sobrescritos** pela derivação (só ação explícita). **`OPEN`** permanece `OPEN` sem marco (nunca auto-promovido); qualquer outro não-terminal sem marco cai para `IN_PROGRESS` (permite **regressão entre marcos**).
+
+**Parte 1 — Domínio:** `src/domain/status/negotiationStage.ts` (função pura) + `PROPOSAL_OPEN_VALUES` na fonte única (inclui `counter_proposal`; distinto de `PROPOSAL_ACTIVE_CANCELLABLE`, que o exclui por design da cascata). Testes exaustivos (`__tests__/negotiationStage.test.ts`): todas as combinações, terminais intocáveis, regressões, idempotência.
+
+**Parte 2 — Gancho nos repositórios:** `src/infra/repositories/recomputeNegotiationStage.ts` — lê os filhos (query DIRETA, p/ evitar ciclo de import), deriva, **grava só se mudou** (idempotente; não polui `updated_at`/histórico), e registra a transição no `negotiation_history` (`from`/`to`, **ação nova `NEGOTIATION_STAGE_CHANGED`**, `performed_by = null` = sistema). Chamado por: `createProposal`, `updateProposalStatus`, `createReservation`, `updateReservationStatus`, `createSale`, `updateSaleStatus`.
+  - **`negotiation_history.action` é `text` livre (SEM CHECK no banco — verificado via `pg_constraint`)** → a ação nova é só código de app (enum + case no read-path `normalizeNegotiationHistoryAction`); **não precisou de DDL**.
+  - **NÃO** ligado a `rejectActiveProposals`/`cancelPendingRequests` (cascata de cancelamento) nem a `updateProposalDetails`: as cascatas terminam em `markNegotiationLost` (terminal explícito) — recomputar no meio só geraria evento intermediário espúrio; `updateProposalDetails` não muda marco (no-op). Decisão registrada.
+
+**Parte 3 — Leitores:**
+  - **Lista** (`NegotiationsPage`): `STATUS_PILLS`/`STATUS_COLOR` já tinham `PROPOSAL`/`RESERVATION` no vocabulário canônico → **zero ajuste**, passa a refletir os estágios reais.
+  - **Kanban** (`getEstagio`): **NÃO refatorado** (é a Fase B). Ajuste **mínimo**: backstop por `status` (`PROPOSAL`→proposta, `RESERVATION`→reserva) **depois** dos checks por filho, para não sumir card cujo filho não veio no join. `usePipelineActions` segue usando `touchNegotiation` (não há escrita de estágio concorrente); `WON` na venda já era gravado e é idempotente com o recompute.
+
+**Divergências/consequências FLAGUEADAS (decisão de produto — confirmar):**
+  1. **Solicitação de reserva pendente (`reservation_requests.status='requested'`)** NÃO promove para `RESERVATION` (a regra é "reserva **ATIVA**"). Mas o Kanban `getEstagio` hoje coloca solicitação pendente na coluna **reserva** (linha 61). Durante a janela "solicitada, ainda não aprovada", o `status` da negociação dirá `PROPOSAL` e o card ficará em "reserva". Alinhar isso é Fase B.
+  2. **Proposta `accepted` NÃO conta como aberta** → aceitar uma proposta sem ainda criar reserva/venda deriva `IN_PROGRESS` (regressão visível de `PROPOSAL`). Se o fluxo aceitar-proposta e criar-reserva não forem atômicos, haverá um evento `NEGOTIATION_STAGE_CHANGED` intermediário. **Confirmar** se `accepted` deveria segurar `PROPOSAL`.
+
+**Adiamento formal (decisão do Rubiam):** **Etapas 6–8 do endurecimento (Fase 3) ficam ADIADAS** para depois do Funil Unificado.
+
+**Validação (DoD):** `tsc -b` 0 erro; `vite build` verde; `check:contracts` **9/9**; suíte **833** (baseline 796 + 37 novos: derivação, recompute/idempotência, backstop do Kanban). Zero literais de status (tudo da fonte única); zero escrita de negociação fora de repositório. **SEM merge, SEM deploy.** `git add` explícito por arquivo; **WIP do importador fora do stage** (o `salesSupabaseRepository.ts`, que é WIP-dirty, teve APENAS meus 3 hunks staged via `git apply --cached`; o `logSaleAdvanceOverride` do importador permaneceu unstaged).
+
+**Migração de dados (Parte 4) — PENDENTE DE AUTORIZAÇÃO (Governança 11):** dump lógico antes; UPDATE único recalculando as 2 negociações que mudam (`3fe48512…` → `PROPOSAL`, `3fd28a03…` → `RESERVATION`; as outras 3 permanecem `IN_PROGRESS`), gravando as transições no `negotiation_history` (`NEGOTIATION_STAGE_CHANGED`, `performed_by=null`). **Aguardando OK explícito do Rubiam antes de executar em produção.** Commit da migração será separado, após autorização.

@@ -3,6 +3,7 @@ import { ProposalDbStatus, ProposalStatusFromDb, PROPOSAL_ACTIVE_CANCELLABLE_DB_
 import type { Proposal } from "../../shared/types/proposal";
 import { getSupabaseClientOrThrow, unwrapSupabaseListResult } from "./baseRepository";
 import { getSimulationById } from "./pipelineSimulationsSupabaseRepository";
+import { recomputeNegotiationStage } from "./recomputeNegotiationStage";
 
 // Vocabulário de status centralizado em src/domain/status/proposal.ts (Fase 3 — Etapa 1).
 const dbStatusToEnum = ProposalStatusFromDb;
@@ -185,7 +186,10 @@ export async function createProposal(input: {
     throw new Error("Proposal was not returned after insert.");
   }
 
-  return mapProposalRowToProposal(data as ProposalRow);
+  const proposal = mapProposalRowToProposal(data as ProposalRow);
+  // Fase A do Funil: proposta criada é marco → recalcula o estágio da negociação.
+  await recomputeNegotiationStage(proposal.negotiationId);
+  return proposal;
 }
 
 export async function updateProposalStatus(
@@ -216,7 +220,11 @@ export async function updateProposalStatus(
     throw new Error("Proposal not found for update.");
   }
 
-  return mapProposalRowToProposal(data as ProposalRow);
+  const proposal = mapProposalRowToProposal(data as ProposalRow);
+  // Fase A do Funil: mudança de status de proposta pode mudar o marco ativo
+  // (ex.: rejeitada → regride; aberta → PROPOSAL) → recalcula o estágio.
+  await recomputeNegotiationStage(proposal.negotiationId);
+  return proposal;
 }
 
 // Edita os campos financeiros de uma proposta em rascunho (sem mudar status).

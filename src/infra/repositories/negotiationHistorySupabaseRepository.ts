@@ -92,6 +92,7 @@ function normalizeNegotiationHistoryAction(
     case NegotiationHistoryAction.NEGOTIATION_CREATED:
     case NegotiationHistoryAction.NEGOTIATION_STARTED:
     case NegotiationHistoryAction.NEGOTIATION_CANCELLED:
+    case NegotiationHistoryAction.NEGOTIATION_STAGE_CHANGED:
     case NegotiationHistoryAction.PROPOSAL_CREATED:
     case NegotiationHistoryAction.PROPOSAL_SENT:
     case NegotiationHistoryAction.PROPOSAL_UNDER_ANALYSIS:

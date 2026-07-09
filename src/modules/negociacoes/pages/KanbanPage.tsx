@@ -60,6 +60,12 @@ function getEstagio(c: KanbanCard): EstagioId {
   if (us === "reserved" || us === "reservado") return "reserva";
   if (c.reservaRequestId && c.reservaRequestStatus === RESERVATION_REQUEST_PENDING_DB) return "reserva";
   if (c.propostaId) return "proposta";
+  // Fase A do Funil: negotiations.status passou a carregar o estágio. Backstop
+  // para NÃO sumir card cujo status já é PROPOSAL/RESERVATION mas cujo filho não
+  // veio no join (edge). Fica DEPOIS dos checks por filho (que têm precedência);
+  // a derivação plena pelo status é a Fase B.
+  if (s === NegotiationStatus.RESERVATION) return "reserva";
+  if (s === NegotiationStatus.PROPOSAL) return "proposta";
   if (s === NegotiationStatus.IN_PROGRESS || s === NegotiationStatus.OPEN) return "negociacao";
   return "simulacao";
 }

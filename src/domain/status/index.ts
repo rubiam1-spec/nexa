@@ -2,6 +2,7 @@
 // Cada arquivo co-loca: enum de domínio + valor no banco + tradução. Nenhum literal
 // de status deve existir fora deste diretório.
 export * from "./negotiation";
+export * from "./negotiationStage";
 export * from "./proposal";
 export * from "./reservation";
 export * from "./sale";

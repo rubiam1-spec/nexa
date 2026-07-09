@@ -2,6 +2,9 @@ export const NegotiationHistoryAction = {
   NEGOTIATION_CREATED: "NEGOTIATION_CREATED",
   NEGOTIATION_STARTED: "NEGOTIATION_STARTED",
   NEGOTIATION_CANCELLED: "NEGOTIATION_CANCELLED",
+  // Fase A do Funil: estágio recalculado automaticamente pelos repositórios a
+  // partir dos filhos (deriveNegotiationStage). Ação de sistema (performed_by null).
+  NEGOTIATION_STAGE_CHANGED: "NEGOTIATION_STAGE_CHANGED",
   PROPOSAL_CREATED: "PROPOSAL_CREATED",
   PROPOSAL_SENT: "PROPOSAL_SENT",
   PROPOSAL_UNDER_ANALYSIS: "PROPOSAL_UNDER_ANALYSIS",
