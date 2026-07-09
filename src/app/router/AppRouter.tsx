@@ -10,6 +10,7 @@ import CentralPage from "../../modules/central/pages/CentralPage";
 // Dashboard merged into Central (MeuDiaPage → CentralPage V4)
 import NegociacoesPage from "../../modules/negociacoes/pages/NegociacoesPage";
 import NegotiationDetailPage from "../../modules/negociacoes/pages/NegotiationDetailPage";
+import LeadsPage from "../../modules/leads/LeadsPage";
 
 import BrokersPage from "../../modules/corretores/pages/BrokersPage";
 import BrokerDetailPage from "../../modules/corretores/pages/BrokerDetailPage";
@@ -143,6 +144,7 @@ export default function AppRouter() {
         />
         {/* Fase B: Pipeline foi unificado em Negociações. Redireciona preservando o intento (visão Kanban). */}
         <Route path="/pipeline" element={<Navigate to="/negociacoes?view=kanban" replace />} />
+        <Route path="/leads" element={<ProtectedAppPage><LeadsPage /></ProtectedAppPage>} />
         <Route
           path="/empreendimentos"
           element={

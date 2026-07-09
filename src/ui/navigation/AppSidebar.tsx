@@ -24,6 +24,7 @@ const I: Record<string, React.ReactNode> = {
   unidades: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
   imoveis: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><rect x="9" y="10" width="2" height="2"/><rect x="9" y="14" width="2" height="2"/></svg>,
   negociacoes: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>,
+  leads: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><line x1="12" y1="1" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="23"/></svg>,
   contatos: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>,
   corretores: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>,
   imobiliarias: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>,
@@ -48,6 +49,7 @@ const GROUPS: { label: string; items: { key: string; label: string; path: string
     { key: "imoveis", label: "Imóveis", path: "/imoveis" },
   ]},
   { label: "Comercial", items: [
+    { key: "leads", label: "Leads", path: "/leads" },
     { key: "negociacoes", label: "Negociações", path: "/negociacoes" },
     { key: "contatos", label: "Contatos", path: "/contatos" },
     { key: "corretores", label: "Corretores", path: "/corretores" },
@@ -79,6 +81,9 @@ const ITEM_VISIBILITY: Record<string, PermissionFlag[]> = {
   imoveis: ["can_manage_properties", "can_view_dashboard"],
 
   negociacoes: ["can_view_all_negotiations", "can_view_own_negotiations"],
+  // Leads: visível no contexto comercial; os DADOS são escopados por papel na
+  // query (broker só vê os atribuídos a ele) e as ações são gated por permissão.
+  leads: [],
   contatos: [],
   corretores: ["can_manage_brokers"],
   imobiliarias: ["can_manage_brokerages"],
