@@ -82,3 +82,11 @@ export function columnOfStatus(status: NegotiationStatusType): BoardStage {
 export function stageLabelOfStatus(status: NegotiationStatusType): string {
   return STAGE_BY_ID[columnOfStatus(status)].label;
 }
+
+const NEG_VALUES = new Set<string>(Object.values(NegotiationStatus));
+/** Coage um status cru (string do banco) para o enum e mapeia à coluna. */
+export function columnOfStatusRaw(raw: string): BoardStage {
+  const up = (raw || "").trim().toUpperCase();
+  const status = (NEG_VALUES.has(up) ? up : NegotiationStatus.IN_PROGRESS) as NegotiationStatusType;
+  return columnOfStatus(status);
+}
