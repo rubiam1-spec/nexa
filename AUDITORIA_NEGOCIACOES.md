@@ -391,3 +391,20 @@ Rollback confirmado: `count(*)=1`, `waiting=1` (nada persistido).
 **Pendências novas registradas:** metas como entidade (KPI "meta do mês"); SLA configurável; sub-estágios personalizáveis (Fase E, precisa DDL); atividade-no-card completa (Fase C); Motor de Inteligência via IA (a interface de `operationReading` já está pronta para recebê-lo).
 
 **Validação (DoD):** `tsc` 0 erro; `vite build` verde; `check:contracts` **9/9**; suíte **860** (baseline 833 + 27: mapeamento, semáforo, buildBoard/coerência, funnelMetrics, operationReading). Números do header idênticos nas 3 visões **por construção** (todas consomem `buildBoard`). Zero literais de status; zero regra de negócio em `.tsx` (tudo em `board/*` puro + hooks). **SEM merge, SEM deploy, SEM DDL.** `git add` explícito; 3 commits temáticos; WIP do importador fora do stage. Ciclo de produção da Fase B será autorizado à parte pelo Rubiam (validação visual em preview antes).
+
+## CICLO DE PRODUÇÃO — Fases A + B no ar (2026-07-09) — AUTORIZADO pelo Rubiam
+**Validação em preview DISPENSADA pelo Rubiam** (preview da branch buildou READY em `efebfd0`; árvore compila limpa) — validação será **pós-deploy, imediata** (checklist abaixo).
+
+- **Delta subido:** `940c80f..97e8fc9` — Etapa 5c (docs) + **Fase A** (status = verdade única + migração de dados aplicada) + **Fase B** (módulo unificado Funil/Kanban/Lista). 27 commits, **sem squash** (fast-forward).
+- **Dump extra pré-deploy (Governança 11, plano free):** `supabase/backups/20260709_flow_tables_pre_prod_deploy_faseAB.json` (tabelas do fluxo; counts conferidos vs banco), commitado na feat **antes** do merge (`97e8fc9`).
+- **Merge:** fast-forward `git push origin feat:main` (`940c80f..97e8fc9`) — **sem checkout local** (protege o WIP do importador; a 1ª tentativa de `checkout main` foi abortada pelo git justamente por causa do WIP, confirmando o guard). `main == origin/main == 97e8fc9`.
+- **Deploy de produção:** **`dpl_GpT4HCUmWGWQoqtYvoritzcWBtDM`** — `source: git`, `target: production`, `state: READY`, sha `97e8fc9` (== tip da main), `aliasError: null`, aliasado a **`app.nexacomercial.com.br`**.
+- **Sanidade:** `GET /` → **200**; `GET /pipeline` → **200** (SPA; o redirect p/ `/negociacoes?view=kanban` é client-side no React Router — `curl` não observa 3xx, confirmação no browser).
+- **DDL:** **nenhum**. Mudança de código apenas; a migração de dados da Fase A já estava aplicada (não faz parte deste push).
+- **Teste do backup diário:** `gh` não instalado e sem token exposto no ambiente → **não disparei**; instrução entregue ao Rubiam (Actions → `backup-diario` → Run workflow, após garantir o secret `SUPABASE_DB_URL`). Workflow confirmado presente em `origin/main`.
+
+**Rollback armado (NÃO acionado):**
+1. **App (rápido, recomendado):** Vercel → Deployments → **`dpl_JBbQqjK35vmkqZzgn7YN2SA65kTJ`** (produção anterior, `940c80f`) → *Instant Rollback / Promote to Production*. Reverte só a aplicação em segundos.
+2. **Código (git):** `git revert --no-commit 940c80f..97e8fc9 && git commit -m "revert: ciclo Fases A+B" && git push origin HEAD:main`. **Atenção:** a **migração de dados da Fase A** (2 negociações → PROPOSAL/RESERVATION + 2 eventos) NÃO é revertida por git — reversão de dados é o SQL do `_meta.restore_note` do dump `20260709_negotiations_pre_faseA_stage_migration.json`.
+
+**Estado final:** `main = 97e8fc9` (efebfd0 + dump), deploy READY aliasado ao domínio de produção, **WIP do importador (21 arquivos) intacto e fora do deploy**.
