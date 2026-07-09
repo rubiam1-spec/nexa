@@ -50,6 +50,8 @@ export type Client = {
   // Origin
   origin: string | null;
   originDetail: string | null;
+  utmSource: string | null;
+  utmCampaign: string | null;
 
   // Interest
   budgetMin: number | null;

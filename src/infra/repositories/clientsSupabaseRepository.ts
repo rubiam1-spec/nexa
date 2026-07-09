@@ -6,6 +6,14 @@ import type {
   MaritalStatus,
 } from "../../shared/types/client";
 import { getSupabaseClientOrThrow, unwrapSupabaseListResult } from "./baseRepository";
+import {
+  LeadQualificationStatus,
+  type LeadQualificationStatus as LeadQualificationStatusType,
+  toLeadQualificationDb,
+  assertLeadTransition,
+  isLeadActive,
+  fromLeadQualificationDb,
+} from "../../domain/status/leadQualification";
 
 // ── Row → Domain mapping ──
 
@@ -31,6 +39,8 @@ function mapRow(row: Record<string, unknown>): Client {
     qualificationStatus: (row.qualification_status as string) ?? null,
     origin: (row.origin as string) ?? null,
     originDetail: (row.origin_detail as string) ?? null,
+    utmSource: (row.utm_source as string) ?? null,
+    utmCampaign: (row.utm_campaign as string) ?? null,
     budgetMin: (row.budget_min as number) ?? null,
     budgetMax: (row.budget_max as number) ?? null,
     purchaseTimeline: (row.purchase_timeline as string) ?? null,
@@ -81,7 +91,7 @@ const CLIENT_SELECT = `
   id, account_id, development_id,
   name, full_name, email, phone, phone_secondary, cpf, city,
   status, temperature, buyer_profile, priority, score, qualification_status,
-  origin, origin_detail,
+  origin, origin_detail, utm_source, utm_campaign,
   budget_min, budget_max, purchase_timeline, payment_preference, interested_unit_type,
   assigned_to, assigned_profile:profiles!clients_assigned_to_fkey(name),
   broker_id, brokers(name),
@@ -331,6 +341,98 @@ export async function addContactInteraction(input: {
   if (error) throw new Error(`Falha ao registrar interação: ${error.message}`);
   // Update last interaction
   await supabase.from("clients").update({ last_interaction_at: new Date().toISOString() }).eq("id", input.clientId);
+}
+
+// ── Leads L1 — lente de QUALIFICAÇÃO sobre clients (escrita só aqui) ──
+// Vocabulário canônico em src/domain/status/leadQualification. Distribuição é
+// MANUAL nesta fase (rodízio automático = L3, via RPC distribute_lead — não aqui).
+
+export async function getLeads(
+  accountId: string,
+  opts?: { assignedTo?: string | null },
+): Promise<Client[]> {
+  const supabase = getSupabaseClientOrThrow("clients repository");
+  let query = supabase.from("clients").select(CLIENT_SELECT)
+    .eq("account_id", accountId).is("deleted_at", null);
+  if (opts?.assignedTo) query = query.eq("assigned_to", opts.assignedTo);
+  const { data, error } = await query.order("created_at", { ascending: false }).limit(300);
+  return unwrapSupabaseListResult(
+    (data ?? []).map((r) => mapRow(r as unknown as Record<string, unknown>)),
+    error, "leads",
+  );
+}
+
+export async function assignLead(input: {
+  clientId: string; accountId: string; toProfileId: string; toName: string; byProfileId: string | null;
+}): Promise<void> {
+  const supabase = getSupabaseClientOrThrow("clients repository");
+  const { error } = await supabase.from("clients").update({
+    assigned_to: input.toProfileId,
+    assigned_at: new Date().toISOString(),
+    assigned_by: input.byProfileId,
+    assignment_type: "manual",
+  }).eq("id", input.clientId);
+  if (error) throw new Error(`Falha ao atribuir lead: ${error.message}`);
+  await addContactInteraction({
+    accountId: input.accountId, clientId: input.clientId,
+    type: "assignment_change", title: `Atribuído para ${input.toName}`,
+    metadata: { to_user: input.toProfileId }, performedBy: input.byProfileId ?? undefined,
+  });
+}
+
+// Transição canônica de qualificação (guard de transição + interação de trilha).
+async function transitionLead(input: {
+  clientId: string; accountId: string;
+  from: LeadQualificationStatusType; to: LeadQualificationStatusType;
+  byProfileId: string | null; title: string; reason?: string; negotiationId?: string;
+}): Promise<void> {
+  assertLeadTransition(input.from, input.to);
+  const supabase = getSupabaseClientOrThrow("clients repository");
+  const patch: Record<string, unknown> = { qualification_status: toLeadQualificationDb(input.to) };
+  if (input.to === LeadQualificationStatus.CONVERTED) {
+    patch.converted_at = new Date().toISOString();
+    if (input.negotiationId) patch.converted_negotiation_id = input.negotiationId;
+  }
+  const { error } = await supabase.from("clients").update(patch).eq("id", input.clientId);
+  if (error) throw new Error(`Falha ao mudar qualificação do lead: ${error.message}`);
+  await addContactInteraction({
+    accountId: input.accountId, clientId: input.clientId,
+    type: "qualification_change", title: input.title, description: input.reason,
+    metadata: {
+      from: input.from, to: input.to,
+      ...(input.reason ? { reason: input.reason } : {}),
+      ...(input.negotiationId ? { negotiation_id: input.negotiationId } : {}),
+    },
+    performedBy: input.byProfileId ?? undefined,
+  });
+}
+
+export function startLeadService(clientId: string, accountId: string, from: LeadQualificationStatusType, byProfileId: string | null) {
+  return transitionLead({ clientId, accountId, from, to: LeadQualificationStatus.IN_SERVICE, byProfileId, title: "Atendimento iniciado" });
+}
+export function qualifyLead(clientId: string, accountId: string, from: LeadQualificationStatusType, byProfileId: string | null) {
+  return transitionLead({ clientId, accountId, from, to: LeadQualificationStatus.QUALIFIED, byProfileId, title: "Lead qualificado" });
+}
+export async function discardLead(clientId: string, accountId: string, from: LeadQualificationStatusType, byProfileId: string | null, reason: string) {
+  const r = (reason ?? "").trim();
+  if (!r) throw new Error("Descarte exige motivo.");
+  return transitionLead({ clientId, accountId, from, to: LeadQualificationStatus.DISCARDED, byProfileId, title: "Lead descartado", reason: r });
+}
+export function markLeadConverted(clientId: string, accountId: string, from: LeadQualificationStatusType, byProfileId: string | null, negotiationId: string) {
+  return transitionLead({ clientId, accountId, from, to: LeadQualificationStatus.CONVERTED, byProfileId, title: "Convertido em negociação", negotiationId });
+}
+
+/** Contagem de leads ativos (NEW/IN_SERVICE/QUALIFIED) — usada pelo pré-funil. */
+export async function countActiveLeads(accountId: string, opts?: { assignedTo?: string | null }): Promise<number> {
+  const supabase = getSupabaseClientOrThrow("clients repository");
+  let query = supabase.from("clients").select("qualification_status")
+    .eq("account_id", accountId).is("deleted_at", null);
+  if (opts?.assignedTo) query = query.eq("assigned_to", opts.assignedTo);
+  const { data, error } = await query.limit(2000);
+  if (error) throw new Error(`Falha ao contar leads ativos: ${error.message}`);
+  return (data ?? []).filter((r) =>
+    isLeadActive(fromLeadQualificationDb((r as { qualification_status: string | null }).qualification_status)),
+  ).length;
 }
 
 // ── NEXA Engrenagem de Partes v1 — vínculo de cônjuges ────────────
