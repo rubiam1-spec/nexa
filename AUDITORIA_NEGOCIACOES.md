@@ -333,4 +333,19 @@ Rollback confirmado: `count(*)=1`, `waiting=1` (nada persistido).
 
 **Validação (DoD):** `tsc -b` 0 erro; `vite build` verde; `check:contracts` **9/9**; suíte **833** (baseline 796 + 37 novos: derivação, recompute/idempotência, backstop do Kanban). Zero literais de status (tudo da fonte única); zero escrita de negociação fora de repositório. **SEM merge, SEM deploy.** `git add` explícito por arquivo; **WIP do importador fora do stage** (o `salesSupabaseRepository.ts`, que é WIP-dirty, teve APENAS meus 3 hunks staged via `git apply --cached`; o `logSaleAdvanceOverride` do importador permaneceu unstaged).
 
-**Migração de dados (Parte 4) — PENDENTE DE AUTORIZAÇÃO (Governança 11):** dump lógico antes; UPDATE único recalculando as 2 negociações que mudam (`3fe48512…` → `PROPOSAL`, `3fd28a03…` → `RESERVATION`; as outras 3 permanecem `IN_PROGRESS`), gravando as transições no `negotiation_history` (`NEGOTIATION_STAGE_CHANGED`, `performed_by=null`). **Aguardando OK explícito do Rubiam antes de executar em produção.** Commit da migração será separado, após autorização.
+**Migração de dados (Parte 4) — APLICADA EM PRODUÇÃO (2026-07-09, AUTORIZADA pelo Rubiam):**
+- **Dump lógico antes (Governança 11):** `supabase/backups/20260709_negotiations_pre_faseA_stage_migration.json` — `negotiations` (5) + `negotiation_history` (8), com nota de reversão.
+- **Re-verificação imediata antes do UPDATE:** 5 negociações, todas `IN_PROGRESS`; derivação prevê 2 mudanças (idêntico à checagem de 04/07).
+- **SQL aplicado (transação única, `UPDATE` guardado por `status='IN_PROGRESS'` + `INSERT` de history):**
+  ```sql
+  UPDATE negotiations SET status='PROPOSAL', updated_at=now()
+   WHERE id='3fe48512-65a3-4e92-8d26-2d7f4e1ce630' AND status='IN_PROGRESS';
+  INSERT INTO negotiation_history (negotiation_id, from_status, to_status, action, performed_by)
+   VALUES ('3fe48512-65a3-4e92-8d26-2d7f4e1ce630','IN_PROGRESS','PROPOSAL','NEGOTIATION_STAGE_CHANGED',NULL);
+  UPDATE negotiations SET status='RESERVATION', updated_at=now()
+   WHERE id='3fd28a03-6048-483a-ace0-48804b1a9648' AND status='IN_PROGRESS';
+  INSERT INTO negotiation_history (negotiation_id, from_status, to_status, action, performed_by)
+   VALUES ('3fd28a03-6048-483a-ace0-48804b1a9648','IN_PROGRESS','RESERVATION','NEGOTIATION_STAGE_CHANGED',NULL);
+  ```
+- **Verificação pós-migração:** contagem `{PROPOSAL:1, RESERVATION:1, IN_PROGRESS:3}`; `3fe48512…`=`PROPOSAL`, `3fd28a03…`=`RESERVATION`; **2** eventos `NEGOTIATION_STAGE_CHANGED` (`from IN_PROGRESS`, `performed_by=null`); `negotiation_history` 8 → 10. As outras 3 negociações permanecem `IN_PROGRESS`. **Aplicado via MCP `execute_sql`. Sem merge, sem deploy, sem DDL.**
+- **Reversão (se preciso):** `UPDATE negotiations SET status='IN_PROGRESS' WHERE id IN (…);` + `DELETE FROM negotiation_history WHERE action='NEGOTIATION_STAGE_CHANGED';` (ver `_meta.restore_note` do dump).

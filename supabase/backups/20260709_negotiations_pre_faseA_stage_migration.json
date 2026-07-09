@@ -1,0 +1,39 @@
+{
+  "_meta": {
+    "purpose": "Backup lógico (schema via migrations + dados aqui) de negotiations + negotiation_history ANTES da migração de dados da Fase A do Funil (recompute único do estágio: 2 negociações IN_PROGRESS → PROPOSAL/RESERVATION). Migração é DML (UPDATE guardado + INSERT de history), reversível a partir deste dump.",
+    "project": "phpbsiyxwsbzeevqgixk (NEXA)",
+    "plan": "free (sem backup automático diário / sem PITR — por isso este dump manual)",
+    "exported_at": "2026-07-09T21:21:24.811234+00:00",
+    "pre_migration_state": {
+      "negotiations_count": 5,
+      "negotiation_history_count": 8,
+      "all_negotiations_status": "IN_PROGRESS (5/5)",
+      "expected_changes": [
+        { "id": "3fe48512-65a3-4e92-8d26-2d7f4e1ce630", "from": "IN_PROGRESS", "to": "PROPOSAL", "reason": "proposta under_analysis, sem reserva ativa" },
+        { "id": "3fd28a03-6048-483a-ace0-48804b1a9648", "from": "IN_PROGRESS", "to": "RESERVATION", "reason": "reserva active" }
+      ],
+      "unchanged": ["796e1987-c794-460c-82a1-881783272ceb", "3c5c2daa-242f-4c5b-83ab-84ba7cff39fd", "99862a29-0906-47aa-b201-966250baa447"]
+    },
+    "restore_note": "Tabelas pequenas. Reverter a migração: UPDATE negotiations SET status='IN_PROGRESS' WHERE id IN ('3fe48512-65a3-4e92-8d26-2d7f4e1ce630','3fd28a03-6048-483a-ace0-48804b1a9648'); e DELETE FROM negotiation_history WHERE action='NEGOTIATION_STAGE_CHANGED'. Schema: ver supabase/migrations/. Sem DDL nesta migração."
+  },
+  "data": {
+    "exported_at": "2026-07-09T21:21:24.811234+00:00",
+    "negotiations": [
+      { "id": "796e1987-c794-460c-82a1-881783272ceb", "account_id": "16d4b82f-880f-4818-bb07-93c3b606f982", "development_id": "909c1a4a-165b-483f-9ebb-73929c01bf70", "unit_id": "7d981085-bfad-4638-b3ea-055fb47fcd47", "client_id": "93d3854e-3f51-46cf-92cd-e02a9159c00a", "broker_id": "1aaffa25-6055-48d0-9946-975ae7c24378", "status": "IN_PROGRESS", "created_at": "2026-04-11T11:59:40.113859+00:00", "updated_at": "2026-07-08T14:09:48.739865+00:00", "owner_profile_id": "5c4bc290-d7dc-4d70-81ed-9eb592463be1", "lost_reason": null, "lost_at": null, "last_activity_at": "2026-07-08T14:09:48.739865+00:00", "stage_changed_at": "2026-04-11T11:59:40.113859+00:00", "next_action_at": null, "follow_up_at": null, "score": 80, "temperature": "hot", "third_party_property_id": null, "lost_at_stage": null, "import_batch_id": null },
+      { "id": "3fd28a03-6048-483a-ace0-48804b1a9648", "account_id": "16d4b82f-880f-4818-bb07-93c3b606f982", "development_id": "909c1a4a-165b-483f-9ebb-73929c01bf70", "unit_id": "15630473-b599-4e77-b722-ba8a557b9ac2", "client_id": null, "broker_id": null, "status": "IN_PROGRESS", "created_at": "2026-04-16T20:55:05.788357+00:00", "updated_at": "2026-04-16T20:55:05.788357+00:00", "owner_profile_id": "5c4bc290-d7dc-4d70-81ed-9eb592463be1", "lost_reason": null, "lost_at": null, "last_activity_at": "2026-04-16T20:55:05.788357+00:00", "stage_changed_at": "2026-04-16T20:55:05.788357+00:00", "next_action_at": null, "follow_up_at": null, "score": 60, "temperature": "warm", "third_party_property_id": null, "lost_at_stage": null, "import_batch_id": null },
+      { "id": "3fe48512-65a3-4e92-8d26-2d7f4e1ce630", "account_id": "16d4b82f-880f-4818-bb07-93c3b606f982", "development_id": "909c1a4a-165b-483f-9ebb-73929c01bf70", "unit_id": null, "client_id": "1853d771-5c6c-48df-bc5a-6dad23c92f4d", "broker_id": "5473673e-ce16-4d21-bfb3-b21eb22e1443", "status": "IN_PROGRESS", "created_at": "2026-04-24T12:32:13.088844+00:00", "updated_at": "2026-07-08T14:09:22.831239+00:00", "owner_profile_id": "5c4bc290-d7dc-4d70-81ed-9eb592463be1", "lost_reason": null, "lost_at": null, "last_activity_at": "2026-07-08T14:09:22.831239+00:00", "stage_changed_at": "2026-04-24T12:32:13.088844+00:00", "next_action_at": null, "follow_up_at": null, "score": 95, "temperature": "hot", "third_party_property_id": null, "lost_at_stage": null, "import_batch_id": null },
+      { "id": "3c5c2daa-242f-4c5b-83ab-84ba7cff39fd", "account_id": "16d4b82f-880f-4818-bb07-93c3b606f982", "development_id": "909c1a4a-165b-483f-9ebb-73929c01bf70", "unit_id": "e04badb1-4937-4918-a329-ebfa8f3fc673", "client_id": null, "broker_id": null, "status": "IN_PROGRESS", "created_at": "2026-07-02T20:27:50.16013+00:00", "updated_at": "2026-07-02T20:27:50.16013+00:00", "owner_profile_id": "5c4bc290-d7dc-4d70-81ed-9eb592463be1", "lost_reason": null, "lost_at": null, "last_activity_at": "2026-07-02T20:27:50.16013+00:00", "stage_changed_at": "2026-07-02T20:27:50.16013+00:00", "next_action_at": null, "follow_up_at": null, "score": 45, "temperature": "warm", "third_party_property_id": null, "lost_at_stage": null, "import_batch_id": null },
+      { "id": "99862a29-0906-47aa-b201-966250baa447", "account_id": "16d4b82f-880f-4818-bb07-93c3b606f982", "development_id": "909c1a4a-165b-483f-9ebb-73929c01bf70", "unit_id": null, "client_id": null, "broker_id": "adfe9a00-b258-41e2-8848-71f589cb4d1c", "status": "IN_PROGRESS", "created_at": "2026-07-04T13:58:27.490784+00:00", "updated_at": "2026-07-04T13:58:27.490784+00:00", "owner_profile_id": "5c4bc290-d7dc-4d70-81ed-9eb592463be1", "lost_reason": null, "lost_at": null, "last_activity_at": "2026-07-04T13:58:27.490784+00:00", "stage_changed_at": "2026-07-04T13:58:27.490784+00:00", "next_action_at": null, "follow_up_at": null, "score": 45, "temperature": "warm", "third_party_property_id": null, "lost_at_stage": null, "import_batch_id": null }
+    ],
+    "negotiation_history": [
+      { "id": "ef347bc8-da53-49eb-ac6a-775c8ea9c308", "negotiation_id": "3fd28a03-6048-483a-ace0-48804b1a9648", "from_status": "IN_PROGRESS", "to_status": "IN_PROGRESS", "action": "PROPOSAL_CREATED", "performed_by": "5c4bc290-d7dc-4d70-81ed-9eb592463be1", "created_at": "2026-04-16T20:55:13.402451+00:00" },
+      { "id": "f678786b-2d31-4f4a-9b22-989e0937dce9", "negotiation_id": "3fd28a03-6048-483a-ace0-48804b1a9648", "from_status": "DRAFT", "to_status": "SENT", "action": "PROPOSAL_SENT", "performed_by": "5c4bc290-d7dc-4d70-81ed-9eb592463be1", "created_at": "2026-04-16T20:55:26.527733+00:00" },
+      { "id": "6bcdf714-2daf-4f2e-8c28-f64b49b841f0", "negotiation_id": "3fd28a03-6048-483a-ace0-48804b1a9648", "from_status": "SENT", "to_status": "UNDER_ANALYSIS", "action": "PROPOSAL_UNDER_ANALYSIS", "performed_by": "5c4bc290-d7dc-4d70-81ed-9eb592463be1", "created_at": "2026-04-16T20:56:13.721323+00:00" },
+      { "id": "6a19cedb-48c9-460f-807d-46c9c80696c6", "negotiation_id": "3fd28a03-6048-483a-ace0-48804b1a9648", "from_status": null, "to_status": "REQUESTED", "action": "RESERVATION_REQUESTED", "performed_by": "5c4bc290-d7dc-4d70-81ed-9eb592463be1", "created_at": "2026-04-16T20:58:29.82247+00:00" },
+      { "id": "d8e8030e-7555-4a07-b926-fc69dc78e3e1", "negotiation_id": "3fd28a03-6048-483a-ace0-48804b1a9648", "from_status": "REQUESTED", "to_status": "APPROVED", "action": "RESERVATION_APPROVED", "performed_by": "5c4bc290-d7dc-4d70-81ed-9eb592463be1", "created_at": "2026-04-16T20:58:34.746793+00:00" },
+      { "id": "cfa7111c-1bce-4dea-aacf-2f78a9b6dedc", "negotiation_id": "3fe48512-65a3-4e92-8d26-2d7f4e1ce630", "from_status": "IN_PROGRESS", "to_status": "IN_PROGRESS", "action": "PROPOSAL_CREATED", "performed_by": "5c4bc290-d7dc-4d70-81ed-9eb592463be1", "created_at": "2026-04-30T20:58:59.132226+00:00" },
+      { "id": "e8f9d98d-772c-42f7-ba4e-c404e42a2e1f", "negotiation_id": "3fe48512-65a3-4e92-8d26-2d7f4e1ce630", "from_status": "DRAFT", "to_status": "SENT", "action": "PROPOSAL_SENT", "performed_by": "5c4bc290-d7dc-4d70-81ed-9eb592463be1", "created_at": "2026-04-30T20:59:31.62371+00:00" },
+      { "id": "b590473a-c852-4e88-9dd1-b08caf1a17e7", "negotiation_id": "3fe48512-65a3-4e92-8d26-2d7f4e1ce630", "from_status": "SENT", "to_status": "UNDER_ANALYSIS", "action": "PROPOSAL_UNDER_ANALYSIS", "performed_by": "5c4bc290-d7dc-4d70-81ed-9eb592463be1", "created_at": "2026-04-30T20:59:34.464239+00:00" }
+    ]
+  }
+}
