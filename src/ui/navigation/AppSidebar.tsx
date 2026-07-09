@@ -40,10 +40,10 @@ const I: Record<string, React.ReactNode> = {
 // ── Navigation groups ──
 
 const GROUPS: { label: string; items: { key: string; label: string; path: string }[] }[] = [
+  // Fase B: "Pipeline" saiu do menu — unificado em Negociações (grupo Comercial).
   { label: "Operação", items: [
     { key: "meudia", label: "Central", path: "/" },
     { key: "simulador", label: "Simulador", path: "/simulador" },
-    { key: "pipeline", label: "Pipeline", path: "/pipeline" },
     { key: "unidades", label: "Unidades", path: "/unidades" },
     { key: "imoveis", label: "Imóveis", path: "/imoveis" },
   ]},

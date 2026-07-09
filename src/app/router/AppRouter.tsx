@@ -8,7 +8,7 @@ import PublicPropertyPage from "../../pages/PublicPropertyPage";
 import SelectDevelopmentPage from "../../modules/developments/pages/SelectDevelopmentPage";
 import CentralPage from "../../modules/central/pages/CentralPage";
 // Dashboard merged into Central (MeuDiaPage → CentralPage V4)
-import NegotiationsPage from "../../modules/negociacoes/pages/NegotiationsPage";
+import NegociacoesPage from "../../modules/negociacoes/pages/NegociacoesPage";
 import NegotiationDetailPage from "../../modules/negociacoes/pages/NegotiationDetailPage";
 
 import BrokersPage from "../../modules/corretores/pages/BrokersPage";
@@ -21,7 +21,6 @@ import SettingsPage from "../../modules/configuracoes/pages/SettingsPage";
 import DevelopmentsPage from "../../modules/empreendimentos/pages/DevelopmentsPage";
 import DevelopmentDetailPage from "../../modules/empreendimentos/pages/DevelopmentDetailPage";
 import SimuladorPage from "../../modules/simulador/pages/SimuladorPage";
-import KanbanPage from "../../modules/negociacoes/pages/KanbanPage";
 import GoogleCallbackPage from "../../modules/auth/pages/GoogleCallbackPage";
 import DefinirSenhaPage from "../../modules/auth/pages/DefinirSenhaPage";
 import RecuperarSenhaPage from "../../modules/auth/pages/RecuperarSenhaPage";
@@ -130,7 +129,7 @@ export default function AppRouter() {
           path="/negociacoes"
           element={
             <ProtectedAppPage>
-              <NegotiationsPage />
+              <NegociacoesPage />
             </ProtectedAppPage>
           }
         />
@@ -142,14 +141,8 @@ export default function AppRouter() {
             </ProtectedAppPage>
           }
         />
-        <Route
-          path="/pipeline"
-          element={
-            <ProtectedAppPage>
-              <KanbanPage />
-            </ProtectedAppPage>
-          }
-        />
+        {/* Fase B: Pipeline foi unificado em Negociações. Redireciona preservando o intento (visão Kanban). */}
+        <Route path="/pipeline" element={<Navigate to="/negociacoes?view=kanban" replace />} />
         <Route
           path="/empreendimentos"
           element={

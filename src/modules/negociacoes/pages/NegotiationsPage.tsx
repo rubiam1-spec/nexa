@@ -231,7 +231,6 @@ export default function NegotiationsPage() {
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <a href="/pipeline" style={{ ...btnSecondary, fontSize: 12, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>Pipeline</a>
           {canImport && (
             <button type="button" onClick={() => setShowImport(true)} style={btnSecondary}>
               Importar negociações

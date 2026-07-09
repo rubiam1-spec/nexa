@@ -373,3 +373,21 @@ Rollback confirmado: `count(*)=1`, `waiting=1` (nada persistido).
 **Pendências novas (fora do escopo desta fase):** metas como entidade (KPI "meta do mês" adiado); SLA configurável; alinhar sub-estágios (Fase E, precisa DDL). **BLOCO 2 (Funil) e BLOCO 3 (rota+menu) — a seguir.**
 
 **Validação:** `tsc` 0 erro; `vite build` verde; `check:contracts` 9/9; suíte **852** (baseline 833 + 19). Sem merge, sem deploy, sem DDL. WIP do importador fora do stage.
+
+## Funil Unificado — Fase B (Blocos 2 e 3): visão Funil + consolidação (2026-07-09) — **FASE B ✅**
+**Bloco 2 — Visão Funil (leitura de gestão):** lógica 100% em funções PURAS testadas (nada no `.tsx`).
+- `board/funnelMetrics.ts` — coorte do período (`created_at`), `reached` por estágio (cumulativo no fluxo, perdido não conta como avanço), conversões por transição + geral, ciclo médio (criação→venda), vendido, tabela por estágio (qtd/valor/**tempo médio no estágio atual**/atenção=semáforo vermelho), gargalo (menor conversão). **Degrada honesto:** sem base → `null` → UI mostra "—", nunca inventa.
+- `board/operationReading.ts` — frase diagnóstica por **regra determinística** (pior transição + item mais antigo travado) + CTA para o item. **Marcado no código como a futura casa do Motor de Inteligência** (contrato de saída estável).
+- `pages/FunnelView.tsx` — 4 KPIs (Conversão geral · VGV no funil (abertas) · Ciclo médio · Vendido no período); **SEM "meta do mês"** (metas não existem como entidade — pendência registrada); gráfico **SVG** de conversão (barras proporcionais + rampas + % entre pares, gargalo em vermelho, contagem grande + valor); tabela por estágio + linha **Pré-funil** (cinza, "fora da conta"); filtro de período (30/90 dias/este mês).
+- **Honestidade de dados:** tempo por estágio ao longo da vida exigiria histórico de transições completo — não reconstruído; usamos `stage_changed_at` (tempo no estágio atual) e `created_at`. Conversões são de **coorte por snapshot** (não replay de histórico) — documentado.
+
+**Bloco 3 — Consolidação de rota e menu:**
+- `pages/NegociacoesPage.tsx` — **container único** com 3 visões (Funil/Kanban/Lista) sobre a MESMA fonte. Visão default = **Kanban**; **última visão lembrada** por `localStorage` (`nexa:negociacoes:view`) e refletida na URL (`?view=`).
+- Rotas: `/negociacoes` → container; **`/pipeline` → redirect** `/negociacoes?view=kanban` (preserva o intento/deep-link). `/negociacoes/:id` (ficha) intocada.
+- Menu (`AppSidebar`): item **"Pipeline" removido** (grupo Operação); "Negociações" (Comercial) passa a ser a porta única. Link cruzado "Pipeline" removido do header da Lista.
+
+**Realocação de ações (nada se perdeu):** todas as ações do Kanban seguem no card (hover + menu ⋮ + modais + simDetail); a ficha (`NegotiationDetailPage`, WIP) já cobre o conjunto completo e **não foi tocada**. `converterSimulacao` segue no modal da faixa pré-funil. Nenhuma ação exigiu ir para a ficha.
+
+**Pendências novas registradas:** metas como entidade (KPI "meta do mês"); SLA configurável; sub-estágios personalizáveis (Fase E, precisa DDL); atividade-no-card completa (Fase C); Motor de Inteligência via IA (a interface de `operationReading` já está pronta para recebê-lo).
+
+**Validação (DoD):** `tsc` 0 erro; `vite build` verde; `check:contracts` **9/9**; suíte **860** (baseline 833 + 27: mapeamento, semáforo, buildBoard/coerência, funnelMetrics, operationReading). Números do header idênticos nas 3 visões **por construção** (todas consomem `buildBoard`). Zero literais de status; zero regra de negócio em `.tsx` (tudo em `board/*` puro + hooks). **SEM merge, SEM deploy, SEM DDL.** `git add` explícito; 3 commits temáticos; WIP do importador fora do stage. Ciclo de produção da Fase B será autorizado à parte pelo Rubiam (validação visual em preview antes).
