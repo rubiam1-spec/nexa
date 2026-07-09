@@ -104,7 +104,7 @@ export function FunnelView({ board, thresholdDays, onOpenNegotiation }: {
         })}
         {/* Pré-funil — fora da conta */}
         <div style={{ display: "grid", gridTemplateColumns: "1.4fr 0.6fr 1fr 1fr 0.8fr", padding: "11px 16px", alignItems: "center", opacity: 0.65 }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: "#706B5F" }} /><span style={{ fontSize: 13, color: "var(--color-fog)" }}>Pré-funil <span style={{ fontSize: 10 }}>(fora da conta)</span></span></span>
+          <span style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: "#706B5F" }} /><span style={{ fontSize: 13, color: "var(--color-fog)" }}>Pré-funil <span style={{ fontSize: 10 }}>· {board.prefunnel.leads} {board.prefunnel.leads === 1 ? "lead" : "leads"} · fora da conta</span></span></span>
           <span style={{ textAlign: "right", fontFamily: MONO, fontSize: 13, color: "var(--color-fog)" }}>{metrics.prefunnel.count}</span>
           <span style={{ textAlign: "right", fontFamily: MONO, fontSize: 13, color: "var(--color-slate)" }}>{metrics.prefunnel.vgv > 0 ? fmtV(metrics.prefunnel.vgv) : "—"}</span>
           <span style={{ textAlign: "right", color: "var(--color-slate)" }}>—</span>

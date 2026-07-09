@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../../infra/supabase/supabaseClient";
 import { useKanbanData, type KanbanCard } from "./useKanbanData";
 import { buildBoard, type BoardModel } from "../board/buildBoard";
+import { countActiveLeads } from "../../../infra/repositories/clientsSupabaseRepository";
 
 export type BoardFilters = { brokerId?: string | null; ownerProfileId?: string | null } | undefined;
 
@@ -51,6 +52,16 @@ export function useNegotiationsBoard(opts: {
       });
   }, [accountId]);
 
+  // Pré-funil: contagem de leads ativos da conta (fonte compartilhada — mesmo número
+  // no Kanban e no Funil). Escopo de conta (a tela Leads aplica o escopo por papel).
+  const [leadsActive, setLeadsActive] = useState(0);
+  useEffect(() => {
+    if (!accountId) return;
+    let active = true;
+    countActiveLeads(accountId).then((n) => { if (active) setLeadsActive(n); }).catch(() => { if (active) setLeadsActive(0); });
+    return () => { active = false; };
+  }, [accountId, refreshKey]);
+
   const filtered = useMemo(() => {
     let cs = cards;
     if (teamBrokerIds && teamBrokerIds.length > 0) {
@@ -60,7 +71,7 @@ export function useNegotiationsBoard(opts: {
     return cs;
   }, [cards, search, teamBrokerIds]);
 
-  const board = useMemo(() => buildBoard(filtered), [filtered]);
+  const board = useMemo(() => buildBoard(filtered, Date.now(), leadsActive), [filtered, leadsActive]);
 
   return { board, loading, error, thresholdDays };
 }

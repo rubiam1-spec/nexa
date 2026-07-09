@@ -233,9 +233,10 @@ export default function KanbanPage() {
       <div style={{ marginTop: 16, border: "1px solid var(--border-default)", borderRadius: 10, background: "rgba(156,150,134,0.04)" }}>
         <button type="button" onClick={() => setPrefunnelOpen((o) => !o)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer" }}>
           <span style={{ fontFamily: MONO, fontSize: 11, color: "var(--color-fog)", letterSpacing: "0.04em" }}>
-            Pré-funil · {board.prefunnel.count} {board.prefunnel.count === 1 ? "simulação" : "simulações"} · {fmtV(board.prefunnel.vgv)} potencial <span style={{ color: "var(--color-slate)" }}>(fora da conta)</span>
+            Pré-funil · {board.prefunnel.leads} {board.prefunnel.leads === 1 ? "lead ativo" : "leads ativos"} · {board.prefunnel.count} {board.prefunnel.count === 1 ? "simulação" : "simulações"} · {fmtV(board.prefunnel.vgv)} potencial <span style={{ color: "var(--color-slate)" }}>(fora da conta)</span>
           </span>
           <span style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <span onClick={(e) => { e.stopPropagation(); navigate("/leads"); }} style={{ fontSize: 11, color: "var(--color-sprout)", cursor: "pointer" }}>Ver Leads →</span>
             <span onClick={(e) => { e.stopPropagation(); navigate("/simulador"); }} style={{ fontSize: 11, color: "var(--color-sprout)", cursor: "pointer" }}>Abrir Simulador →</span>
             <span style={{ color: "var(--color-slate)", fontSize: 12 }}>{prefunnelOpen ? "▾" : "▸"}</span>
           </span>

@@ -408,3 +408,39 @@ Rollback confirmado: `count(*)=1`, `waiting=1` (nada persistido).
 2. **Código (git):** `git revert --no-commit 940c80f..97e8fc9 && git commit -m "revert: ciclo Fases A+B" && git push origin HEAD:main`. **Atenção:** a **migração de dados da Fase A** (2 negociações → PROPOSAL/RESERVATION + 2 eventos) NÃO é revertida por git — reversão de dados é o SQL do `_meta.restore_note` do dump `20260709_negotiations_pre_faseA_stage_migration.json`.
 
 **Estado final:** `main = 97e8fc9` (efebfd0 + dump), deploy READY aliasado ao domínio de produção, **WIP do importador (21 arquivos) intacto e fora do deploy**.
+
+## LEADS L1 — ciclo de vida + tela de trabalho sobre `clients` (2026-07-09)
+Distribuição MANUAL (rodízio automático = L3). Nenhuma tabela nova, nenhum DDL. Evolui `clients` + `receive-lead` + `contact_interactions`.
+
+**PARTE 0 — Inventário (verificado via MCP + código):**
+- **`receive-lead`** (edge): grava `clients.status='new'` (coluna CRM, distinta), origin=`webhook.source`, assigned_to/assigned_at/consultant_id/assignment_type via `default_assigned_to` ou rodízio (`assign_next_lead_consultant`) **só se** `account_settings.lead_distribution_enabled`. **NÃO grava `qualification_status`** (fica no default `'unqualified'`). Cria `contact_interaction` `type='system'` "Lead recebido via {source}". **NÃO notifica ninguém.**
+- **`qualification_status`**: campo **morto na UI** (sem enum, sem literais, sem filtro; só mapeado no repo/tipo). Default `'unqualified'`. Todos os 10 leads = `unqualified`. **Distinto de `clients.status`** (ClientStatus: new/contacted/…; a aba "Leads" do Contatos usa `status`, não qualification).
+- **`contact_interactions`** (shape: type NOT NULL, direction, title, description, metadata jsonb, performed_by, ...): já usa `assignment_change` (title "Atribuído para {nome}", metadata `{to_user}`), `status_change`, `follow_up_scheduled`, `system`, + tipos de nota. Helper `addContactInteraction` no repo de clients. **Atribuição hoje é INLINE em `ClientDetailPage`** (não em repo) — débito registrado.
+- **Sem coluna `discard_reason`** em clients → motivo do descarte vai na interação.
+- **Notificações**: `notificationHelper.createNotificationWithEmail/createNotificationsWithEmail` (`{account_id, recipient_id, sender_id, type, title, message, action_url}`); padrão de notificar gestores é inline (query `user_account_access` por role).
+- **Permissões**: sem `can_assign`/`can_manage_contacts`; atribuição gated por role hardcoded. Menu via `ITEM_VISIBILITY`/`isItemVisible` (podeVerItem não é consumido por app).
+- **Nada contradisse o prompt** → segui.
+
+**Decisões de produto (registradas):**
+- Ciclo de qualificação em `qualification_status`: **NEW ('unqualified' — zero migração) → IN_SERVICE → QUALIFIED → CONVERTED | DISCARDED**. CONVERTER e DESCARTAR disponíveis em qualquer estágio ativo. Transições válidas explícitas + guard no repo.
+- **Semáforo de 1ª resposta**: verde <30min · âmbar <2h · vermelho ≥2h desde `created_at`; lead **atendido** (saiu de NEW) não pisca.
+- **Lente sobre clients** (sem tabela nova); `qualification_status` é eixo separado de `status`.
+- **Descarte exige motivo** → vai na interação `qualification_change` (não há coluna).
+- **Converter**: `createNegotiationFromClient`, owner = **atribuído** (fallback: quem converte), marca CONVERTED + `converted_negotiation_id`, navega para a ficha.
+- **Permissões**: atribuir = owner/director/manager/concierge; atender/qualificar/descartar/converter = o atribuído OU esses papéis; **broker só vê os próprios**. Regras puras testadas (`leadRules`).
+
+**Feito:**
+- Domínio: `src/domain/status/leadQualification.ts` (vocabulário + transições) e `leadSemaphore.ts` (puros, testados).
+- Repositório (escrita só aqui): `getLeads`, `assignLead`, `startLeadService`, `qualifyLead`, `discardLead(reason)`, `markLeadConverted`, `countActiveLeads` em `clientsSupabaseRepository`; +`utm_source`/`utm_campaign` no tipo/mapper. Guard de transição + trilha `qualification_change`/`assignment_change`.
+- Tela **/leads** (grupo Comercial): lista com chips-contadores por estágio, origem badge, utm_campaign, atribuído, semáforo; ações Atribuir/Iniciar/Qualificar/Descartar/**Converter (1 toque)**; broker escopado. Lógica no hook `useLeads`; nada de regra no `.tsx`.
+- Pré-funil integrado: `buildBoard.prefunnel.leads` (fonte compartilhada) → Kanban ("Pré-funil · N leads ativos · M simulações · R$ X" + "Ver Leads →") e linha do Funil.
+
+**Pendências novas (registradas):**
+- **CHECK de `qualification_status`**: aplicar depois do vocabulário assentar (padrão NOT VALID→VALIDATE, com checkpoint). Hoje sem CHECK (fora do escopo L1).
+- **SLA de 1ª resposta configurável por conta** (hoje fixo 30min/2h).
+- **Notificação de CHEGADA de lead** (Parte 3 §9): exige evolução da **edge `receive-lead`** — inserir `notifications` (via padrão `createNotifications`) para concierge + owner/director/manager da conta após criar o lead. **NÃO implementado/deployado** (deploy de edge function só com autorização do Rubiam). *O que mudaria*: após o insert do cliente, consultar `user_account_access` por role `[concierge,owner,director,manager]` e inserir uma notificação `type='new_lead'`, `action_url='/leads'`, message "Novo lead: {nome} · {origem}". **Listado e PARADO antes do deploy.**
+- **Débito**: atribuição inline em `ClientDetailPage` deveria migrar para `assignLead` do repo.
+- **Overlap a alinhar**: aba "Leads" do Contatos (baseada em `ClientStatus`) vs tela Leads (baseada em `qualification_status`) — convergir vocabulário numa fase futura.
+- Rodízio automático (L3, `lead_distribution`), captura nova (L2), WhatsApp, SLA configurável — fora do escopo.
+
+**Validação (DoD):** `tsc` 0 erro; `vite build` verde; `check:contracts` **9/9**; suíte **881** (baseline 860 + 21: transições, semáforo, permissões, conversão marca CONVERTED + owner). Zero literais de status; escrita só via repositório; zero regra em `.tsx`. **SEM merge, SEM deploy (app e edge), SEM DDL.** `git add` explícito; commits por bloco; WIP do importador fora do stage.

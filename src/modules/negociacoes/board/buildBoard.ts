@@ -40,14 +40,15 @@ export type BoardModel = {
   /** Total de negociações no funil (exclui simulações). */
   totalCount: number;
   pending: PendingDecision[];
-  prefunnel: { count: number; vgv: number };
+  /** Pré-funil: simulações (count/vgv) + leads ativos (fora do funil). */
+  prefunnel: { count: number; vgv: number; leads: number };
 };
 
 function emptyByStage<T>(make: () => T): Record<BoardStage, T> {
   return Object.fromEntries(STAGE_ORDER.map((s) => [s, make()])) as Record<BoardStage, T>;
 }
 
-export function buildBoard(cards: KanbanCard[], nowMs: number = Date.now()): BoardModel {
+export function buildBoard(cards: KanbanCard[], nowMs: number = Date.now(), leadsActive = 0): BoardModel {
   const negotiations: KanbanCard[] = [];
   const simulations: KanbanCard[] = [];
   for (const c of cards) {
@@ -110,6 +111,7 @@ export function buildBoard(cards: KanbanCard[], nowMs: number = Date.now()): Boa
     prefunnel: {
       count: simulations.length,
       vgv: simulations.reduce((s, c) => s + (c.valor ?? 0), 0),
+      leads: leadsActive,
     },
   };
 }
