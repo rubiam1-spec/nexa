@@ -294,3 +294,18 @@ Rollback confirmado: `count(*)=1`, `waiting=1` (nada persistido).
 | M10 Kanban touch + alvos 44px | ✅ | `5a74966` |
 | M3 arredondamento simulador | ✅ | `6703c6b` (exibir "última parcela" na UI = follow-up) |
 | B1–B10 (🟢 polish/hardening) | ⏳ | adiados — não bloqueiam |
+
+---
+
+## Mitigação de backup — GitHub Actions `pg_dump` diário (2026-07-09)
+**Contexto:** Supabase no plano **FREE**, **sem PITR/backup automático** (contratação do Pro **adiada por decisão do Rubiam**, já registrada). Até então o backup era só dump manual pré-DDL. Objetivo: fechar a janela de risco com backup **diário automatizado e gratuito**.
+
+**Feito:**
+- `.github/workflows/backup-diario.yml` — workflow agendado (`cron 0 6 * * *` = **03:00 Brasília**, UTC-3) **e** manual (`workflow_dispatch`). Instala `postgresql-client-17` (compatível com o Postgres 17 do projeto), roda `pg_dump --format=custom --no-owner --no-privileges` do banco de **produção** e publica o resultado como **artifact privado** (retenção **30 dias**).
+- **Credencial fora do repo:** connection string lida do **GitHub Secret `SUPABASE_DB_URL`** — nunca commitada. Guard explícito: secret ausente → step falha com `::error::`.
+- **Falha visível (sem catch silencioso):** `set -euo pipefail` + `test -s` no dump + `if-no-files-found: error` no upload → qualquer falha deixa o workflow vermelho e o GitHub notifica por e-mail.
+- `docs/governance/BACKUP.md` — como funciona, **restauração passo a passo (`pg_restore`, inclusive seletiva)**, onde configurar o secret, limites conhecidos e a nota de que **isto é mitigação até o Supabase Pro (PITR)**.
+
+**Passo manual pendente do Rubiam (uma vez):** criar o secret `SUPABASE_DB_URL` em *Settings → Secrets and variables → Actions* (valor = connection string **direta**/porta 5432 ou *Session pooler* — **não** o *Transaction pooler* 6543) e disparar o workflow manualmente uma vez para validar (run verde + artifact baixável). Detalhes em `BACKUP.md §2`.
+
+**Validação:** YAML válido (`js-yaml` load OK). **Sem merge, sem deploy, sem DDL.** WIP do importador (21 arquivos) fora do stage.

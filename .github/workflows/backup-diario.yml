@@ -1,0 +1,62 @@
+name: Backup diário (pg_dump → artifact)
+
+# Mitigação de risco enquanto o Supabase estiver no plano FREE (sem PITR).
+# Faz um dump lógico do banco de PRODUÇÃO todo dia de madrugada e o publica
+# como artifact privado do workflow (retenção 30 dias). Ver docs/governance/BACKUP.md.
+#
+# A connection string NUNCA vai no repositório: é lida do GitHub Secret
+# SUPABASE_DB_URL (Settings → Secrets and variables → Actions).
+
+on:
+  schedule:
+    # 06:00 UTC = 03:00 no horário de Brasília (UTC-3). Cron do GitHub é sempre UTC.
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}
+
+# Só um backup por vez; não cancela um em andamento (queremos que ele conclua).
+concurrency:
+  group: backup-diario
+  cancel-in-progress: false
+
+jobs:
+  dump:
+    name: pg_dump do banco de produção
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Instalar postgresql-client-17 (pg_dump compatível com Postgres 17)
+        run: |
+          set -euo pipefail
+          sudo sh -c 'echo "deb https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
+          pg_dump --version
+
+      - name: Gerar dump lógico (formato custom, comprimido)
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "::error::Secret SUPABASE_DB_URL ausente. Configure em Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          STAMP="$(date -u +%Y%m%d_%H%M%S)"
+          OUT="nexa_${STAMP}.dump"
+          echo "OUT=${OUT}" >> "$GITHUB_ENV"
+          # -Fc: formato custom (restaurável seletivamente com pg_restore, já comprimido).
+          # Sem catch silencioso: se o pg_dump falhar, set -e derruba o step e o workflow.
+          pg_dump "$SUPABASE_DB_URL" --format=custom --no-owner --no-privileges --file="$OUT"
+          # Sanidade: o arquivo tem que existir e não pode estar vazio.
+          test -s "$OUT"
+          ls -lh "$OUT"
+
+      - name: Publicar dump como artifact privado (retenção 30 dias)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.OUT }}
+          path: ${{ env.OUT }}
+          retention-days: 30
+          if-no-files-found: error
+          compression-level: 0
