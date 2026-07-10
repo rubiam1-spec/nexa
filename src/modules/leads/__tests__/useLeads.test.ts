@@ -16,6 +16,7 @@ vi.mock("../../../infra/repositories/clientsSupabaseRepository", () => {
   return {
     getLeads: vi.fn(async () => store.rows.map((r) => ({ ...r }))),
     getAssignableMembers: vi.fn(async () => []),
+    getBrokerageAssignmentContext: vi.fn(async () => ({ directory: [], brokerRows: [] })),
     assignLead: vi.fn(async () => {}),
     startLeadService: vi.fn(async (clientId: string) => patch(clientId, "in_service")),
     qualifyLead: vi.fn(async (clientId: string) => patch(clientId, "qualified")),
