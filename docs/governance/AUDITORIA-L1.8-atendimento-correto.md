@@ -99,5 +99,41 @@ READY (~50s), aliasado a `app.nexacomercial.com.br` (`aliasError: null`). Rollba
 candidate anterior: `dpl_77qNE4DH` (L1.6+L1.7). Zero DDL; sem migração de dados
 (coluna `activity_id` já existia). Sanidade no bundle `assets/index-CAuZdUMI.js`:
 "atendimento iniciado", "Interação registrada" presentes; HTTP 200.
-Registro commitado só na feat (sem push). **Partes 2-3 (funil ponta-a-ponta + Kanban
-com jornada) = próximo passo.**
+Registro commitado só na feat (sem push).
+
+---
+
+## Partes 2-3 — Jornada única nas visões (deploy próprio)
+
+### Parte 2 — Gráfico do funil ponta-a-ponta
+- `funnelMetrics.computeEndToEndJourney` (PURO, testado): jornada **Leads → Em
+  atendimento → Em negociação → Proposta → Reserva → Venda**, com **% entre CADA par**.
+  HONESTIDADE fluxo × estoque: Leads/atendimento = coorte de LEADS do período
+  (clients.created_at); negociação em diante = coorte de NEGOCIAÇÕES (reached). A
+  transição atendimento→negociação cruza coortes (documentado na UI). Sem base → "—".
+- `FunnelView`: barras+rampas agora com 6 estágios; Leads/atendimento em tons
+  azulados, negociação mantém cores. **A faixa "Jornada do lead" (L1.6) saiu**
+  (redundante). Tabela por estágio ganhou as linhas **Leads** (atenção = sem resposta)
+  e **Em atendimento** no topo. Rodapé de simulações inalterado.
+
+### Parte 3 — Kanban com a jornada
+- **LeadCard compartilhado** (`leads/LeadCard.tsx`): 3 linhas (nome+origem /
+  responsável / **próxima ação agendada OU semáforo**) + ações (Atribuir, Iniciar,
+  Qualificar, Converter, Descartar). Usado por `/leads` E pelo Kanban — **zero lógica
+  duplicada**; `/leads` foi refatorada para consumi-lo. Modais Atribuir/Descartar
+  extraídos para `LeadActionModals.tsx` (compartilhados).
+- **Kanban**: duas colunas antes de "Em negociação" — **Leads** (NEW) e **Em
+  atendimento** (IN_SERVICE+QUALIFIED) — alimentadas por `useLeads` (mesma fonte de
+  `/leads`; **permissões idênticas** — o hook escopa por papel). Ações reusam
+  `useLeads`; **Converter** → o lead sai da coluna (patch otimista) e a negociação
+  aparece em "Em negociação" via refresh do board, **sem reload**, com toast (padrão
+  L1.7). Coluna com **8+** cards → "ver todos → /leads". Rodapé do Kanban passou a
+  mostrar **só simulações** (a contagem de leads virou colunas).
+- **Coerência (fonte única)**: `splitLeadColumns` (puro, testado) garante que
+  novos+atendimento cobrem exatamente os leads ATIVOS ("Ativos" de /leads) — **teste
+  de coerência** incluído.
+
+### Validação (Partes 2-3)
+tsc 0 · build verde · check:contracts 9/9 · suíte **921/921** (+7: jornada ponta-a-
+ponta, coerência de colunas). eslint: só os `Date.now()`/setState pré-existentes;
+arquivos novos limpos. WIP do importador fora do stage.
