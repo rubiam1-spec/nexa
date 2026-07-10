@@ -189,6 +189,59 @@ Deno.serve(async (req) => {
       }).eq("id", webhook.id);
     });
 
+    // ── 7. Notificar concierge + gestores (in-app + e-mail best-effort) ──
+    // Leads L1: lead novo esfria em minutos. Falha de notificação/e-mail NUNCA
+    // quebra a captura — o lead já foi criado acima; este bloco é best-effort.
+    try {
+      const leadName = name || "Lead sem nome";
+      const originLabel = sourceDetail ? `${webhook.source} · ${sourceDetail}` : webhook.source;
+      const title = `Novo lead: ${leadName} · ${webhook.source}`;
+      const emailBody = [
+        `Nome: ${leadName}`,
+        phone ? `Telefone: ${phone}` : null,
+        `Origem: ${originLabel}`,
+      ].filter(Boolean).join("<br>");
+
+      const { data: recipients } = await supabase
+        .from("user_account_access")
+        .select("user_id")
+        .eq("account_id", accountId)
+        .in("role", ["concierge", "owner", "director", "manager"]);
+      const userIds = [...new Set((recipients ?? []).map((r) => r.user_id).filter(Boolean))] as string[];
+
+      if (userIds.length > 0) {
+        // (a) Notificação in-app para todos os perfis notificados.
+        await supabase.from("notifications").insert(
+          userIds.map((uid) => ({
+            account_id: accountId, recipient_id: uid, sender_id: null,
+            type: "new_lead", title, message: emailBody.replace(/<br>/g, " · "),
+            action_url: "/leads", read: false,
+            metadata: { client_id: newClient.id, source: webhook.source },
+          })),
+        );
+
+        // (b) E-mail best-effort via send-notification-email (Resend
+        // noreply@nexacomercial.com.br). O type 'new_lead' cai no template
+        // genérico (título + corpo + botão → /leads). Só quem tem e-mail
+        // cadastrado recebe (a função resolve 404 e ignora os demais).
+        const emailUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-notification-email`;
+        const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+        await Promise.allSettled(
+          userIds.map((uid) =>
+            fetch(emailUrl, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                recipient_id: uid, type: "new_lead", title, message: emailBody, action_url: "/leads",
+              }),
+            }),
+          ),
+        );
+      }
+    } catch (notifyErr) {
+      console.warn("[receive-lead] notificação de novo lead falhou (ignorada; lead criado):", notifyErr);
+    }
+
     return json({ success: true, contact_id: newClient.id, is_new: true, assigned_to: assignedTo, assignment_type: assignmentType });
   } catch (err) {
     return json({ error: "Erro interno", detail: err instanceof Error ? err.message : String(err) }, 500);
