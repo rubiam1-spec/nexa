@@ -71,3 +71,24 @@ tsc 0 · build verde · check:contracts 9/9 · suíte **906/906** (+8: agrupamen
 elegibilidade, patch otimista sem reload, feedback). eslint: erros **pré-existentes**
 (`Date.now()` em render no funil; `setState` em effect no `useLeads` original) — não
 introduzidos por este ciclo; código novo limpo. WIP do importador fora do stage.
+
+## Deploy (L1.6 + L1.7 juntos, autorizado por Rubiam)
+- Merge ff `b663f40..9d33bde` → main (11 commits: L1.6 5 + reconciliação 1 + L1.7 3
+  + AUDITORIAs). WIP (22 arquivos) intacto.
+- Deploy **`dpl_77qNE4DHqcPubWUqRyLD58FHGnUt`** — READY (~60s), aliasado a
+  `app.nexacomercial.com.br` (`aliasError: null`). Rollback candidate anterior:
+  `dpl_4KUYej8y` (L1.5, b663f40).
+- Dump extra: coberto — zero DDL; a única mutação (reconciliação) já dumpada
+  (`dump-L1.6-...json`) e executada.
+- Sanidade no bundle de produção `assets/index-D-yPwYBu.js`: presentes "Equipe interna",
+  "mostrar todos os papéis" (modal agrupado), "movido para Em atendimento",
+  "Descartado — ver em Descartados" (feedback), "jornada do lead", "Leads → Neg."
+  (funil), "Abrir a tela de Leads" (clareza). Domínio HTTP 200.
+- Este registro commitado só na feat (sem push) para não disparar rebuild redundante.
+
+## Pendências / próximos passos
+- **Fiação do bloco Origem** (`NegotiationOriginLineage`) na ficha
+  `NegotiationDetailPage` — DIFERIDA até o WIP do importador assentar (1 linha).
+- Filtro de Status (ClientStatus) em Contatos: mantido; candidato a revisão futura.
+- Verificação logada final (clique no menu/modal/Iniciar) por Rubiam — auth-gated,
+  não verificável sem sessão.
