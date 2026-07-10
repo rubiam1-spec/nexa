@@ -444,3 +444,16 @@ Distribuição MANUAL (rodízio automático = L3). Nenhuma tabela nova, nenhum D
 - Rodízio automático (L3, `lead_distribution`), captura nova (L2), WhatsApp, SLA configurável — fora do escopo.
 
 **Validação (DoD):** `tsc` 0 erro; `vite build` verde; `check:contracts` **9/9**; suíte **881** (baseline 860 + 21: transições, semáforo, permissões, conversão marca CONVERTED + owner). Zero literais de status; escrita só via repositório; zero regra em `.tsx`. **SEM merge, SEM deploy (app e edge), SEM DDL.** `git add` explícito; commits por bloco; WIP do importador fora do stage.
+
+## INCIDENTE — previews em tela branca (Deployment Protection interceptando assets) (2026-07-10)
+**Sintoma:** o preview da feat (`13c1bd9`, `dpl_6yrS3WCP`) buildou READY mas renderiza **tela branca** (título da aba carrega, app não monta). Produção (`52bb9ff`, `app.nexacomercial.com.br`) funciona normal.
+
+**Diagnóstico (sem mudar nada):**
+- Código de boot é **null-safe** e degrada com graça: `supabaseClient` sem env → `supabase=null`; `AuthContext` guarda tudo com `isSupabaseConfigured` → status `env_not_configured`; `LoginPage` renderiza aviso visível. **Faltar env ⇒ tela de login com aviso, NÃO tela branca.** → env descartado como causa da tela branca.
+- `get_runtime_errors` vazio (é SPA estático; crash de JS no cliente não aparece em logs server-side). Build logs verdes (build idêntico ao de produção).
+- **Evidência de rede:** `curl` no preview → **302** (redirect de SSO da Deployment Protection); produção → **200**. A proteção intercepta o request do bundle `.js` (devolve HTML de login no lugar do JS) → `Unexpected token '<'` → app não monta.
+- **Teste decisivo (Rubiam):** o preview ANTERIOR (`52bb9ff`, código idêntico ao que roda saudável em produção) **também dá tela branca** → **causa (B) confirmada: Deployment Protection dos previews.** NÃO é código (nem L1 nem anterior). **Os previews nunca funcionaram** por conta da proteção de assets — só não havia sido notado (validação de preview fora dispensada nas fases anteriores).
+
+**Correção (só ambiente; nenhuma mudança de código; produção intocada):** desabilitar a **Vercel Authentication** para Preview (dashboard — MCP não alcança essa configuração). Trade-off registrado: **URLs de preview passam a ser não-listadas mas acessíveis por quem tiver o link**; como **previews apontam para o BANCO REAL**, os links de preview **NÃO devem ser compartilhados fora do time**. Produção usa domínio próprio e não depende dessa proteção. Também verificar que `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` estão marcadas para o ambiente **Preview** (senão o preview abre com o aviso "ambiente não configurado").
+
+**Regra nova (governança):** **preview funcional é PRÉ-REQUISITO de validação de toda fase visual** — antes de pedir validação em preview, confirmar que o preview monta (HTTP 200 no domínio do deploy + app renderiza), não só que o build ficou READY.
