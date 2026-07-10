@@ -18,6 +18,8 @@ import type { Client, LegalRegime, MaritalStatus } from "../../../shared/types/c
 import { getClientWithSpouse, unlinkSpouses } from "../../../infra/repositories/clientsSupabaseRepository";
 import { ConfirmacaoDestructiva } from "../../../shared/components/ConfirmacaoDestructiva";
 import { isNegotiationActive } from "../../../domain/status/negotiation";
+import { fromLeadQualificationDb, isLeadActive } from "../../../domain/status/leadQualification";
+import { LEAD_STAGE_META } from "../../leads/leadDisplay";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 
@@ -38,7 +40,7 @@ interface ClientData {
   // Engrenagem de Partes v1 — novo vínculo relacional de cônjuge
   current_spouse_client_id: string | null;
   // Extended fields from unification
-  status: string | null; score: number | null; origin: string | null; origin_detail: string | null;
+  status: string | null; qualification_status: string | null; score: number | null; origin: string | null; origin_detail: string | null;
   buyer_profile: string | null; budget_min: number | null; budget_max: number | null;
   purchase_timeline: string | null; payment_preference: string | null; interested_unit_type: string | null;
   lost_at: string | null; lost_reason: string | null; lost_reason_detail: string | null;
@@ -275,7 +277,7 @@ export default function ClientDetailPage() {
         conjuge_email, conjuge_telefone, regime_casamento,
         current_spouse_client_id,
         observations, temperature, last_interaction_at, doc_status, created_at,
-        status, score, origin, origin_detail, buyer_profile, budget_min, budget_max,
+        status, qualification_status, score, origin, origin_detail, buyer_profile, budget_min, budget_max,
         purchase_timeline, payment_preference, interested_unit_type,
         lost_at, lost_reason, lost_reason_detail, reactivated_at, reactivation_count,
         assigned_to, assigned_at, assigned_by
@@ -474,6 +476,15 @@ export default function ClientDetailPage() {
             <TempBadge temp={client.temperature} />
             <span onClick={() => setTab("documentos")} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: (docApproved === effectiveDocTypes.length ? T.sprout : docApproved > 0 ? T.blue : T.fog) + "15", color: docApproved === effectiveDocTypes.length ? T.sprout : docApproved > 0 ? T.blue : T.fog, cursor: "pointer", boxShadow: docApproved === effectiveDocTypes.length ? "0 0 6px rgba(74,222,128,0.3)" : "none", transition: "all 0.3s" }}>{docApproved}/{effectiveDocTypes.length} docs</span>
             {client.score != null && client.score > 0 && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: "rgba(74,222,128,0.1)", color: client.score >= 70 ? T.sprout : client.score >= 40 ? T.amber : T.fog, fontFamily: "var(--font-mono)", fontWeight: 600 }}>{client.score}pt</span>}
+            {(() => {
+              // Conexão com /leads: contato que É lead ativo abre a tela de Leads focada nele.
+              const lq = fromLeadQualificationDb(client.qualification_status);
+              if (!isLeadActive(lq)) return null;
+              const m = LEAD_STAGE_META[lq];
+              return (
+                <span onClick={() => navigate(`/leads?q=${encodeURIComponent(client.full_name || client.name)}`)} title="Lead ativo — abrir na tela de Leads" style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: m.soft, color: m.color, border: `1px solid ${m.color}40`, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>Lead · {m.label} →</span>
+              );
+            })()}
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>

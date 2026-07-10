@@ -8,16 +8,14 @@ import { useClientFilter } from "../../../shared/hooks/useClientFilter";
 import { podeVerTodasNegociacoes } from "../../../shared/utils/permissoes";
 import { supabase } from "../../../infra/supabase/supabaseClient";
 import {
-  CLIENT_STATUS_LABELS, CLIENT_STATUS_COLORS,
+  CLIENT_STATUS_LABELS,
   CLIENT_SOURCE_LABELS,
   type ClientStatus, type ClientTemperature,
 } from "../../../shared/types/client";
+import { fromLeadQualificationDb, isLeadActive } from "../../../domain/status/leadQualification";
+import { LEAD_STAGE_META } from "../../leads/leadDisplay";
 import { secureMaskCPF } from "../../../lib/security";
 import { formatDateBRT } from "../../../shared/utils/dateUtils";
-
-function Badge({ label, color }: { label: string; color: string }) {
-  return <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: color + "18", color, border: `1px solid ${color}30`, whiteSpace: "nowrap" }}>{label}</span>;
-}
 
 function TempBadge({ temp }: { temp: ClientTemperature }) {
   const cfg: Record<ClientTemperature, { label: string; bg: string; color: string; glow: string }> = {
@@ -313,6 +311,10 @@ export default function ContatosPage() {
           {contatos.map((c) => {
             const isOverdue = c.nextFollowUpAt && new Date(c.nextFollowUpAt) < new Date();
             const displayName = c.fullName || c.name;
+            // Conexão com /leads: contato que É lead ativo (NEW/IN_SERVICE/QUALIFIED)
+            // ganha um atalho discreto. Convertido/descartado = só cadastro (sem selo).
+            const leadStage = fromLeadQualificationDb(c.qualificationStatus);
+            const isActiveLead = isLeadActive(leadStage);
             return (
               <div key={c.id} onClick={() => navigate(`/contatos/${c.id}`)} style={{ display: "flex", alignItems: "center", gap: 12, padding: isMobile ? "12px 14px" : "14px 18px", background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 10, cursor: "pointer", transition: "border-color 0.15s" }} onMouseEnter={(e) => (e.currentTarget.style.borderColor = "rgba(74,222,128,0.3)")} onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--border-default)")}>
                 <TempBadge temp={c.temperature} />
@@ -322,11 +324,19 @@ export default function ContatosPage() {
                     {c.phone || c.email || "Sem contato"}{c.origin ? ` · ${CLIENT_SOURCE_LABELS[c.origin] ?? c.origin}` : ""}
                   </div>
                 </div>
-                {!isMobile && <Badge label={CLIENT_STATUS_LABELS[c.status] ?? c.status} color={CLIENT_STATUS_COLORS[c.status] ?? "#6B7280"} />}
+                {isActiveLead && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); navigate(`/leads?q=${encodeURIComponent(displayName)}`); }}
+                    title="Este contato é um lead ativo — abrir na tela de Leads"
+                    style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 999, border: `1px solid ${LEAD_STAGE_META[leadStage].color}40`, background: LEAD_STAGE_META[leadStage].soft, color: LEAD_STAGE_META[leadStage].color, fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
+                  >
+                    Lead · {LEAD_STAGE_META[leadStage].label} →
+                  </button>
+                )}
                 {!isMobile && c.score > 0 && <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 600, color: c.score >= 70 ? "#4ADE80" : c.score >= 40 ? "#FBBF24" : "var(--text-muted)", minWidth: 32, textAlign: "center" }}>{c.score}</div>}
                 {!isMobile && <div style={{ fontSize: 12, color: c.assignedToName ? "var(--text-muted)" : "var(--text-disabled)", minWidth: 80, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.assignedToName ?? c.brokerName ?? "—"}</div>}
                 {isOverdue && <span title="Follow-up atrasado" style={{ fontSize: 14, flexShrink: 0 }}>⚠</span>}
-                {isMobile && <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}><Badge label={CLIENT_STATUS_LABELS[c.status] ?? c.status} color={CLIENT_STATUS_COLORS[c.status] ?? "#6B7280"} /></div>}
               </div>
             );
           })}

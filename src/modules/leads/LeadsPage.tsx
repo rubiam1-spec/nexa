@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLeads, type LeadView } from "./useLeads";
 import { LEAD_STAGE_META, SEMAPHORE_COLOR } from "./leadDisplay";
 import {
@@ -15,11 +15,13 @@ type Filter = "active" | SType;
 
 export default function LeadsPage() {
   const navigate = useNavigate();
+  const [qp] = useSearchParams();
   const { leads, counts, members, loading, error, canAssign, actions } = useLeads();
   const { toasts, celebrate, celebrateError } = useCelebration();
 
   const [filter, setFilter] = useState<Filter>("active");
-  const [search, setSearch] = useState("");
+  // Busca focada quando aberto via atalho de Contatos (/leads?q=Nome).
+  const [search, setSearch] = useState(qp.get("q") ?? "");
   const [assignTarget, setAssignTarget] = useState<LeadView | null>(null);
   const [discardTarget, setDiscardTarget] = useState<LeadView | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
