@@ -14,14 +14,17 @@ import { firstResponseSemaphore, type LeadSemaphore } from "../../domain/status/
 import {
   getLeads,
   getAssignableMembers,
+  getBrokerageAssignmentContext,
   assignLead as repoAssignLead,
   startLeadService,
   qualifyLead as repoQualifyLead,
   discardLead as repoDiscardLead,
   markLeadConverted,
   type AssignableMember,
+  type BrokerageDirectoryEntry,
 } from "../../infra/repositories/clientsSupabaseRepository";
 import { createNegotiationFromClient } from "../../infra/repositories/negotiationsSupabaseRepository";
+import { summarizePendingBrokers, type PendingBrokersSummary } from "./assignmentGrouping";
 import { canViewAllLeads, canWorkLead, canAssignLeads, resolveConvertOwner } from "./leadRules";
 
 export type LeadView = {
@@ -47,6 +50,8 @@ export function useLeads() {
 
   const [rows, setRows] = useState<Client[]>([]);
   const [members, setMembers] = useState<AccountMember[]>([]);
+  const [brokerageDirectory, setBrokerageDirectory] = useState<BrokerageDirectoryEntry[]>([]);
+  const [pendingBrokers, setPendingBrokers] = useState<PendingBrokersSummary>({ brokeragesWithPending: 0, brokersWithoutAccess: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -75,6 +80,19 @@ export function useLeads() {
     if (!accountId || !canAssign) return;
     let active = true;
     getAssignableMembers(accountId).then((list) => { if (active) setMembers(list); }).catch(() => { if (active) setMembers([]); });
+    // L1.9 — diretório completo de imobiliárias + contagem de corretores sem acesso,
+    // para o modal explicar por que o dropdown parece "vazio". Contagem em função pura.
+    getBrokerageAssignmentContext(accountId)
+      .then((ctx) => {
+        if (!active) return;
+        setBrokerageDirectory(ctx.directory);
+        setPendingBrokers(summarizePendingBrokers(ctx.brokerRows));
+      })
+      .catch(() => {
+        if (!active) return;
+        setBrokerageDirectory([]);
+        setPendingBrokers({ brokeragesWithPending: 0, brokersWithoutAccess: 0 });
+      });
     return () => { active = false; };
   }, [accountId, canAssign, refreshKey]);
 
@@ -151,7 +169,7 @@ export function useLeads() {
   }
 
   return {
-    leads, counts, members, loading, error, refresh,
+    leads, counts, members, brokerageDirectory, pendingBrokers, loading, error, refresh,
     role, profileId, accountId, developmentId, canAssign,
     actions: { assign, startService, qualify, discard, convert },
   };

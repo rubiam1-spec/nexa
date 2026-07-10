@@ -539,6 +539,36 @@ export async function getAssignableMembers(accountId: string): Promise<Assignabl
   }).filter((m) => m.id);
 }
 
+/**
+ * L1.9 — Contexto de imobiliárias para o modal "Atribuir lead": o DIRETÓRIO
+ * completo de imobiliárias da conta (todas, mesmo sem corretor com acesso) e as
+ * LINHAS de corretores necessárias para contar os "cadastrados ainda sem acesso".
+ * Fonte única, 2 queries em batch — a contagem/agrupamento é decidido em função
+ * pura (modules/leads/assignmentGrouping), nunca aqui nem no .tsx.
+ */
+export type BrokerageDirectoryEntry = { id: string; name: string };
+export type AssignableBrokerRow = { profileId: string | null; brokerageId: string | null; status: string };
+export type BrokerageAssignmentContext = { directory: BrokerageDirectoryEntry[]; brokerRows: AssignableBrokerRow[] };
+
+export async function getBrokerageAssignmentContext(accountId: string): Promise<BrokerageAssignmentContext> {
+  const supabase = getSupabaseClientOrThrow("clients repository");
+  const [{ data: brokerages }, { data: brokers }] = await Promise.all([
+    supabase.from("brokerages").select("id, name").eq("account_id", accountId).eq("status", "active"),
+    supabase.from("brokers").select("profile_id, brokerage_id, status").eq("account_id", accountId),
+  ]);
+
+  const directory = ((brokerages ?? []) as Array<Record<string, unknown>>).map((b) => ({
+    id: b.id as string,
+    name: (b.name as string) ?? "Imobiliária",
+  }));
+  const brokerRows = ((brokers ?? []) as Array<Record<string, unknown>>).map((b) => ({
+    profileId: (b.profile_id as string) ?? null,
+    brokerageId: (b.brokerage_id as string) ?? null,
+    status: (b.status as string) ?? "active",
+  }));
+  return { directory, brokerRows };
+}
+
 // ── NEXA Engrenagem de Partes v1 — vínculo de cônjuges ────────────
 
 const SPOUSE_LINKABLE_STATUSES: MaritalStatus[] = ["casado", "uniao_estavel"];

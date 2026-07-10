@@ -17,7 +17,7 @@ type Filter = "active" | SType;
 export default function LeadsPage() {
   const navigate = useNavigate();
   const [qp] = useSearchParams();
-  const { leads, counts, members, loading, error, canAssign, actions } = useLeads();
+  const { leads, counts, members, brokerageDirectory, pendingBrokers, loading, error, canAssign, actions } = useLeads();
   const { toasts, celebrate, celebrateError } = useCelebration();
 
   const [filter, setFilterState] = useState<Filter>("active");
@@ -139,7 +139,8 @@ export default function LeadsPage() {
 
       <CelebrationToasts toasts={toasts} />
       {assignTarget ? (
-        <AssignModal lead={assignTarget} members={members} onClose={() => setAssignTarget(null)}
+        <AssignModal lead={assignTarget} members={members} brokerageDirectory={brokerageDirectory} pendingBrokers={pendingBrokers} onClose={() => setAssignTarget(null)}
+          onInvite={() => navigate("/corretores")}
           onPick={async (id, name) => { const t = assignTarget; setAssignTarget(null); await run(`assign-${t.client.id}`, () => actions.assign(t, id, name), `Lead atribuído a ${name} ✓`, { id: t.client.id, note: `Atribuído a ${name}` }); }} />
       ) : null}
       {discardTarget ? (

@@ -111,7 +111,7 @@ export default function KanbanPage() {
 
   // L1.8 — Colunas de lead (MESMA fonte de /leads: useLeads; permissões idênticas —
   // o hook escopa por papel). Contagens coerentes por construção (splitLeadColumns).
-  const { leads: allLeads, members: leadMembers, canAssign: canAssignLeads, actions: leadActions } = useLeads();
+  const { leads: allLeads, members: leadMembers, brokerageDirectory: leadBrokerageDirectory, pendingBrokers: leadPendingBrokers, canAssign: canAssignLeads, actions: leadActions } = useLeads();
   const { novos: novosLeads, atendimento: atendLeads } = splitLeadColumns(allLeads);
   const [leadAssignTarget, setLeadAssignTarget] = useState<LeadView | null>(null);
   const [leadDiscardTarget, setLeadDiscardTarget] = useState<LeadView | null>(null);
@@ -350,7 +350,8 @@ export default function KanbanPage() {
     ) : null}
     {/* Modais de ação de lead (compartilhados com /leads) */}
     {leadAssignTarget ? (
-      <AssignModal lead={leadAssignTarget} members={leadMembers} onClose={() => setLeadAssignTarget(null)}
+      <AssignModal lead={leadAssignTarget} members={leadMembers} brokerageDirectory={leadBrokerageDirectory} pendingBrokers={leadPendingBrokers} onClose={() => setLeadAssignTarget(null)}
+        onInvite={() => navigate("/corretores")}
         onPick={async (id, name) => { const t = leadAssignTarget; setLeadAssignTarget(null); await runLead(`assign-${t.client.id}`, () => leadActions.assign(t, id, name), `Lead atribuído a ${name} ✓`); }} />
     ) : null}
     {leadDiscardTarget ? (

@@ -2,7 +2,14 @@
 // Atribuir (2 grupos + imobiliária + carga) e Descartar. Zero lógica de dados.
 import { useMemo, useState } from "react";
 import type { LeadView } from "./useLeads";
-import { groupAssignableMembers, brokerageOptions, type AssignableMember } from "./assignmentGrouping";
+import {
+  groupAssignableMembers,
+  brokerageSelectOptions,
+  pendingBrokersLabel,
+  type AssignableMember,
+  type BrokerageDirectoryEntry,
+  type PendingBrokersSummary,
+} from "./assignmentGrouping";
 
 const MONO = "var(--font-mono)";
 
@@ -36,14 +43,25 @@ function GroupTitle({ children }: { children: React.ReactNode }) {
   return <div style={{ fontFamily: MONO, fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--color-fog)", margin: "12px 2px 6px" }}>{children}</div>;
 }
 
-export function AssignModal({ lead, members, onClose, onPick }: { lead: LeadView; members: AssignableMember[]; onClose: () => void; onPick: (id: string, name: string) => void }) {
+export function AssignModal({ lead, members, brokerageDirectory = [], pendingBrokers, onClose, onPick, onInvite }: {
+  lead: LeadView;
+  members: AssignableMember[];
+  brokerageDirectory?: BrokerageDirectoryEntry[];
+  pendingBrokers?: PendingBrokersSummary;
+  onClose: () => void;
+  onPick: (id: string, name: string) => void;
+  onInvite?: () => void;
+}) {
   const [q, setQ] = useState("");
   const [showAll, setShowAll] = useState(false);
   const [brokerageFilter, setBrokerageFilter] = useState<string | null>(null); // null = Todas
   const query = q.trim().toLowerCase();
 
   const grouped = useMemo(() => groupAssignableMembers(members, showAll), [members, showAll]);
-  const brokerageOpts = useMemo(() => brokerageOptions(grouped), [grouped]);
+  // L1.9 — o seletor lista TODAS as imobiliárias; as sem corretor ativo vêm
+  // desabilitadas e rotuladas "· sem corretores ativos". Só muda visibilidade.
+  const brokerageOpts = useMemo(() => brokerageSelectOptions(grouped, brokerageDirectory), [grouped, brokerageDirectory]);
+  const pendingLabel = pendingBrokers ? pendingBrokersLabel(pendingBrokers) : null;
 
   const searchHits = useMemo(
     () => (query ? members.filter((m) => m.name.toLowerCase().includes(query)) : []),
@@ -88,9 +106,9 @@ export function AssignModal({ lead, members, onClose, onPick }: { lead: LeadView
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, margin: "12px 2px 6px" }}>
                 <span style={{ fontFamily: MONO, fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--color-fog)" }}>Corretores</span>
-                {grouped.brokerages.length > 0 && (
+                {brokerageOpts.length > 1 && (
                   <select value={brokerageFilter ?? ""} onChange={(e) => setBrokerageFilter(e.target.value || null)} style={{ background: "var(--surface-base)", border: "1px solid var(--border-default)", borderRadius: 6, color: "var(--text-primary)", fontSize: 11, padding: "4px 8px", outline: "none", cursor: "pointer", maxWidth: 180 }}>
-                    {brokerageOpts.map((o) => <option key={o.id ?? "all"} value={o.id ?? ""}>{o.label}</option>)}
+                    {brokerageOpts.map((o) => <option key={o.id ?? "all"} value={o.id ?? ""} disabled={o.disabled}>{o.label}</option>)}
                   </select>
                 )}
               </div>
@@ -103,6 +121,20 @@ export function AssignModal({ lead, members, onClose, onPick }: { lead: LeadView
                     </div>
                   </div>
                 ))}
+
+              {/* L1.9 — Rodapé que explica o "vazio": o sistema está certo (só
+                  corretor com acesso é elegível); aqui contamos os cadastrados
+                  ainda sem acesso e oferecemos o convite (superfície existente). */}
+              {pendingLabel && (
+                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, margin: "10px 2px 2px", padding: "8px 10px", background: "var(--surface-base)", border: "1px dashed var(--border-default)", borderRadius: 8 }}>
+                  <span style={{ fontSize: 11, color: "var(--color-fog)", flex: 1, minWidth: 0 }}>{pendingLabel}</span>
+                  {onInvite && (
+                    <button type="button" onClick={onInvite} style={{ background: "none", border: "none", color: "var(--color-sprout)", fontSize: 11, fontWeight: 600, cursor: "pointer", padding: 0, whiteSpace: "nowrap" }}>
+                      Convidar corretores →
+                    </button>
+                  )}
+                </div>
+              )}
             </>
           )}
         </div>
