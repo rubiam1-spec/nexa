@@ -1,23 +1,25 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAccount } from "../../app/contexts/AccountContext";
 import { useDevelopment } from "../../app/contexts/DevelopmentContext";
 import { useAuth } from "../../app/contexts/AuthContext";
-import { supabase } from "../../infra/supabase/supabaseClient";
 import type { Client } from "../../shared/types/client";
 import {
   fromLeadQualificationDb,
   isLeadActive,
+  toLeadQualificationDb,
   LeadQualificationStatus,
   type LeadQualificationStatus as LeadQualificationStatusType,
 } from "../../domain/status/leadQualification";
 import { firstResponseSemaphore, type LeadSemaphore } from "../../domain/status/leadSemaphore";
 import {
   getLeads,
+  getAssignableMembers,
   assignLead as repoAssignLead,
   startLeadService,
   qualifyLead as repoQualifyLead,
   discardLead as repoDiscardLead,
   markLeadConverted,
+  type AssignableMember,
 } from "../../infra/repositories/clientsSupabaseRepository";
 import { createNegotiationFromClient } from "../../infra/repositories/negotiationsSupabaseRepository";
 import { canViewAllLeads, canWorkLead, canAssignLeads, resolveConvertOwner } from "./leadRules";
@@ -30,7 +32,7 @@ export type LeadView = {
   canWork: boolean;
 };
 
-export type AccountMember = { id: string; name: string; role: string };
+export type AccountMember = AssignableMember;
 
 export function useLeads() {
   const { account } = useAccount();
@@ -50,29 +52,37 @@ export function useLeads() {
   const [refreshKey, setRefreshKey] = useState(0);
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
+  // Regra 8 (nunca "recarregar"): o loading full-screen só vale para a PRIMEIRA
+  // carga de cada conta. Refetch pós-ação é SILENCIOSO — a lista nunca desmonta,
+  // o scroll não se perde e o toast não some. Reset ao trocar de conta.
+  const initialLoadedRef = useRef(false);
+  useEffect(() => { initialLoadedRef.current = false; }, [accountId]);
+
   useEffect(() => {
     if (!accountId) { setLoading(false); return; }
     let active = true;
-    setLoading(true);
+    if (!initialLoadedRef.current) setLoading(true);
     getLeads(accountId, { assignedTo: seeAll ? null : profileId })
-      .then((data) => { if (active) { setRows(data); setError(null); } })
+      .then((data) => { if (active) { setRows(data); setError(null); initialLoadedRef.current = true; } })
       .catch((e) => { if (active) setError(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [accountId, seeAll, profileId, refreshKey]);
 
-  // Membros da conta (picker de atribuição) — só carrega para quem pode atribuir.
+  // Membros atribuíveis (equipe + corretores com imobiliária + carga) — só para
+  // quem pode atribuir. Contexto de carga em batch, sem N+1 (ver repositório).
   useEffect(() => {
-    if (!accountId || !canAssign || !supabase) return;
-    supabase.from("user_account_access").select("user_id, role, profiles(id, name)").eq("account_id", accountId)
-      .then(({ data }) => {
-        const list: AccountMember[] = (data ?? []).map((r: Record<string, unknown>) => {
-          const p = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles;
-          return { id: (p as Record<string, unknown>)?.id as string, name: ((p as Record<string, unknown>)?.name as string) ?? "—", role: r.role as string };
-        }).filter((m) => m.id);
-        setMembers(list);
-      });
-  }, [accountId, canAssign]);
+    if (!accountId || !canAssign) return;
+    let active = true;
+    getAssignableMembers(accountId).then((list) => { if (active) setMembers(list); }).catch(() => { if (active) setMembers([]); });
+    return () => { active = false; };
+  }, [accountId, canAssign, refreshKey]);
+
+  // Patch OTIMISTA local: aplica o novo estado no lugar (sem esperar refetch),
+  // para o lead nunca "sumir sem explicação". O refresh() silencioso reconcilia.
+  const patchRow = useCallback((clientId: string, patch: Partial<Client>) => {
+    setRows((prev) => prev.map((c) => (c.id === clientId ? { ...c, ...patch } : c)));
+  }, []);
 
   const leads: LeadView[] = useMemo(() => {
     return rows.map((client) => {
@@ -98,25 +108,29 @@ export function useLeads() {
     return c;
   }, [leads]);
 
-  // ── Ações (escrita só via repositório) ──
+  // ── Ações (escrita só via repositório; patch OTIMISTA no lugar; refresh silencioso) ──
   async function assign(lead: LeadView, toProfileId: string, toName: string) {
     if (!accountId) return;
     await repoAssignLead({ clientId: lead.client.id, accountId, toProfileId, toName, byProfileId: profileId });
+    patchRow(lead.client.id, { assignedTo: toProfileId, assignedToName: toName });
     refresh();
   }
   async function startService(lead: LeadView) {
     if (!accountId) return;
     await startLeadService(lead.client.id, accountId, lead.qualification, profileId);
+    patchRow(lead.client.id, { qualificationStatus: toLeadQualificationDb(LeadQualificationStatus.IN_SERVICE) });
     refresh();
   }
   async function qualify(lead: LeadView) {
     if (!accountId) return;
     await repoQualifyLead(lead.client.id, accountId, lead.qualification, profileId);
+    patchRow(lead.client.id, { qualificationStatus: toLeadQualificationDb(LeadQualificationStatus.QUALIFIED) });
     refresh();
   }
   async function discard(lead: LeadView, reason: string) {
     if (!accountId) return;
     await repoDiscardLead(lead.client.id, accountId, lead.qualification, profileId, reason);
+    patchRow(lead.client.id, { qualificationStatus: toLeadQualificationDb(LeadQualificationStatus.DISCARDED) });
     refresh();
   }
   /** Converte em negociação (1 toque). Retorna o id da negociação criada. */
@@ -128,7 +142,10 @@ export function useLeads() {
       brokerId: lead.client.brokerId, ownerProfileId,
       origem: lead.client.origin, notes: null,
     });
-    if (negId) await markLeadConverted(lead.client.id, accountId, lead.qualification, profileId, negId);
+    if (negId) {
+      await markLeadConverted(lead.client.id, accountId, lead.qualification, profileId, negId);
+      patchRow(lead.client.id, { qualificationStatus: toLeadQualificationDb(LeadQualificationStatus.CONVERTED) });
+    }
     refresh();
     return negId;
   }
