@@ -1,0 +1,14 @@
+{
+  "_note": "Dump-alvo pré-UPDATE da reconciliação L1.6 (Governança 11). Estado das 2 linhas ANTES de marcar 'converted'. Salvaguarda para rollback manual. Autorizado por Rubiam em 2026-07-10.",
+  "dump_ts": "2026-07-10T16:05:29.170221+00:00",
+  "clients": [
+    { "id": "93d3854e-3f51-46cf-92cd-e02a9159c00a", "account_id": "16d4b82f-880f-4818-bb07-93c3b606f982", "name": "Carla Andréia Favretto da Silva", "qualification_status": "unqualified", "status": "new", "converted_at": null, "converted_negotiation_id": null, "assigned_to": "2a82500d-b80d-41f4-bd15-7eb6fb5db601", "origin": "broker_indication" },
+    { "id": "1853d771-5c6c-48df-bc5a-6dad23c92f4d", "account_id": "16d4b82f-880f-4818-bb07-93c3b606f982", "name": "Remir José de Souza", "qualification_status": "unqualified", "status": "new", "converted_at": null, "converted_negotiation_id": null, "assigned_to": null, "origin": null }
+  ],
+  "contact_interactions_pre": [
+    { "id": "5d182ca3-009f-4a53-89e8-177e46060139", "client_id": "93d3854e-3f51-46cf-92cd-e02a9159c00a", "type": "visit_client", "title": "Visitou o Vivendas do Bosque com o marido", "negotiation_id": null, "metadata": {}, "performed_at": "2026-04-10T21:22:56.460031+00:00" },
+    { "id": "3c3b4fa2-f11d-4f50-a8b9-a3a324dce95c", "client_id": "93d3854e-3f51-46cf-92cd-e02a9159c00a", "type": "assignment_change", "title": "Atribuído para Rubiam Rodrigues", "negotiation_id": null, "metadata": { "to_user": "4ba2b374-08e2-43e9-875b-5c513b8aa82a" }, "performed_at": "2026-04-10T21:23:20.811961+00:00" },
+    { "id": "a5a4fdc2-c908-4967-82a5-a6399ca8f73f", "client_id": "93d3854e-3f51-46cf-92cd-e02a9159c00a", "type": "assignment_change", "title": "Atribuído para Suellen de Lima", "negotiation_id": null, "metadata": { "to_user": "2a82500d-b80d-41f4-bd15-7eb6fb5db601" }, "performed_at": "2026-04-11T11:49:21.675554+00:00" }
+  ],
+  "rollback_hint": "UPDATE clients SET qualification_status='unqualified', converted_at=NULL, converted_negotiation_id=NULL WHERE id IN ('93d3854e-3f51-46cf-92cd-e02a9159c00a','1853d771-5c6c-48df-bc5a-6dad23c92f4d'); DELETE FROM contact_interactions WHERE metadata->>'reconciliation'='L1.6';"
+}

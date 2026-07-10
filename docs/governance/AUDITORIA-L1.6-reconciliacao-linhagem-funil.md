@@ -33,6 +33,16 @@ relação 1:1 lead↔negociação. Pré-L1, nunca reconciliados.
    - `converted` é o valor canônico da fonte única (`domain/status/leadQualification`).
 3. Estruturado como ÚLTIMO passo do ciclo. **Checkpoint:** só executa com "GO" do Rubiam.
 
+### ✅ EXECUTADO (2026-07-10, autorizado por Rubiam)
+Dump-alvo salvo em `dump-L1.6-reconciliacao-pre-update.json` (com rollback_hint).
+Transação idempotente executada. Verificação pós-UPDATE:
+- `fantasmas_restantes = 0`.
+- Carla e Remir → `qualification_status='converted'`, `converted_negotiation_id`
+  preenchido, `converted_at=2026-07-10T16:06:09Z`.
+- 2 `contact_interactions` de reconciliação criadas (metadata.reconciliation='L1.6',
+  coluna `negotiation_id` populada — fio da linhagem fechado).
+Rollback disponível no dump (não acionado).
+
 ---
 
 ## BLOCO 2 — Linhagem do lead na negociação (código)
