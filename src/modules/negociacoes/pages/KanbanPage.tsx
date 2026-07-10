@@ -20,6 +20,10 @@ import { deleteSimulation } from "../../../infra/repositories/pipelineSimulation
 import { timeAgo } from "../../../shared/utils/timeAgo";
 import { fetchMyQueuePositions } from "../../units/hooks/useUnitQueue";
 import CancelNegotiationModal from "../../../shared/components/CancelNegotiationModal";
+import { useLeads, type LeadView } from "../../leads/useLeads";
+import LeadCard from "../../leads/LeadCard";
+import { AssignModal, DiscardModal } from "../../leads/LeadActionModals";
+import { splitLeadColumns } from "../../leads/leadColumns";
 
 const MONO = "var(--font-mono)";
 const MAX_CARDS_PER_COL = 6;
@@ -105,7 +109,35 @@ export default function KanbanPage() {
   const teamFilterIds = isBroker && isBrokerManager && brokerViewMode === "team" ? teamBrokerIds : null;
   const { board, loading, error, thresholdDays } = useNegotiationsBoard({ accountId: aId, developmentId: dId, refreshKey, filters: effectiveFilters, search: busca, teamBrokerIds: teamFilterIds });
 
-  const [mobileTab, setMobileTab] = useState<BoardStage>("em_negociacao");
+  // L1.8 — Colunas de lead (MESMA fonte de /leads: useLeads; permissões idênticas —
+  // o hook escopa por papel). Contagens coerentes por construção (splitLeadColumns).
+  const { leads: allLeads, members: leadMembers, canAssign: canAssignLeads, actions: leadActions } = useLeads();
+  const { novos: novosLeads, atendimento: atendLeads } = splitLeadColumns(allLeads);
+  const [leadAssignTarget, setLeadAssignTarget] = useState<LeadView | null>(null);
+  const [leadDiscardTarget, setLeadDiscardTarget] = useState<LeadView | null>(null);
+  const [leadBusy, setLeadBusy] = useState<string | null>(null);
+  const runLead = useCallback(async (key: string, fn: () => Promise<unknown>, okMsg: string) => {
+    setLeadBusy(key);
+    try { await fn(); celebrate(okMsg); } catch (e) { celebrateError("Falha na ação", e instanceof Error ? e.message : undefined); } finally { setLeadBusy(null); }
+  }, [celebrate, celebrateError]);
+  const convertLead = useCallback(async (l: LeadView) => {
+    setLeadBusy(`convert-${l.client.id}`);
+    try {
+      const negId = await leadActions.convert(l); // patch otimista tira o lead da coluna
+      if (negId) { celebrate("Convertido — na coluna Em negociação"); onActionSuccess(); } // refresh do board de negociação
+      else celebrateError("Não foi possível criar a negociação");
+    } catch (e) { celebrateError("Falha ao converter", e instanceof Error ? e.message : undefined); }
+    finally { setLeadBusy(null); }
+  }, [leadActions, celebrate, celebrateError, onActionSuccess]);
+  const leadCardActions = useCallback((l: LeadView) => ({
+    onAssign: () => setLeadAssignTarget(l),
+    onStart: () => runLead(`svc-${l.client.id}`, () => leadActions.startService(l), "Atendimento iniciado ✓"),
+    onQualify: () => runLead(`qua-${l.client.id}`, () => leadActions.qualify(l), "Lead qualificado ✓"),
+    onConvert: () => convertLead(l),
+    onDiscard: () => setLeadDiscardTarget(l),
+  }), [runLead, convertLead, leadActions]);
+
+  const [mobileTab, setMobileTab] = useState<BoardStage | "leads" | "atendimento">("em_negociacao");
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [modalProposta, setModalProposta] = useState<KanbanCard | null>(null);
   const [modalReserva, setModalReserva] = useState<KanbanCard | null>(null);
@@ -179,6 +211,14 @@ export default function KanbanPage() {
       {isMobile ? (
         <>
           <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 8, marginBottom: 12 }}>
+            {([["leads", "Leads", novosLeads.length, "#7DA7F4"], ["atendimento", "Em atendimento", atendLeads.length, "#9DB8E8"]] as const).map(([id, label, count, cor]) => {
+              const active = mobileTab === id;
+              return (
+                <button key={id} type="button" onClick={() => setMobileTab(id)} style={{ flexShrink: 0, padding: "5px 14px", borderRadius: 16, fontSize: 11, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", minHeight: 44, border: active ? `1px solid ${cor}30` : "1px solid var(--border-default)", background: active ? `${cor}14` : "transparent", color: active ? cor : "var(--color-clay)" }}>
+                  {label}{count > 0 ? ` · ${count}` : ""}
+                </button>
+              );
+            })}
             {STAGES.map((est) => {
               const count = board.countByStage[est.id];
               const active = mobileTab === est.id;
@@ -190,14 +230,23 @@ export default function KanbanPage() {
             })}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingBottom: 16 }}>
-            {board.byStage[mobileTab].length === 0
-              ? <div style={{ textAlign: "center", padding: "32px 10px", border: "1px dashed var(--border-default)", borderRadius: 10, color: "var(--color-clay)", fontSize: 12, fontStyle: "italic" }}>Sem {stageMeta(mobileTab).label.toLowerCase()}</div>
-              : board.byStage[mobileTab].map((c) => renderCard(c, mobileTab))}
+            {mobileTab === "leads" || mobileTab === "atendimento" ? (() => {
+              const list = mobileTab === "leads" ? novosLeads : atendLeads;
+              return list.length === 0
+                ? <div style={{ textAlign: "center", padding: "32px 10px", border: "1px dashed var(--border-default)", borderRadius: 10, color: "var(--color-clay)", fontSize: 12, fontStyle: "italic" }}>Sem leads</div>
+                : <>{list.slice(0, 8).map((l) => <LeadCard key={l.client.id} lead={l} canAssign={canAssignLeads} busy={!!leadBusy && leadBusy.endsWith(l.client.id)} actions={leadCardActions(l)} />)}{list.length > 8 ? <button type="button" onClick={() => navigate("/leads")} style={{ fontFamily: MONO, fontSize: 10, color: "var(--color-sprout)", padding: 8, background: "none", border: "1px dashed var(--border-default)", borderRadius: 8, cursor: "pointer" }}>ver todos ({list.length}) →</button> : null}</>;
+            })() : (
+              board.byStage[mobileTab].length === 0
+                ? <div style={{ textAlign: "center", padding: "32px 10px", border: "1px dashed var(--border-default)", borderRadius: 10, color: "var(--color-clay)", fontSize: 12, fontStyle: "italic" }}>Sem {stageMeta(mobileTab).label.toLowerCase()}</div>
+                : board.byStage[mobileTab].map((c) => renderCard(c, mobileTab))
+            )}
           </div>
         </>
       ) : (
         <div style={{ overflowX: "auto", paddingBottom: 16 }}>
-          <div style={{ display: "flex", gap: 10, alignItems: "stretch", minWidth: 900 }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "stretch", minWidth: 1260 }}>
+            {renderLeadColumn("Leads", novosLeads, "#7DA7F4")}
+            {renderLeadColumn("Em atendimento", atendLeads, "#9DB8E8")}
             {STAGES.map((est) => {
               const cs = board.byStage[est.id];
               const vgv = board.vgvByStage[est.id];
@@ -233,7 +282,7 @@ export default function KanbanPage() {
       <div style={{ marginTop: 16, border: "1px solid var(--border-default)", borderRadius: 10, background: "rgba(156,150,134,0.04)" }}>
         <button type="button" onClick={() => setPrefunnelOpen((o) => !o)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer" }}>
           <span style={{ fontFamily: MONO, fontSize: 11, color: "var(--color-fog)", letterSpacing: "0.04em" }}>
-            Pré-funil · {board.prefunnel.leads} {board.prefunnel.leads === 1 ? "lead ativo" : "leads ativos"} · {board.prefunnel.count} {board.prefunnel.count === 1 ? "simulação" : "simulações"} · {fmtV(board.prefunnel.vgv)} potencial <span style={{ color: "var(--color-slate)" }}>(fora da conta)</span>
+            Pré-funil · {board.prefunnel.count} {board.prefunnel.count === 1 ? "simulação" : "simulações"} · {fmtV(board.prefunnel.vgv)} potencial <span style={{ color: "var(--color-slate)" }}>(fora da conta)</span>
           </span>
           <span style={{ display: "flex", gap: 12, alignItems: "center" }}>
             <span onClick={(e) => { e.stopPropagation(); navigate("/leads"); }} style={{ fontSize: 11, color: "var(--color-sprout)", cursor: "pointer" }}>Ver Leads →</span>
@@ -299,8 +348,42 @@ export default function KanbanPage() {
         </div>
       </div>
     ) : null}
+    {/* Modais de ação de lead (compartilhados com /leads) */}
+    {leadAssignTarget ? (
+      <AssignModal lead={leadAssignTarget} members={leadMembers} onClose={() => setLeadAssignTarget(null)}
+        onPick={async (id, name) => { const t = leadAssignTarget; setLeadAssignTarget(null); await runLead(`assign-${t.client.id}`, () => leadActions.assign(t, id, name), `Lead atribuído a ${name} ✓`); }} />
+    ) : null}
+    {leadDiscardTarget ? (
+      <DiscardModal lead={leadDiscardTarget} onClose={() => setLeadDiscardTarget(null)}
+        onConfirm={async (reason) => { const t = leadDiscardTarget; setLeadDiscardTarget(null); await runLead(`disc-${t.client.id}`, () => leadActions.discard(t, reason), "Descartado — ver em Descartados"); }} />
+    ) : null}
     </>
   );
+
+  // ---- Coluna de lead (LeadCard compartilhado; até 8, depois "ver todos") ----
+  function renderLeadColumn(title: string, list: LeadView[], accent: string) {
+    const visible = list.slice(0, 8);
+    const hidden = list.length - visible.length;
+    return (
+      <div style={{ flex: 1, minWidth: 176, display: "flex", flexDirection: "column" }}>
+        <div style={{ padding: "12px 14px", background: "var(--surface-raised)", borderRadius: "10px 10px 0 0", border: "1px solid var(--border-default)", borderBottom: "none" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+            <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--color-dust)" }}>{title}</span>
+            <span style={{ fontFamily: MONO, fontSize: 9, color: "var(--color-clay)", background: "var(--border-default)", padding: "1px 6px", borderRadius: 6 }}>{list.length}</span>
+          </div>
+          <div style={{ height: 2, borderRadius: 1, marginTop: 8, background: `linear-gradient(90deg, ${accent}60, ${accent}15)` }} />
+        </div>
+        <div style={{ flex: 1, padding: 6, background: "rgba(18,17,14,0.3)", borderRadius: "0 0 10px 10px", border: "1px solid var(--border-default)", borderTop: "none", display: "flex", flexDirection: "column", gap: 6, minHeight: 200 }}>
+          {list.length === 0
+            ? <div style={{ textAlign: "center", padding: "20px 10px", border: "1px dashed var(--border-default)", borderRadius: 10, color: "var(--color-clay)", fontSize: 12, fontStyle: "italic" }}>Sem leads</div>
+            : visible.map((l) => <LeadCard key={l.client.id} lead={l} canAssign={canAssignLeads} busy={!!leadBusy && leadBusy.endsWith(l.client.id)} actions={leadCardActions(l)} />)}
+          {hidden > 0 && (
+            <button type="button" onClick={() => navigate("/leads")} style={{ fontFamily: MONO, fontSize: 9, color: "var(--color-sprout)", textAlign: "center", padding: 8, background: "none", border: "1px dashed var(--border-default)", borderRadius: 8, cursor: "pointer" }}>ver todos ({list.length}) →</button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   // ---- Card enxuto de 3 linhas + ações no hover ----
   function renderCard(c: KanbanCard, stage: BoardStage) {
