@@ -1,12 +1,9 @@
 import { useState, useMemo, useEffect } from "react";
-import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAccount } from "../../../app/contexts/AccountContext";
 import { useAuth } from "../../../app/contexts/AuthContext";
-import { usePermissions } from "../../../shared/hooks/usePermissions";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
 import { useContatos, type ContatoFilters } from "../hooks/useContatos";
-import { useLeadDistribution } from "../hooks/useLeadDistribution";
 import { useClientFilter } from "../../../shared/hooks/useClientFilter";
 import { podeVerTodasNegociacoes } from "../../../shared/utils/permissoes";
 import { supabase } from "../../../infra/supabase/supabaseClient";
@@ -59,12 +56,17 @@ export default function ContatosPage() {
   const userId = authenticatedProfile?.id ?? null;
   const canSeeAll = podeVerTodasNegociacoes(userRole);
   const clientFilter = useClientFilter();
-  const { role: accountRole } = usePermissions();
-  const canDistribute = accountRole === "owner" || accountRole === "director" || accountRole === "manager";
-  const { distribute, distributingId } = useLeadDistribution();
-  const [distToast, setDistToast] = useState<string | null>(null);
 
-  const initialTab = qp.get("tab") ?? "all";
+  // Superfície ÚNICA de leads é /leads. O deep-link legado ?tab=leads (do redirect
+  // antigo) é reconduzido para lá — Contatos não hospeda mais o ciclo de lead.
+  useEffect(() => {
+    if (qp.get("tab") === "leads") navigate("/leads", { replace: true });
+  }, [qp, navigate]);
+
+  // Só as abas de RELACIONAMENTO/cadastro sobrevivem aqui (ver `views`).
+  const KEPT_TABS = ["all", "hot", "overdue"];
+  const rawTab = qp.get("tab");
+  const initialTab = rawTab && KEPT_TABS.includes(rawTab) ? rawTab : "all";
   const [filters, setFilters] = useState<ContatoFilters>({});
   const [search, setSearch] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
@@ -95,26 +97,14 @@ export default function ContatosPage() {
   }, [filters, searchDebounced]);
 
   const ownerFilter = !canSeeAll && userId ? clientFilter : undefined;
-  const { contatos: allContatos, isLoading, status, errorMessage, refetch } = useContatos(accountId, effectiveFilters, ownerFilter);
+  const { contatos: allContatos, isLoading, status, errorMessage } = useContatos(accountId, effectiveFilters, ownerFilter);
 
-  async function handleDistribute(clientId: string) {
-    const res = await distribute(clientId);
-    if (res.ok) {
-      setDistToast("Lead distribuído ✓");
-      refetch();
-    } else {
-      setDistToast(res.error);
-    }
-    setTimeout(() => setDistToast(null), 3500);
-  }
-
+  // Contatos = cadastro geral. As abas de CICLO DE LEAD (Leads/Qualificados/
+  // Em negociação/Convertidos/Perdidos), que liam clients.status em paralelo à
+  // superfície /leads, foram removidas. Sobrevivem só atributos de RELACIONAMENTO
+  // (temperatura) e o Follow-up (campo próprio nextFollowUpAt).
   const contatos = useMemo(() => {
     let result = allContatos;
-    if (activeView === "leads") result = result.filter((c) => ["new", "contacted", "qualifying"].includes(c.status));
-    if (activeView === "qualified") result = result.filter((c) => c.status === "qualified" || c.status === "nurturing");
-    if (activeView === "negotiating") result = result.filter((c) => c.status === "negotiating" || c.status === "active");
-    if (activeView === "converted") result = result.filter((c) => c.status === "converted");
-    if (activeView === "lost") result = result.filter((c) => c.status === "lost");
     if (activeView === "hot") result = result.filter((c) => c.temperature === "hot");
     if (activeView === "overdue") result = result.filter((c) => c.nextFollowUpAt && new Date(c.nextFollowUpAt) < new Date());
     return result;
@@ -122,11 +112,6 @@ export default function ContatosPage() {
 
   const views = [
     { key: "all", label: "Todos", count: allContatos.length },
-    { key: "leads", label: "Leads", count: allContatos.filter((c) => ["new", "contacted", "qualifying"].includes(c.status)).length },
-    { key: "qualified", label: "Qualificados", count: allContatos.filter((c) => c.status === "qualified" || c.status === "nurturing").length },
-    { key: "negotiating", label: "Em negociação", count: allContatos.filter((c) => c.status === "negotiating" || c.status === "active").length },
-    { key: "converted", label: "Convertidos", count: allContatos.filter((c) => c.status === "converted").length },
-    { key: "lost", label: "Perdidos", count: allContatos.filter((c) => c.status === "lost").length },
     { key: "hot", label: "Quentes", count: allContatos.filter((c) => c.temperature === "hot").length },
     { key: "overdue", label: "Follow-up", count: allContatos.filter((c) => c.nextFollowUpAt && new Date(c.nextFollowUpAt) < new Date()).length },
   ];
@@ -194,13 +179,17 @@ export default function ContatosPage() {
         </div>
       </div>
 
-      {/* View tabs */}
+      {/* View tabs (relacionamento/cadastro) + atalho para a superfície de Leads */}
       <div style={{ display: "flex", gap: 4, overflowX: "auto", marginBottom: 12, paddingBottom: 4 }}>
         {views.map((v) => (
           <button key={v.key} type="button" onClick={() => setActiveView(v.key)} style={{ padding: "6px 14px", borderRadius: 8, border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", background: activeView === v.key ? "var(--text-primary)" : "var(--surface-raised)", color: activeView === v.key ? "var(--surface-base)" : "var(--text-muted)", transition: "all 0.15s" }}>
             {v.label}{v.count > 0 ? ` (${v.count})` : ""}
           </button>
         ))}
+        {/* Não é uma aba: leva para /leads, a única tela de trabalho de leads. */}
+        <button type="button" onClick={() => navigate("/leads")} title="Abrir a tela de Leads" style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid var(--border-strong)", background: "transparent", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", color: "var(--interactive-primary)", display: "flex", alignItems: "center", gap: 4, transition: "all 0.15s" }}>
+          Leads →
+        </button>
       </div>
 
       {/* Search + Filters button */}
@@ -336,11 +325,6 @@ export default function ContatosPage() {
                 {!isMobile && <Badge label={CLIENT_STATUS_LABELS[c.status] ?? c.status} color={CLIENT_STATUS_COLORS[c.status] ?? "#6B7280"} />}
                 {!isMobile && c.score > 0 && <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 600, color: c.score >= 70 ? "#4ADE80" : c.score >= 40 ? "#FBBF24" : "var(--text-muted)", minWidth: 32, textAlign: "center" }}>{c.score}</div>}
                 {!isMobile && <div style={{ fontSize: 12, color: c.assignedToName ? "var(--text-muted)" : "var(--text-disabled)", minWidth: 80, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.assignedToName ?? c.brokerName ?? "—"}</div>}
-                {canDistribute && !c.assignedTo && !c.brokerName && (
-                  <button type="button" onClick={(e) => { e.stopPropagation(); void handleDistribute(c.id); }} disabled={distributingId === c.id} style={{ flexShrink: 0, padding: "6px 12px", borderRadius: 8, border: "1px solid var(--interactive-primary)", background: "rgba(74,222,128,0.08)", color: "var(--interactive-primary)", fontSize: 12, fontWeight: 700, cursor: distributingId === c.id ? "wait" : "pointer", whiteSpace: "nowrap" }}>
-                    {distributingId === c.id ? "..." : "Distribuir"}
-                  </button>
-                )}
                 {isOverdue && <span title="Follow-up atrasado" style={{ fontSize: 14, flexShrink: 0 }}>⚠</span>}
                 {isMobile && <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}><Badge label={CLIENT_STATUS_LABELS[c.status] ?? c.status} color={CLIENT_STATUS_COLORS[c.status] ?? "#6B7280"} /></div>}
               </div>
@@ -349,12 +333,6 @@ export default function ContatosPage() {
         </div>
       )}
 
-      {distToast && createPortal(
-        <div style={{ position: "fixed", bottom: 32, left: "50%", transform: "translateX(-50%)", background: "var(--surface-raised)", border: "1px solid var(--border-default)", color: "var(--text-primary)", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 600, zIndex: 10000, boxShadow: "0 8px 24px rgba(0,0,0,0.45)" }}>
-          {distToast}
-        </div>,
-        document.body,
-      )}
     </div>
   );
 }
