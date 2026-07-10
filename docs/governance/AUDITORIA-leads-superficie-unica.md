@@ -114,3 +114,26 @@ Merge: `git push origin feat/atividades-mobile-onda1:main` (fast-forward, sem
 squash), levando **apenas** os 2 commits temáticos acima. Deploy Vercel via
 git-integration. Sanidade: `/leads` responde, navegação do menu, redirect
 `/contatos?tab=leads → /leads` em https://app.nexacomercial.com.br.
+
+## 7. Resultado do deploy (2026-07-10)
+
+- **Merge executado:** `git push origin feat/atividades-mobile-onda1:main` →
+  fast-forward `ef19401..b663f40` (3 commits: fix navegação, refactor
+  convergência, docs dump). WIP do importador (22 arquivos) intacto, fora do stage.
+- **Deploy ID:** `dpl_4KUYej8yLLhBxa5yjnq9j1chFf5o` — state **READY** (build ~46s),
+  target `production`, **aliasado a `app.nexacomercial.com.br`** (`aliasError: null`).
+  Rollback candidato anterior: `dpl_44dU78RfgJHQ55nHmJKsxVZ57XjW`.
+- **Verificação de bundle (JS-free)** no artefato de produção
+  `assets/index-BKPThTuX.js`:
+  - `tab=leads` (impressão digital do redirect legado `to="/contatos?tab=leads"`)
+    → **0 ocorrências** — o sequestro do menu saiu de produção.
+  - Menu no ar: `` key:`leads`,label:`Leads`,path:`/leads` ``.
+  - Redirect do deep-link no ar: `` t.get(`tab`)===`leads`&&e(`/leads`,{replace:!0}) ``.
+  - Atalho do Contatos no ar: `` onClick:()=>e(`/leads`),title:`Abrir a tela de Leads` ``.
+  - `https://app.nexacomercial.com.br/` → HTTP 200.
+- **Pendente (Rubiam, logado):** clique final no item "Leads" do menu e no
+  deep-link `/contatos?tab=leads` — auth-gated, não verificável sem sessão.
+
+> Nota de ciclo: este registro (Seção 7) foi commitado **apenas na feat**, sem
+> push para main, para não disparar rebuild de produção redundante. Viaja no
+> próximo ciclo de produção. Ciclo L1/L1.5 encerrado.
