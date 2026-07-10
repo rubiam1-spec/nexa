@@ -459,6 +459,59 @@ export async function getLeadFunnelRows(
   });
 }
 
+/**
+ * Membros ATRIBUÍVEIS (têm profile — clients.assigned_to é profile_id) com o
+ * contexto necessário para distribuição justa: papel, imobiliária (p/ corretores)
+ * e CARGA (nº de leads ativos NEW/IN_SERVICE já atribuídos). Tudo em 3 queries
+ * batch — sem N+1. A elegibilidade/agrupamento é decidida em função pura
+ * (modules/leads/assignmentGrouping), nunca no .tsx.
+ */
+export type AssignableMember = {
+  id: string; // profile_id (identidade atribuível)
+  name: string;
+  role: string;
+  brokerageId: string | null;
+  brokerageName: string | null;
+  activeLeads: number;
+};
+
+export async function getAssignableMembers(accountId: string): Promise<AssignableMember[]> {
+  const supabase = getSupabaseClientOrThrow("clients repository");
+  const [{ data: access }, { data: brokers }, { data: loads }] = await Promise.all([
+    supabase.from("user_account_access").select("role, profiles!inner(id, name)").eq("account_id", accountId),
+    supabase.from("brokers").select("profile_id, brokerage_id, brokerage_name").eq("account_id", accountId),
+    supabase.from("clients").select("assigned_to").eq("account_id", accountId).is("deleted_at", null)
+      .in("qualification_status", ["unqualified", "in_service"]).not("assigned_to", "is", null),
+  ]);
+
+  const brokerByProfile = new Map<string, { brokerageId: string | null; brokerageName: string | null }>();
+  for (const b of (brokers ?? []) as Array<Record<string, unknown>>) {
+    if (b.profile_id) brokerByProfile.set(b.profile_id as string, {
+      brokerageId: (b.brokerage_id as string) ?? null,
+      brokerageName: (b.brokerage_name as string) ?? null,
+    });
+  }
+  const loadByProfile = new Map<string, number>();
+  for (const c of (loads ?? []) as Array<Record<string, unknown>>) {
+    const a = c.assigned_to as string | null;
+    if (a) loadByProfile.set(a, (loadByProfile.get(a) ?? 0) + 1);
+  }
+
+  return ((access ?? []) as Array<Record<string, unknown>>).map((a) => {
+    const p = (Array.isArray(a.profiles) ? a.profiles[0] : a.profiles) as Record<string, unknown>;
+    const id = p?.id as string;
+    const bk = brokerByProfile.get(id);
+    return {
+      id,
+      name: (p?.name as string) ?? "—",
+      role: a.role as string,
+      brokerageId: bk?.brokerageId ?? null,
+      brokerageName: bk?.brokerageName ?? null,
+      activeLeads: loadByProfile.get(id) ?? 0,
+    };
+  }).filter((m) => m.id);
+}
+
 // ── NEXA Engrenagem de Partes v1 — vínculo de cônjuges ────────────
 
 const SPOUSE_LINKABLE_STATUSES: MaritalStatus[] = ["casado", "uniao_estavel"];
