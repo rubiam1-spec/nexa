@@ -330,6 +330,8 @@ export async function addContactInteraction(input: {
   accountId: string; clientId: string; type: string;
   direction?: string; title?: string; description?: string;
   metadata?: Record<string, unknown>; performedBy?: string;
+  /** Fio da linhagem: grava na coluna first-class negotiation_id (não só no metadata). */
+  negotiationId?: string;
 }): Promise<void> {
   const supabase = getSupabaseClientOrThrow("clients repository");
   const { error } = await supabase.from("contact_interactions").insert({
@@ -337,6 +339,7 @@ export async function addContactInteraction(input: {
     type: input.type, direction: input.direction || null,
     title: input.title || null, description: input.description || null,
     metadata: input.metadata || {}, performed_by: input.performedBy || null,
+    negotiation_id: input.negotiationId || null,
   });
   if (error) throw new Error(`Falha ao registrar interação: ${error.message}`);
   // Update last interaction
@@ -404,6 +407,7 @@ async function transitionLead(input: {
       ...(input.negotiationId ? { negotiation_id: input.negotiationId } : {}),
     },
     performedBy: input.byProfileId ?? undefined,
+    negotiationId: input.negotiationId,
   });
 }
 
@@ -433,6 +437,26 @@ export async function countActiveLeads(accountId: string, opts?: { assignedTo?: 
   return (data ?? []).filter((r) =>
     isLeadActive(fromLeadQualificationDb((r as { qualification_status: string | null }).qualification_status)),
   ).length;
+}
+
+/**
+ * Linhas mínimas de lead (created_at + qualificação) da conta — FONTE ÚNICA do
+ * pré-funil detalhado e da conversão de entrada. Uma query; toda contagem
+ * (snapshot novos/atendimento e coorte por período) é derivada em função pura
+ * (board/leadFunnel), garantindo número idêntico ao da tela Leads por construção.
+ */
+export async function getLeadFunnelRows(
+  accountId: string,
+): Promise<Array<{ createdAt: string; qualification: LeadQualificationStatusType }>> {
+  const supabase = getSupabaseClientOrThrow("clients repository");
+  const { data, error } = await supabase
+    .from("clients").select("created_at, qualification_status")
+    .eq("account_id", accountId).is("deleted_at", null).limit(5000);
+  if (error) throw new Error(`Falha ao carregar leads do funil: ${error.message}`);
+  return (data ?? []).map((r) => {
+    const row = r as { created_at: string; qualification_status: string | null };
+    return { createdAt: row.created_at, qualification: fromLeadQualificationDb(row.qualification_status) };
+  });
 }
 
 // ── NEXA Engrenagem de Partes v1 — vínculo de cônjuges ────────────
