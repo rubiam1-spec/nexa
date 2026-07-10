@@ -90,3 +90,14 @@ de contato real, na mesma fonte de contagem, com teste de coerência:
 **Por que adiado:** mudança cross-cutting nas 4 superfícies; nesta rodada resolvemos o
 bug de UX (B1) sem risco de encolher número de produção de ninguém.
 **Data de revisão:** **2026-08-10** (reavaliar se vale unificar a fonte de contagem).
+
+---
+
+## Deploy (Parte 1)
+Merge ff `9d33bde..1c844f0` → main. Deploy **`dpl_86vLp67SrfXnZc8SE4z5LoA5rBEL`**
+READY (~50s), aliasado a `app.nexacomercial.com.br` (`aliasError: null`). Rollback
+candidate anterior: `dpl_77qNE4DH` (L1.6+L1.7). Zero DDL; sem migração de dados
+(coluna `activity_id` já existia). Sanidade no bundle `assets/index-CAuZdUMI.js`:
+"atendimento iniciado", "Interação registrada" presentes; HTTP 200.
+Registro commitado só na feat (sem push). **Partes 2-3 (funil ponta-a-ponta + Kanban
+com jornada) = próximo passo.**
