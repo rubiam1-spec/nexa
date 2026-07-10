@@ -9,6 +9,8 @@
 import type { KanbanCard } from "../hooks/useKanbanData";
 import { columnOfStatusRaw, FUNNEL_FLOW, type BoardStage } from "./stageColumn";
 import { semaphoreOf } from "./semaphore";
+import { LeadQualificationStatus } from "../../../domain/status/leadQualification";
+import type { LeadFunnelRow } from "./leadFunnel";
 
 export type PeriodKey = "30d" | "90d" | "month";
 
@@ -161,4 +163,52 @@ export function computeFunnelMetrics(
     prefunnel: { count: simulations.length, vgv: simulations.reduce((s, c) => s + (c.valor ?? 0), 0) },
     bottleneck,
   };
+}
+
+// L1.8 — JORNADA PONTA-A-PONTA (Leads → Em atendimento → Em negociação → Proposta →
+// Reserva → Venda), com % entre CADA par. HONESTIDADE fluxo × estoque: Leads e
+// Em atendimento são a COORTE DE LEADS do período (por clients.created_at); os
+// estágios de negociação são a COORTE DE NEGOCIAÇÕES (reached, já do período). A
+// transição Em atendimento → Em negociação cruza as duas coortes (fluxo aproximado).
+// Sem base em qualquer par → conv = null → UI "—".
+export type JourneyStageKey = "leads" | "atendimento" | "em_negociacao" | "proposta" | "reserva" | "venda";
+export type JourneyTone = "lead" | "negotiation";
+export type JourneyStage = { key: JourneyStageKey; label: string; count: number; tone: JourneyTone };
+export type JourneyTransition = { fromKey: JourneyStageKey; toKey: JourneyStageKey; conv: number | null };
+export type EndToEndJourney = {
+  stages: JourneyStage[];
+  transitions: JourneyTransition[];
+  /** Leads criados no período ainda em NEW (sem 1ª resposta) — "atenção" da linha Leads. */
+  leadsSemResposta: number;
+};
+
+export function computeEndToEndJourney(
+  reached: Record<BoardStage, number>,
+  leadRows: LeadFunnelRow[],
+  startMs: number,
+): EndToEndJourney {
+  let leadsCriados = 0;
+  let atendidos = 0;
+  let semResposta = 0;
+  for (const r of leadRows) {
+    const t = new Date(r.createdAt).getTime();
+    if (!Number.isFinite(t) || t < startMs) continue;
+    leadsCriados += 1;
+    if (r.qualification !== LeadQualificationStatus.NEW) atendidos += 1;
+    else semResposta += 1;
+  }
+  const stages: JourneyStage[] = [
+    { key: "leads", label: "Leads", count: leadsCriados, tone: "lead" },
+    { key: "atendimento", label: "Em atendimento", count: atendidos, tone: "lead" },
+    { key: "em_negociacao", label: "Em negociação", count: reached.em_negociacao, tone: "negotiation" },
+    { key: "proposta", label: "Proposta", count: reached.proposta, tone: "negotiation" },
+    { key: "reserva", label: "Reserva", count: reached.reserva, tone: "negotiation" },
+    { key: "venda", label: "Venda", count: reached.venda, tone: "negotiation" },
+  ];
+  const conv = (from: number, to: number): number | null => (from > 0 ? to / from : null);
+  const transitions: JourneyTransition[] = [];
+  for (let i = 0; i < stages.length - 1; i++) {
+    transitions.push({ fromKey: stages[i].key, toKey: stages[i + 1].key, conv: conv(stages[i].count, stages[i + 1].count) });
+  }
+  return { stages, transitions, leadsSemResposta: semResposta };
 }
