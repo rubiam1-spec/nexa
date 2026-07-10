@@ -118,8 +118,10 @@ export default function AppRouter() {
         <Route path="/contatos/novo" element={<ProtectedAppPage><ContatoFormPage /></ProtectedAppPage>} />
         <Route path="/contatos/importar" element={<ProtectedAppPage><ImportarContatosPage /></ProtectedAppPage>} />
         <Route path="/contatos/:id" element={<ProtectedAppPage><ContatoDetailPage /></ProtectedAppPage>} />
-        {/* Redirects from old routes */}
-        <Route path="/leads" element={<Navigate to="/contatos?tab=leads" replace />} />
+        {/* Redirects legados de sub-rotas de leads: lead = cliente, então detalhe/novo
+            caem em Contatos. A RAIZ /leads NÃO é redirect — é a superfície real de
+            trabalho de leads (rota LeadsPage abaixo). O redirect duplicado que existia
+            aqui (/leads → /contatos?tab=leads) sequestrava a navegação do menu. */}
         <Route path="/leads/novo" element={<Navigate to="/contatos/novo" replace />} />
         <Route path="/leads/:id" element={<Navigate to="/contatos/:id" replace />} />
         <Route path="/imoveis" element={<ProtectedAppPage><ThirdPartyPropertiesPage /></ProtectedAppPage>} />
@@ -144,6 +146,7 @@ export default function AppRouter() {
         />
         {/* Fase B: Pipeline foi unificado em Negociações. Redireciona preservando o intento (visão Kanban). */}
         <Route path="/pipeline" element={<Navigate to="/negociacoes?view=kanban" replace />} />
+        {/* Superfície ÚNICA de trabalho de leads (qualification_status). Contatos é cadastro geral. */}
         <Route path="/leads" element={<ProtectedAppPage><LeadsPage /></ProtectedAppPage>} />
         <Route
           path="/empreendimentos"
