@@ -15,7 +15,8 @@ import LostReasonModal from "../../../shared/components/LostReasonModal";
 import SpouseLinkModal from "../components/SpouseLinkModal";
 import SpousePeek from "../components/SpousePeek";
 import type { Client, LegalRegime, MaritalStatus } from "../../../shared/types/client";
-import { getClientWithSpouse, unlinkSpouses } from "../../../infra/repositories/clientsSupabaseRepository";
+import { getClientWithSpouse, unlinkSpouses, registerContactInteraction } from "../../../infra/repositories/clientsSupabaseRepository";
+import { filterMirroredActivities } from "../timelineMerge";
 import { ConfirmacaoDestructiva } from "../../../shared/components/ConfirmacaoDestructiva";
 import { isNegotiationActive } from "../../../domain/status/negotiation";
 import { fromLeadQualificationDb, isLeadActive } from "../../../domain/status/leadQualification";
@@ -57,7 +58,7 @@ const SOURCE_LABELS: Record<string, string> = { website: "Website", instagram: "
 
 
 interface ClientNeg { id: string; status: string; score: number | null; updated_at: string; unit_quadra: string | null; unit_lote: string | null; unit_valor: number | null; broker_name: string | null }
-interface ClientAct { id: string; type: string; title: string; status: string; activity_date: string; outcome: string | null; duration_minutes: number }
+interface ClientAct { id: string; type: string; title: string; status: string; activity_date: string; outcome: string | null; duration_minutes: number; profile_id: string | null; created_at: string | null }
 
 const T = { ink: "var(--surface-base)", carbon: "var(--surface-raised)", stone: "var(--border-default)", chalk: "var(--text-primary)", bone: "var(--text-secondary)", fog: "var(--text-muted)", slate: "var(--text-disabled)", sprout: "var(--interactive-primary)", blue: "#60A5FA", red: "#F87171", amber: "#FBBF24", purple: "#A78BFA" };
 const TYPE_LABELS: Record<string, string> = { visit_broker: "Visita corretor", visit_client: "Visita cliente", visit_development: "Visita empreend.", training: "Treinamento", phone_call: "Ligação", follow_up: "Follow-up", meeting_internal: "Reunião interna", meeting_external: "Reunião externa", other: "Outro" };
@@ -132,16 +133,18 @@ function QuickActivityModal({ clientId, clientName, accountId, developmentId, pr
   const [title, setTitle] = useState("");
   const [outcome, setOutcome] = useState("");
   const [saving, setSaving] = useState(false);
+  const submittingRef = useRef(false);
   const types = [["phone_call", "Ligação"], ["follow_up", "Follow-up"], ["visit_client", "Visita"], ["meeting_external", "Reunião"], ["other", "Outro"]];
   async function handleSave() {
-    if (!supabase || !title.trim()) return;
+    if (!supabase || !title.trim() || submittingRef.current) return;
+    submittingRef.current = true;
     setSaving(true);
     try {
       await supabase.from("activities").insert({ account_id: accountId, development_id: developmentId, profile_id: profileId, client_id: clientId, type, title: title.trim(), activity_date: new Date().toISOString().slice(0, 10), duration_minutes: 30, status: "completed", outcome: outcome.trim() || null, contact_name: clientName });
       await supabase.from("clients").update({ last_interaction_at: new Date().toISOString() }).eq("id", clientId);
       onSaved(); onClose();
     } catch (err) { setOutcome(err instanceof Error ? err.message : "Erro ao salvar"); }
-    finally { setSaving(false); }
+    finally { submittingRef.current = false; setSaving(false); }
   }
   const IS2: React.CSSProperties = { width: "100%", background: "var(--surface-base)", border: "1px solid var(--border-default)", borderRadius: 8, padding: "10px 14px", color: "var(--text-primary)", fontSize: 14, outline: "none", boxSizing: "border-box" };
   return (
@@ -189,7 +192,9 @@ export default function ClientDetailPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [tab, setTab] = useState<"interacoes" | "dados" | "endereco" | "interesse" | "documentos" | "historico">("interacoes");
   const [showLostModal, setShowLostModal] = useState(false);
-  const [contactInteractions, setContactInteractions] = useState<{ id: string; type: string; direction: string | null; title: string | null; description: string | null; performed_by: string | null; performed_at: string; profiles?: { name: string } | null }[]>([]);
+  const [contactInteractions, setContactInteractions] = useState<{ id: string; type: string; direction: string | null; title: string | null; description: string | null; performed_by: string | null; performed_at: string; activity_id: string | null; profiles?: { name: string } | null }[]>([]);
+  // B2: guarda síncrona in-flight (ref) — o disabled por estado não protege contra duplo-clique rápido.
+  const busyRef = useRef(false);
   const [showInlineInteraction, setShowInlineInteraction] = useState(false);
   const [intType, setIntType] = useState("phone_call");
   const [intTitle, setIntTitle] = useState("");
@@ -300,10 +305,10 @@ export default function ClientDetailPage() {
       }
       const { data: negs } = await supabase.from("negotiations").select("id, status, score, updated_at, units(quadra, lote, valor), brokers(name)").eq("client_id", id).eq("account_id", accountId).order("created_at", { ascending: false });
       setNegotiations((negs ?? []).map((n: Record<string, unknown>) => { const u = (Array.isArray(n.units) ? n.units[0] : n.units) as Record<string, unknown> | null; const b = (Array.isArray(n.brokers) ? n.brokers[0] : n.brokers) as Record<string, unknown> | null; return { id: n.id as string, status: n.status as string, score: n.score as number | null, updated_at: n.updated_at as string, unit_quadra: u?.quadra as string | null, unit_lote: u?.lote as string | null, unit_valor: u?.valor as number | null, broker_name: b?.name as string | null }; }));
-      const { data: acts } = await supabase.from("activities").select("id, type, title, status, activity_date, outcome, duration_minutes").eq("client_id", id).eq("account_id", accountId).order("activity_date", { ascending: false }).limit(10);
+      const { data: acts } = await supabase.from("activities").select("id, type, title, status, activity_date, outcome, duration_minutes, profile_id, created_at").eq("client_id", id).eq("account_id", accountId).order("activity_date", { ascending: false }).limit(10);
       setActivities((acts ?? []) as ClientAct[]);
       // Documentos e checklist são carregados pelo hook useClientDocuments.
-      const { data: ints } = await supabase.from("contact_interactions").select("id, type, direction, title, description, performed_by, performed_at, profiles(name)").eq("client_id", id).order("performed_at", { ascending: false }).limit(50);
+      const { data: ints } = await supabase.from("contact_interactions").select("id, type, direction, title, description, performed_by, performed_at, activity_id, profiles(name)").eq("client_id", id).order("performed_at", { ascending: false }).limit(50);
       setContactInteractions((ints ?? []) as unknown as typeof contactInteractions);
       // Load team members for assignment
       const { data: team } = await supabase.from("user_account_access").select("user_id, role, profiles!inner(id, name)").eq("account_id", accountId);
@@ -660,8 +665,8 @@ export default function ClientDetailPage() {
             </div>
             {showAssignDropdown && (
               <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 20, background: "linear-gradient(168deg, rgba(34,33,28,0.95), rgba(18,17,14,0.85))", border: "1px solid rgba(61,58,48,0.2)", borderRadius: "0 0 10px 10px", maxHeight: 200, overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
-                <div key="none" onClick={async () => { if (!supabase || !id || !userId) return; setSaving(true); try { await supabase.from("clients").update({ assigned_to: null, assigned_at: null, assigned_by: null }).eq("id", id); await supabase.from("contact_interactions").insert({ account_id: accountId, client_id: id, type: "assignment_change", title: "Responsável removido", performed_by: userId }); setClient((p) => p ? { ...p, assigned_to: null, assigned_at: null, assigned_by: null } : null); setShowAssignDropdown(false); setToast("Responsável removido"); load(true); } finally { setSaving(false); } }} style={{ padding: "9px 14px", cursor: "pointer", fontSize: 13, color: "#5C5647", fontStyle: "italic", borderBottom: "1px solid rgba(61,58,48,0.1)" }}>— Nenhum</div>
-                {teamMembers.map((m) => <div key={m.userId} onClick={async () => { if (!supabase || !id || !userId) return; setSaving(true); try { await supabase.from("clients").update({ assigned_to: m.userId, assigned_at: new Date().toISOString(), assigned_by: userId }).eq("id", id); await supabase.from("contact_interactions").insert({ account_id: accountId, client_id: id, type: "assignment_change", title: `Atribuído para ${m.name}`, metadata: { to_user: m.userId }, performed_by: userId }); setClient((p) => p ? { ...p, assigned_to: m.userId, assigned_at: new Date().toISOString(), assigned_by: userId } : null); setShowAssignDropdown(false); setToast(`Atribuído para ${m.name}`); load(true); } finally { setSaving(false); } }} style={{ padding: "9px 14px", cursor: "pointer", fontSize: 13, color: "#C4BFB3", borderBottom: "1px solid rgba(61,58,48,0.06)", transition: "all 100ms ease" }} onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(74,222,128,0.04)"; e.currentTarget.style.color = "#E8E5DE"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#C4BFB3"; }}>{m.name} <span style={{ fontSize: 11, color: "#706B5F" }}>· {m.role}</span></div>)}
+                <div key="none" onClick={async () => { if (!supabase || !id || !userId || busyRef.current) return; busyRef.current = true; setSaving(true); try { await supabase.from("clients").update({ assigned_to: null, assigned_at: null, assigned_by: null }).eq("id", id); await supabase.from("contact_interactions").insert({ account_id: accountId, client_id: id, type: "assignment_change", title: "Responsável removido", performed_by: userId }); setClient((p) => p ? { ...p, assigned_to: null, assigned_at: null, assigned_by: null } : null); setShowAssignDropdown(false); setToast("Responsável removido"); load(true); } finally { busyRef.current = false; setSaving(false); } }} style={{ padding: "9px 14px", cursor: "pointer", fontSize: 13, color: "#5C5647", fontStyle: "italic", borderBottom: "1px solid rgba(61,58,48,0.1)" }}>— Nenhum</div>
+                {teamMembers.map((m) => <div key={m.userId} onClick={async () => { if (!supabase || !id || !userId || busyRef.current) return; busyRef.current = true; setSaving(true); try { await supabase.from("clients").update({ assigned_to: m.userId, assigned_at: new Date().toISOString(), assigned_by: userId }).eq("id", id); await supabase.from("contact_interactions").insert({ account_id: accountId, client_id: id, type: "assignment_change", title: `Atribuído para ${m.name}`, metadata: { to_user: m.userId }, performed_by: userId }); setClient((p) => p ? { ...p, assigned_to: m.userId, assigned_at: new Date().toISOString(), assigned_by: userId } : null); setShowAssignDropdown(false); setToast(`Atribuído para ${m.name}`); load(true); } finally { busyRef.current = false; setSaving(false); } }} style={{ padding: "9px 14px", cursor: "pointer", fontSize: 13, color: "#C4BFB3", borderBottom: "1px solid rgba(61,58,48,0.06)", transition: "all 100ms ease" }} onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(74,222,128,0.04)"; e.currentTarget.style.color = "#E8E5DE"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#C4BFB3"; }}>{m.name} <span style={{ fontSize: 11, color: "#706B5F" }}>· {m.role}</span></div>)}
               </div>
             )}
           </div>
@@ -689,7 +694,7 @@ export default function ClientDetailPage() {
               <div style={{ marginBottom: 14 }}><label style={LBL}>Observação</label><input style={IS} value={fuNote} onChange={(e) => setFuNote(e.target.value)} placeholder="Lembrete para o follow-up..." /></div>
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button type="button" onClick={() => setShowFollowUpForm(false)} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 13, cursor: "pointer" }}>Cancelar</button>
-                <button type="button" disabled={!fuDate || saving} onClick={async () => { if (!supabase || !id || !accountId || !userId) return; setSaving(true); try { await supabase.from("clients").update({ next_follow_up_at: new Date(fuDate).toISOString() }).eq("id", id); await supabase.from("contact_interactions").insert({ account_id: accountId, client_id: id, type: "follow_up_scheduled", title: `Follow-up agendado`, description: fuNote.trim() || null, metadata: { scheduled_at: fuDate, follow_up_type: fuType }, performed_by: userId }); if (development?.developmentId) { const fuDateStr = new Date(fuDate).toISOString().slice(0, 10); await supabase.from("activities").insert({ account_id: accountId, development_id: development.developmentId, profile_id: userId, client_id: id, type: fuType, title: `Follow-up: ${client.full_name || client.name}`, activity_date: fuDateStr, start_time: new Date(fuDate).toISOString().slice(11, 16), duration_minutes: 30, status: "scheduled", outcome: fuNote.trim() || null, contact_name: client.full_name || client.name }).then(() => {}, () => {}); } setShowFollowUpForm(false); setFuNote(""); setToast("Follow-up agendado"); load(true); } finally { setSaving(false); } }} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: T.blue, color: "#fff", fontSize: 13, fontWeight: 600, cursor: !fuDate || saving ? "not-allowed" : "pointer", opacity: !fuDate || saving ? 0.5 : 1 }}>{saving ? "..." : "Agendar"}</button>
+                <button type="button" disabled={!fuDate || saving} onClick={async () => { if (!supabase || !id || !accountId || !userId || busyRef.current) return; busyRef.current = true; setSaving(true); try { await supabase.from("clients").update({ next_follow_up_at: new Date(fuDate).toISOString() }).eq("id", id); await supabase.from("contact_interactions").insert({ account_id: accountId, client_id: id, type: "follow_up_scheduled", title: `Follow-up agendado`, description: fuNote.trim() || null, metadata: { scheduled_at: fuDate, follow_up_type: fuType }, performed_by: userId }); if (development?.developmentId) { const fuDateStr = new Date(fuDate).toISOString().slice(0, 10); await supabase.from("activities").insert({ account_id: accountId, development_id: development.developmentId, profile_id: userId, client_id: id, type: fuType, title: `Follow-up: ${client.full_name || client.name}`, activity_date: fuDateStr, start_time: new Date(fuDate).toISOString().slice(11, 16), duration_minutes: 30, status: "scheduled", outcome: fuNote.trim() || null, contact_name: client.full_name || client.name }).then(() => {}, () => {}); } setShowFollowUpForm(false); setFuNote(""); setToast("Follow-up agendado"); load(true); } finally { busyRef.current = false; setSaving(false); } }} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: T.blue, color: "#fff", fontSize: 13, fontWeight: 600, cursor: !fuDate || saving ? "not-allowed" : "pointer", opacity: !fuDate || saving ? 0.5 : 1 }}>{saving ? "..." : "Agendar"}</button>
               </div>
             </div>
           )}
@@ -705,16 +710,30 @@ export default function ClientDetailPage() {
               <div style={{ marginBottom: 14 }}><label style={LBL}>Descrição</label><textarea rows={2} style={{ ...IS, resize: "vertical" }} value={intDesc} onChange={(e) => setIntDesc(e.target.value)} placeholder="O que aconteceu?" /></div>
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button type="button" onClick={() => { setShowInlineInteraction(false); setIntTitle(""); setIntDesc(""); }} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 13, cursor: "pointer" }}>Cancelar</button>
-                <button type="button" disabled={!intTitle.trim() || saving} onClick={async () => { if (!supabase || !id || !accountId || !userId) return; setSaving(true); try { await supabase.from("contact_interactions").insert({ account_id: accountId, client_id: id, type: intType, direction: "outbound", title: intTitle.trim(), description: intDesc.trim() || null, performed_by: userId }); if (development?.developmentId) { await supabase.from("activities").insert({ account_id: accountId, development_id: development.developmentId, profile_id: userId, client_id: id, type: intType, title: intTitle.trim(), activity_date: getTodayDateStringBRT(), duration_minutes: 15, status: "completed", outcome: intDesc.trim() || null, contact_name: client.full_name || client.name }).then(() => {}, () => {}); } await supabase.from("clients").update({ last_interaction_at: new Date().toISOString() }).eq("id", id); setShowInlineInteraction(false); setIntTitle(""); setIntDesc(""); setShowSuccessHint(true); load(true); } finally { setSaving(false); } }} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: T.sprout, color: "var(--interactive-on-primary)", fontSize: 13, fontWeight: 600, cursor: !intTitle.trim() || saving ? "not-allowed" : "pointer", opacity: !intTitle.trim() || saving ? 0.5 : 1 }}>{saving ? "Salvando..." : "Registrar"}</button>
+                <button type="button" disabled={!intTitle.trim() || saving} onClick={async () => { if (!supabase || !id || !accountId || !userId || busyRef.current) return; busyRef.current = true; setSaving(true); try {
+                  // 1. Activity espelho (mantido — conta como produção nos relatórios). Performer real (profile_id) e hora (created_at) ficam NO DADO.
+                  let activityId: string | undefined;
+                  if (development?.developmentId) { try { const { data: act } = await supabase.from("activities").insert({ account_id: accountId, development_id: development.developmentId, profile_id: userId, client_id: id, type: intType, title: intTitle.trim(), activity_date: getTodayDateStringBRT(), duration_minutes: 15, status: "completed", outcome: intDesc.trim() || null, contact_name: client.full_name || client.name }).select("id").single(); activityId = (act as { id: string } | null)?.id; } catch { /* espelho é best-effort */ } }
+                  // 2. Interação via REPOSITÓRIO (performed_by = usuário) + vínculo ao espelho (dedupe determinístico) + inicia atendimento se lead NEW + contato real.
+                  const { startedService } = await registerContactInteraction({ accountId, clientId: id, type: intType, title: intTitle.trim(), description: intDesc.trim() || null, performedBy: userId, currentQualification: fromLeadQualificationDb(client.qualification_status), activityId });
+                  await supabase.from("clients").update({ last_interaction_at: new Date().toISOString() }).eq("id", id);
+                  setShowInlineInteraction(false); setIntTitle(""); setIntDesc(""); setShowSuccessHint(true);
+                  setToast(startedService ? "Interação registrada — atendimento iniciado ✓" : "Interação registrada");
+                  load(true);
+                } finally { busyRef.current = false; setSaving(false); } }} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: T.sprout, color: "var(--interactive-on-primary)", fontSize: 13, fontWeight: 600, cursor: !intTitle.trim() || saving ? "not-allowed" : "pointer", opacity: !intTitle.trim() || saving ? 0.5 : 1 }}>{saving ? "Salvando..." : "Registrar"}</button>
               </div>
             </div>
           )}
 
           {/* Timeline de interações (merged: contact_interactions + activities) */}
           {(() => {
-            const activityItems = activities.map((a) => ({
-              id: `act-${a.id}`, type: a.type, direction: null as string | null, title: a.title, description: a.outcome || null, performed_by: null as string | null, performed_at: a.activity_date + "T12:00:00", profiles: null as { name: string } | null, _source: "activity" as const, _activityId: a.id,
-            }));
+            // Dedupe determinístico por vínculo (fallback heurístico p/ legado) — função pura.
+            const activityItems = filterMirroredActivities(activities, contactInteractions)
+              .map((a) => {
+                // Performer real vem DO DADO (activities.profile_id); só realmente nulo → "Sistema".
+                const perfName = teamMembers.find((m) => m.userId === a.profile_id)?.name ?? null;
+                return { id: `act-${a.id}`, type: a.type, direction: null as string | null, title: a.title, description: a.outcome || null, performed_by: a.profile_id, performed_at: a.created_at ?? (a.activity_date + "T12:00:00"), profiles: perfName ? { name: perfName } : null, _source: "activity" as const, _activityId: a.id };
+              });
             const mergedTimeline = [
               ...contactInteractions.map((ci) => ({ ...ci, _source: "interaction" as const, _activityId: null as string | null })),
               ...activityItems,
