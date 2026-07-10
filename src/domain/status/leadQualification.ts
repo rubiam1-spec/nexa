@@ -58,6 +58,23 @@ export function isLeadActive(status: LeadQualificationStatus): boolean {
   return LEAD_ACTIVE_STATUSES.includes(status);
 }
 
+// L1.8 — Tipos de interação que representam CONTATO REAL com o lead. Registrar um
+// destes num lead NEW inicia o atendimento (NEW→IN_SERVICE) na mesma operação.
+// "note" e "follow_up" NÃO são contato (não iniciam).
+export const REAL_CONTACT_INTERACTION_TYPES = [
+  "phone_call", "whatsapp", "visit_client", "visit_broker", "visit_development",
+  "meeting_external", "meeting_internal", "email",
+] as const;
+
+export function isRealContactInteraction(type: string): boolean {
+  return (REAL_CONTACT_INTERACTION_TYPES as readonly string[]).includes(type);
+}
+
+/** Registrar interação `type` inicia atendimento? Só contato real sobre lead NEW. */
+export function interactionStartsService(type: string, current: LeadQualificationStatus): boolean {
+  return current === LeadQualificationStatus.NEW && isRealContactInteraction(type);
+}
+
 // Transições válidas (decisão de produto). Ciclo canônico:
 //   NEW → IN_SERVICE → QUALIFIED → CONVERTED | DISCARDED.
 // CONVERTER e DESCARTAR são ações disponíveis em QUALQUER estágio ativo

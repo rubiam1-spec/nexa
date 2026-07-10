@@ -13,6 +13,7 @@ import {
   assertLeadTransition,
   isLeadActive,
   fromLeadQualificationDb,
+  interactionStartsService,
 } from "../../domain/status/leadQualification";
 
 // ── Row → Domain mapping ──
@@ -332,6 +333,8 @@ export async function addContactInteraction(input: {
   metadata?: Record<string, unknown>; performedBy?: string;
   /** Fio da linhagem: grava na coluna first-class negotiation_id (não só no metadata). */
   negotiationId?: string;
+  /** Vínculo determinístico ao activity espelho (dedupe da timeline por vínculo, não heurística). */
+  activityId?: string;
 }): Promise<void> {
   const supabase = getSupabaseClientOrThrow("clients repository");
   const { error } = await supabase.from("contact_interactions").insert({
@@ -340,6 +343,7 @@ export async function addContactInteraction(input: {
     title: input.title || null, description: input.description || null,
     metadata: input.metadata || {}, performed_by: input.performedBy || null,
     negotiation_id: input.negotiationId || null,
+    activity_id: input.activityId || null,
   });
   if (error) throw new Error(`Falha ao registrar interação: ${error.message}`);
   // Update last interaction
@@ -424,6 +428,29 @@ export async function discardLead(clientId: string, accountId: string, from: Lea
 }
 export function markLeadConverted(clientId: string, accountId: string, from: LeadQualificationStatusType, byProfileId: string | null, negotiationId: string) {
   return transitionLead({ clientId, accountId, from, to: LeadQualificationStatus.CONVERTED, byProfileId, title: "Convertido em negociação", negotiationId });
+}
+
+/**
+ * L1.8 — Registra uma interação manual (escrita SÓ aqui; performed_by = usuário).
+ * Regra de produto: registrar CONTATO REAL (ligação/whatsapp/visita/reunião/email)
+ * num lead NEW INICIA o atendimento na mesma operação (interaction + qualification_change).
+ * "note"/"follow_up" não iniciam. `activityId` grava o vínculo ao activity espelho.
+ */
+export async function registerContactInteraction(input: {
+  accountId: string; clientId: string; type: string;
+  title: string; description?: string | null; performedBy: string | null;
+  currentQualification: LeadQualificationStatusType; activityId?: string;
+}): Promise<{ startedService: boolean }> {
+  await addContactInteraction({
+    accountId: input.accountId, clientId: input.clientId, type: input.type,
+    direction: "outbound", title: input.title, description: input.description ?? undefined,
+    performedBy: input.performedBy ?? undefined, activityId: input.activityId,
+  });
+  if (interactionStartsService(input.type, input.currentQualification)) {
+    await startLeadService(input.clientId, input.accountId, input.currentQualification, input.performedBy);
+    return { startedService: true };
+  }
+  return { startedService: false };
 }
 
 /** Contagem de leads ativos (NEW/IN_SERVICE/QUALIFIED) — usada pelo pré-funil. */
