@@ -6,6 +6,7 @@ import type { KanbanCard } from "../hooks/useKanbanData";
 import { NegotiationStatus, type NegotiationStatusType } from "../../../domain/status/negotiation";
 import { RESERVATION_ACTIVE_DB, RESERVATION_REQUEST_PENDING_DB } from "../../../domain/status/reservation";
 import { columnOfStatus, STAGE_ORDER, type BoardStage } from "./stageColumn";
+import { computeLeadSnapshot, type LeadFunnelRow } from "./leadFunnel";
 
 const NEG_VALUES = new Set<string>(Object.values(NegotiationStatus));
 function coerce(status: string): NegotiationStatusType {
@@ -40,15 +41,17 @@ export type BoardModel = {
   /** Total de negociações no funil (exclui simulações). */
   totalCount: number;
   pending: PendingDecision[];
-  /** Pré-funil: simulações (count/vgv) + leads ativos (fora do funil). */
-  prefunnel: { count: number; vgv: number; leads: number };
+  /** Pré-funil: simulações (count/vgv) + leads (ativos, com quebra novos/atendimento). */
+  prefunnel: { count: number; vgv: number; leads: number; novos: number; emAtendimento: number };
+  /** Linhas mínimas de lead (fonte única) — a Visão Funil deriva a conversão de entrada por período. */
+  leadRows: LeadFunnelRow[];
 };
 
 function emptyByStage<T>(make: () => T): Record<BoardStage, T> {
   return Object.fromEntries(STAGE_ORDER.map((s) => [s, make()])) as Record<BoardStage, T>;
 }
 
-export function buildBoard(cards: KanbanCard[], nowMs: number = Date.now(), leadsActive = 0): BoardModel {
+export function buildBoard(cards: KanbanCard[], nowMs: number = Date.now(), leadRows: LeadFunnelRow[] = []): BoardModel {
   const negotiations: KanbanCard[] = [];
   const simulations: KanbanCard[] = [];
   for (const c of cards) {
@@ -95,6 +98,8 @@ export function buildBoard(cards: KanbanCard[], nowMs: number = Date.now(), lead
   const openCount = OPEN_STAGES.reduce((s, k) => s + countByStage[k], 0);
   const openVGV = OPEN_STAGES.reduce((s, k) => s + vgvByStage[k], 0);
 
+  const leadSnapshot = computeLeadSnapshot(leadRows);
+
   return {
     negotiations,
     simulations,
@@ -111,7 +116,10 @@ export function buildBoard(cards: KanbanCard[], nowMs: number = Date.now(), lead
     prefunnel: {
       count: simulations.length,
       vgv: simulations.reduce((s, c) => s + (c.valor ?? 0), 0),
-      leads: leadsActive,
+      leads: leadSnapshot.ativos,
+      novos: leadSnapshot.novos,
+      emAtendimento: leadSnapshot.emAtendimento,
     },
+    leadRows,
   };
 }

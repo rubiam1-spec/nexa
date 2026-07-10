@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { BoardModel } from "../board/buildBoard";
 import { FUNNEL_FLOW, stageMeta } from "../board/stageColumn";
 import { computeFunnelMetrics, periodStartMs, type PeriodKey } from "../board/funnelMetrics";
+import { computeEntryConversion, type EntryConversion } from "../board/leadFunnel";
 import { generateOperationReading } from "../board/operationReading";
 
 const MONO = "var(--font-mono)";
@@ -23,13 +24,15 @@ export function FunnelView({ board, thresholdDays, onOpenNegotiation }: {
   const [period, setPeriod] = useState<PeriodKey>("30d");
   const nowMs = Date.now();
 
-  const { metrics, reading } = useMemo(() => {
+  const { metrics, reading, entry } = useMemo(() => {
     const start = periodStartMs(period, nowMs);
     const inPeriod = (iso: string) => new Date(iso).getTime() >= start;
     const cohort = board.negotiations.filter((c) => inPeriod(c.createdAt));
     const sims = board.simulations.filter((c) => inPeriod(c.createdAt));
     const m = computeFunnelMetrics(cohort, sims, thresholdDays, nowMs);
-    return { metrics: m, reading: generateOperationReading(m, cohort, thresholdDays, nowMs) };
+    // Conversão de entrada Leads→Negociações: mesma coorte de período, fonte única (board.leadRows).
+    const e = computeEntryConversion(board.leadRows, start);
+    return { metrics: m, reading: generateOperationReading(m, cohort, thresholdDays, nowMs), entry: e };
   }, [board, period, thresholdDays, nowMs]);
 
   const kpis = [
@@ -75,6 +78,14 @@ export function FunnelView({ board, thresholdDays, onOpenNegotiation }: {
           <button type="button" onClick={() => onOpenNegotiation(reading.cta!.negotiationId)} style={{ background: "#7DA7F4", color: "#0F0E0C", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>{reading.cta.label} →</button>
         ) : null}
       </div>
+
+      {/* Pré-funil detalhado (L1.6): jornada do lead + conversão de entrada, contínua com o funil */}
+      <LeadJourney
+        novos={board.prefunnel.novos}
+        emAtendimento={board.prefunnel.emAtendimento}
+        entry={entry}
+        entradas={metrics.entradas}
+      />
 
       {/* Gráfico de conversão por estágio (SVG) */}
       {metrics.entradas > 0 ? (
@@ -158,5 +169,55 @@ function FunnelChart({ metrics }: { metrics: ReturnType<typeof computeFunnelMetr
         </g>
       ))}
     </svg>
+  );
+}
+
+// L1.6 — Jornada do lead antes do funil de negociação. Contagens do snapshot
+// (fonte única) e a primeira transição MEDIDA: Leads → Negociações (% da coorte).
+function LeadStageBox({ label, count, color, hint, muted }: {
+  label: string; count: number; color: string; hint: string; muted?: boolean;
+}) {
+  return (
+    <div style={{ flex: "1 1 120px", minWidth: 120, opacity: muted ? 0.75 : 1 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
+        <span style={{ fontSize: 11, color: "var(--color-fog)", fontWeight: 600 }}>{label}</span>
+      </div>
+      <div style={{ fontFamily: MONO, fontSize: 24, fontWeight: 800, color: "var(--color-chalk)", marginTop: 4 }}>{count}</div>
+      <div style={{ fontSize: 9.5, color: "var(--color-slate)", marginTop: 2 }}>{hint}</div>
+    </div>
+  );
+}
+
+function LeadConnector({ pct, label }: { pct?: string; label?: string }) {
+  return (
+    <div style={{ flex: "0 0 auto", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 10px", minWidth: pct ? 96 : 28 }}>
+      {label ? <div style={{ fontFamily: MONO, fontSize: 8.5, color: "var(--color-slate)", letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap", marginBottom: 2 }}>{label}</div> : null}
+      {pct ? <div style={{ fontFamily: MONO, fontSize: 15, fontWeight: 800, color: pct === "—" ? "var(--color-slate)" : "var(--color-sprout)" }}>{pct}</div> : null}
+      <div style={{ fontSize: 16, color: "var(--color-clay)", lineHeight: 1 }}>→</div>
+    </div>
+  );
+}
+
+function LeadJourney({ novos, emAtendimento, entry, entradas }: {
+  novos: number; emAtendimento: number; entry: EntryConversion; entradas: number;
+}) {
+  const ativos = novos + emAtendimento;
+  return (
+    <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 12, padding: "16px 18px", marginBottom: 18 }}>
+      <div style={{ fontSize: 8.5, color: "var(--color-slate)", fontFamily: MONO, letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600, marginBottom: 12 }}>
+        Pré-funil · jornada do lead
+      </div>
+      <div style={{ display: "flex", alignItems: "stretch", flexWrap: "wrap", gap: 4 }}>
+        <LeadStageBox label="Novos" count={novos} color="#7DA7F4" hint="aguardando 1º atendimento" />
+        <LeadConnector />
+        <LeadStageBox label="Em atendimento" count={emAtendimento} color="#E8B45A" hint="em atendimento + qualificados" />
+        <LeadConnector pct={pctStr(entry.taxa)} label="Leads → Neg." />
+        <LeadStageBox label="Em negociação" count={entradas} color="var(--color-sprout)" hint="entradas no período" muted />
+      </div>
+      <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(61,58,48,0.4)", fontSize: 10, color: "var(--color-slate)", fontFamily: MONO }}>
+        {ativos} {ativos === 1 ? "lead ativo" : "leads ativos"} agora · conversão de entrada {entry.taxa == null ? "— (sem leads criados no período)" : `= ${entry.convertidos} de ${entry.leadsCriados} criados no período`}
+      </div>
+    </div>
   );
 }
