@@ -98,3 +98,19 @@ badge de status na linha (exibição do atributo do contato).
 2. `refactor(leads): Contatos deixa de hospedar ciclo de lead — superfície única em /leads`
 
 WIP do importador (21 arquivos) permaneceu **fora do stage**.
+
+---
+
+## 6. Deploy — dump pré-merge
+
+**Decisão (Rubiam, 2026-07-10):** o dump `ef19401` (clients + contact_interactions)
+é **aceito como suficiente**. Justificativa: este deploy é **100% código** — zero
+DDL, zero migração de dado; as tabelas do fluxo comercial não são tocadas. As
+mudanças são de roteamento (`AppRouter`) e de UI/convergência (`ContatosPage` +
+remoção de hook de UI). A RPC `distribute_lead` e a config de rodízio permanecem
+intactas no banco. Logo, não há estado de banco novo a proteger além do já dumpado.
+
+Merge: `git push origin feat/atividades-mobile-onda1:main` (fast-forward, sem
+squash), levando **apenas** os 2 commits temáticos acima. Deploy Vercel via
+git-integration. Sanidade: `/leads` responde, navegação do menu, redirect
+`/contatos?tab=leads → /leads` em https://app.nexacomercial.com.br.
