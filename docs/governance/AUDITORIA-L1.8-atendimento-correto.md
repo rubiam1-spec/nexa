@@ -137,3 +137,11 @@ Registro commitado só na feat (sem push).
 tsc 0 · build verde · check:contracts 9/9 · suíte **921/921** (+7: jornada ponta-a-
 ponta, coerência de colunas). eslint: só os `Date.now()`/setState pré-existentes;
 arquivos novos limpos. WIP do importador fora do stage.
+
+### Deploy (Partes 2-3)
+Merge ff `1c844f0..0a79ebf` → main. Deploy **`dpl_6nf9LWUueQkvgXhYKhqd9fjQum3g`**
+READY (~47s), aliasado a `app.nexacomercial.com.br` (`aliasError: null`). Rollback
+candidate anterior: `dpl_86vLp67S` (L1.8 P1). Zero DDL, sem migração. Sanidade no
+bundle `assets/index-DP0Fz7l1.js`: "coorte de leads criados", "Em atendimento"
+(funil), "ver todos", "na coluna Em negociação" (Kanban) presentes; HTTP 200.
+Registro commitado só na feat (sem push). **Ciclo L1.8 concluído.**
