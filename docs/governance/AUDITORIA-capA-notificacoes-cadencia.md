@@ -112,6 +112,21 @@ where id in (select id from ranked where rn > 1);
 
 **Checkpoint:** ÚLTIMO passo do ciclo. Só executa com **"GO" do Rubiam**.
 
+### ✅ EXECUTADO (2026-07-11, autorizado por Rubiam)
+Partição refinada para **`(recipient_id, action_url)` = por negociação/destinatário**
+(conforme instrução), não só por destinatário. Dump-alvo das 75 linhas salvo em
+`dump-capA-limpeza-stale-pre-update.json` (com rollback_sql; todas tinham
+`read=false`). UPDATE pela **lista explícita de 75 ids** (casa 1:1 com o dump).
+
+| Métrica | Antes | Depois |
+|---|---|---|
+| `negotiation_stale` não lidas | 89 | **14** |
+| pares negociação×destinatário distintos (não lidos) | 14 | **14** (1 por par) |
+| total `negotiation_stale` (só `read`, nada apagado) | 170 | 170 |
+| `reservation_requested` não lidas (urgente) | 2 | **2** (intacto) |
+
+Rollback disponível no dump (não acionado).
+
 ---
 
 ## DoD
