@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../../../app/contexts/AuthContext";
 import { useAccount } from "../../../app/contexts/AccountContext";
@@ -13,6 +13,7 @@ import { RESERVATION_TERMINAL_DB_VALUES } from "../../../domain/status/reservati
 import NegotiationImportWizard from "../components/NegotiationImportWizard";
 import { EmptyState } from "../../../shared/components/EmptyState";
 import { SearchableSelect } from "../../../shared/components/SearchableSelect";
+import { NexaSelect } from "../../../shared/ui/NexaSelect";
 import { createClient } from "../../../infra/repositories/clientsSupabaseRepository";
 import { getPermissions } from "../../../shared/utils/permissoes";
 import { formatCurrency } from "../../../shared/utils/masks";
@@ -106,7 +107,6 @@ export default function NegotiationsPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
-  const firstInputRef = useRef<HTMLSelectElement>(null);
 
   // Quick client creation
   const [showNewClient, setShowNewClient] = useState(false);
@@ -135,10 +135,6 @@ export default function NegotiationsPage() {
   });
   // Importar negociações é restrito a MANAGER_ROLES (owner/director/manager).
   const canImport = ["owner", "director", "manager"].includes(account?.role ?? "");
-
-  useEffect(() => {
-    if (showForm) firstInputRef.current?.focus();
-  }, [showForm]);
 
   const isLoading =
     isLoadingNegotiations || isLoadingUnits || isLoadingClients || isLoadingBrokers;
@@ -272,34 +268,43 @@ export default function NegotiationsPage() {
           <div style={{ display: "grid", gridTemplateColumns: screen.isMobile ? "1fr" : screen.isTablet ? "1fr 1fr" : "1fr 1fr 1fr", gap: 12, maxWidth: 700 }}>
             <label>
               <span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Unidade *</span>
-              <select ref={firstInputRef} value={selectedUnitId} onChange={(e) => setSelectedUnitId(e.target.value)}>
-                <option value="">{availableUnits.length === 0 ? "Nenhuma disponível" : "Selecione"}</option>
-                {availableUnits.map((u) => (
-                  <option key={u.id} value={u.id}>Q{u.quadra} L{u.lote} — R$ {u.valor.toLocaleString("pt-BR")}</option>
-                ))}
-              </select>
+              <NexaSelect
+                value={selectedUnitId ?? ""}
+                onChange={(v) => setSelectedUnitId(v)}
+                options={availableUnits.map((u) => ({ value: u.id, label: `Q${u.quadra} L${u.lote} — R$ ${u.valor.toLocaleString("pt-BR")}` }))}
+                placeholder={availableUnits.length === 0 ? "Nenhuma disponível" : "Selecione"}
+                ariaLabel="Unidade"
+                autoFocus={showForm}
+              />
             </label>
             <div>
               <span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Cliente *</span>
               <div style={{ display: "flex", gap: 6 }}>
-                <select value={selectedClientId} onChange={(e) => setSelectedClientId(e.target.value)} style={{ flex: 1 }}>
-                  <option value="">{clients.length === 0 ? "Nenhum cliente" : "Selecione"}</option>
-                  {clients.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
+                <div style={{ flex: 1 }}>
+                  <NexaSelect
+                    value={selectedClientId ?? ""}
+                    onChange={(v) => setSelectedClientId(v)}
+                    options={clients.map((c) => ({ value: c.id, label: c.name }))}
+                    placeholder={clients.length === 0 ? "Nenhum cliente" : "Selecione"}
+                    ariaLabel="Cliente"
+                  />
+                </div>
                 <button type="button" onClick={() => setShowNewClient(true)} style={{ padding: "0 10px", borderRadius: 6, border: "1px solid var(--color-stone)", background: "transparent", color: "var(--color-sprout)", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>+ Novo</button>
               </div>
             </div>
             {!isBroker ? (
               <label>
                 <span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Corretor</span>
-                <select value={selectedBrokerId} onChange={(e) => setSelectedBrokerId(e.target.value)}>
-                  <option value="">Opcional</option>
-                  {brokers.filter((b) => b.status === "active" && b.approvalStatus === "approved").map((b) => (
-                    <option key={b.id} value={b.id}>{b.name}</option>
-                  ))}
-                </select>
+                <NexaSelect
+                  value={selectedBrokerId ?? ""}
+                  onChange={(v) => setSelectedBrokerId(v)}
+                  options={[
+                    { value: "", label: "Opcional" },
+                    ...brokers.filter((b) => b.status === "active" && b.approvalStatus === "approved").map((b) => ({ value: b.id, label: b.name })),
+                  ]}
+                  placeholder="Opcional"
+                  ariaLabel="Corretor"
+                />
               </label>
             ) : null}
           </div>
@@ -351,23 +356,17 @@ export default function NegotiationsPage() {
             })}
           </div>
 
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as "date" | "valor")}
-            style={{
-              padding: "8px 32px 8px 12px", borderRadius: 8,
-              background: "linear-gradient(145deg, var(--surface-raised), var(--surface-base))",
-              border: "1px solid var(--border-default)",
-              color: "var(--text-secondary)", fontFamily: "var(--font-mono)", fontSize: 11,
-              appearance: "none",
-              backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%239C9686' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E\")",
-              backgroundRepeat: "no-repeat", backgroundPosition: "right 10px center",
-              cursor: "pointer",
-            }}
-          >
-            <option value="date">Ordenar por data</option>
-            <option value="valor">Ordenar por valor</option>
-          </select>
+          <div style={{ width: 200 }}>
+            <NexaSelect
+              value={sortBy}
+              onChange={(v) => setSortBy(v as "date" | "valor")}
+              options={[
+                { value: "date", label: "Ordenar por data" },
+                { value: "valor", label: "Ordenar por valor" },
+              ]}
+              ariaLabel="Ordenação"
+            />
+          </div>
         </div>
       ) : null}
 

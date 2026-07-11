@@ -24,6 +24,7 @@ import { useLeads, type LeadView } from "../../leads/useLeads";
 import LeadCard from "../../leads/LeadCard";
 import { AssignModal, DiscardModal } from "../../leads/LeadActionModals";
 import { splitLeadColumns } from "../../leads/leadColumns";
+import { NexaSelect } from "../../../shared/ui/NexaSelect";
 
 const MONO = "var(--font-mono)";
 const MAX_CARDS_PER_COL = 6;
@@ -184,9 +185,14 @@ export default function KanbanPage() {
             </div>
           ) : null}
           {perms.canViewFullDashboard && memberOptions.length > 1 ? (
-            <select value={memberFilter} onChange={(e) => setMemberFilter(e.target.value)} style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 8, padding: "8px 12px", color: "var(--text-secondary)", fontSize: 13, outline: "none" }}>
-              {memberOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
+            <div style={{ width: 200 }}>
+              <NexaSelect
+                value={memberFilter}
+                onChange={(v) => setMemberFilter(v)}
+                options={memberOptions}
+                ariaLabel="Filtrar por membro"
+              />
+            </div>
           ) : null}
           <input placeholder="Buscar cliente, unidade, corretor..." value={busca} onChange={(e) => setBusca(e.target.value)} style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 8, padding: "8px 14px", color: "var(--text-secondary)", fontSize: 13, outline: "none", width: isMobile ? "100%" : 220 }} />
         </div>

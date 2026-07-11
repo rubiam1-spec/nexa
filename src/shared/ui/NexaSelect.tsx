@@ -40,6 +40,8 @@ export interface NexaSelectProps {
   ariaLabel?: string;
   id?: string;
   maxHeight?: number;
+  /** Foca o trigger ao montar (paridade com autofocus de formulário). */
+  autoFocus?: boolean;
 }
 
 const PANEL_MAX_HEIGHT = 320;
@@ -94,6 +96,7 @@ export function NexaSelect({
   ariaLabel,
   id,
   maxHeight = PANEL_MAX_HEIGHT,
+  autoFocus = false,
 }: NexaSelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -102,6 +105,7 @@ export function NexaSelect({
   const containerRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const typeahead = useRef<{ str: string; at: number }>({ str: "", at: 0 });
 
   const safe = useMemo(
@@ -156,6 +160,10 @@ export function NexaSelect({
   useEffect(() => {
     if (open && showSearch) inputRef.current?.focus();
   }, [open, showSearch]);
+
+  useEffect(() => {
+    if (autoFocus) triggerRef.current?.focus();
+  }, [autoFocus]);
 
   // Índice do primeiro item selecionável a partir de `from` na direção `dir`.
   const nextEnabled = useCallback((from: number, dir: 1 | -1): number => {
@@ -222,6 +230,7 @@ export function NexaSelect({
   return (
     <div ref={containerRef} data-nexa-select="root" style={{ position: "relative", width: "100%" }}>
       <button
+        ref={triggerRef}
         type="button"
         id={id}
         data-nexa-select="trigger"
