@@ -1,0 +1,96 @@
+/* NexaSelect — pele NEXA (Brand Book v7) sobre motor Radix Popover + cmdk.
+   Gatilho no token Carbon com borda --line (--color-stone), foco anel Sprout
+   sutil; painel Carbon com sombra profunda discreta e animação de abertura. */
+
+.nexa-select-trigger {
+  width: 100%;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 34px 9px 14px;
+  position: relative;
+  background: var(--color-carbon);
+  border: 1px solid var(--color-stone);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.nexa-select-trigger:hover:not(:disabled) { border-color: var(--text-disabled, #6b6a63); }
+.nexa-select-trigger[data-state="open"],
+.nexa-select-trigger:focus-visible {
+  outline: none;
+  border-color: rgba(74, 222, 128, 0.5);
+  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.15);
+}
+.nexa-select-trigger:disabled { cursor: not-allowed; opacity: 0.6; }
+.nexa-select-trigger.is-placeholder { color: var(--text-muted); }
+.nexa-select-trigger .nexa-select-value {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.nexa-select-content {
+  min-width: max(320px, var(--radix-popover-trigger-width));
+  background: var(--color-carbon);
+  border: 1px solid var(--color-stone);
+  border-radius: 10px;
+  box-shadow: 0 10px 38px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  transform-origin: var(--radix-popover-content-transform-origin);
+}
+.nexa-select-content[data-state="open"] { animation: nexaSelectIn 140ms cubic-bezier(0.16, 1, 0.3, 1); }
+.nexa-select-content[data-state="closed"] { animation: nexaSelectOut 100ms ease-in; }
+@keyframes nexaSelectIn { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
+@keyframes nexaSelectOut { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.98); } }
+@media (prefers-reduced-motion: reduce) {
+  .nexa-select-content[data-state="open"], .nexa-select-content[data-state="closed"] { animation: none; }
+}
+
+.nexa-select-searchbar { padding: 10px 12px; border-bottom: 1px solid var(--color-stone); flex-shrink: 0; }
+.nexa-select-input {
+  width: 100%; padding: 8px 12px; border-radius: 8px; box-sizing: border-box;
+  background: var(--surface-base); border: 1px solid var(--color-stone);
+  color: var(--text-primary); font-family: var(--font-sans); font-size: 13px; outline: none;
+}
+.nexa-select-input-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+.nexa-select-list { overflow-y: auto; flex: 1; min-height: 0; -webkit-overflow-scrolling: touch; padding: 4px 0; }
+
+.nexa-select-heading {
+  padding: 8px 14px 4px; font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-fog, var(--text-muted));
+}
+
+.nexa-select-item {
+  min-height: 44px; /* alvo de toque (Cap. M) */
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 9px 14px; cursor: pointer; color: var(--text-primary);
+  font-family: var(--font-sans); font-size: 13px; border-radius: 0;
+  transition: background 0.1s;
+}
+.nexa-select-item[data-selected="true"] { background: var(--surface-overlay); }
+.nexa-select-item[aria-selected="true"].is-current { background: rgba(74, 222, 128, 0.08); }
+.nexa-select-item[data-disabled] { cursor: not-allowed; opacity: 0.4; }
+.nexa-select-item .nexa-select-item-main { min-width: 0; flex: 1; overflow: hidden; }
+.nexa-select-item .nexa-select-item-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nexa-select-item .nexa-select-item-sub { display: block; font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nexa-select-item .nexa-select-item-hint { font-family: var(--font-mono); font-size: 9px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+.nexa-select-item mark { background: rgba(74, 222, 128, 0.22); color: inherit; border-radius: 3px; padding: 0 1px; }
+
+.nexa-select-disabled-toggle {
+  width: 100%; display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+  min-height: 44px; background: transparent; border: none; border-top: 1px solid var(--color-stone);
+  cursor: pointer; color: var(--text-muted); font-size: 11px; font-family: var(--font-sans); text-align: left;
+}
+.nexa-select-disabled-item { padding: 8px 14px 8px 30px; min-height: 34px; display: flex; align-items: center; font-size: 12px; color: var(--text-primary); opacity: 0.4; cursor: not-allowed; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.nexa-select-empty { padding: 18px 14px; color: var(--text-muted); font-size: 12px; text-align: center; }
+.nexa-select-footer { padding: 8px 12px; border-top: 1px solid var(--color-stone); flex-shrink: 0; font-size: 11px; }
+.nexa-select-skeleton { height: 40px; margin: 8px 12px; border-radius: 6px; background: linear-gradient(90deg, var(--surface-base), var(--surface-overlay), var(--surface-base)); opacity: 0.6; }

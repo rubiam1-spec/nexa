@@ -73,6 +73,17 @@ describe("L5 — busca instantânea e honesta", () => {
     expect(screen.getByRole("listbox").textContent).toContain("Zumbi Imóveis"); // desabilitada revelada pela busca
     expect(screen.queryByText("Ativa 0")).toBeNull();
   });
+  it("fuzzy (match-sorter): 'mast' acha 'Master Home'", () => {
+    const opts: NexaSelectOption[] = [
+      ...Array.from({ length: 8 }, (_, i) => ({ value: `x${i}`, label: `Outra ${i}` })),
+      { value: "mh", label: "Master Home" },
+    ];
+    render(<NexaSelect options={opts} value={null} onChange={() => {}} />);
+    open();
+    fireEvent.change(screen.getByPlaceholderText("Buscar..."), { target: { value: "mast" } });
+    expect(screen.getByRole("listbox").textContent).toContain("Master Home");
+    expect(screen.queryByText("Outra 0")).toBeNull();
+  });
   it("zero resultados: mensagem clara com o domínio", () => {
     render(<NexaSelect options={many} value={null} onChange={() => {}} noun="imobiliárias" />);
     open();
@@ -100,15 +111,15 @@ describe("L6 — recentes no topo (persistência por usuário)", () => {
 });
 
 describe("L7 — teclado impecável", () => {
-  it("setas navegam SÓ acionáveis (pulam desabilitadas) e Enter seleciona", () => {
+  it("setas navegam SÓ acionáveis (desabilitadas colapsadas fora da navegação) e Enter seleciona", () => {
     const onChange = vi.fn();
     render(<NexaSelect options={OPTS} value={null} onChange={onChange} />);
-    const btn = screen.getByRole("button");
-    fireEvent.keyDown(btn, { key: "ArrowDown" }); // abre, ativo=Alfa(0)
-    fireEvent.keyDown(btn, { key: "ArrowDown" }); // Beta(1)
-    fireEvent.keyDown(btn, { key: "ArrowDown" }); // volta Alfa(0) — só 2 navegáveis
-    fireEvent.keyDown(btn, { key: "Enter" });
-    expect(onChange).toHaveBeenCalledWith("a");
+    open();
+    // cmdk pré-seleciona o 1º item (Alfa); a lista só tem acionáveis (Gama/Delta colapsadas).
+    const input = screen.getByRole("combobox"); // Command.Input
+    fireEvent.keyDown(input, { key: "ArrowDown" }); // Alfa → Beta
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith("b");
   });
   it("Esc fecha o painel", () => {
     render(<NexaSelect options={OPTS} value={null} onChange={() => {}} />);

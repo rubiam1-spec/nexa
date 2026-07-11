@@ -74,13 +74,18 @@ Object.defineProperty(window, "localStorage", {
   },
 });
 
-globalThis.IntersectionObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn(),
-})) as unknown as typeof IntersectionObserver;
+// Observers como CLASSES (construtores reais) — cmdk/Radix fazem `new X()`.
+class MockObserver {
+  observe() {} unobserve() {} disconnect() {} takeRecords() { return []; }
+}
+globalThis.IntersectionObserver = MockObserver as unknown as typeof IntersectionObserver;
+globalThis.ResizeObserver = MockObserver as unknown as typeof ResizeObserver;
 
-globalThis.ResizeObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn(),
-})) as unknown as typeof ResizeObserver;
+// Polyfills p/ Radix/cmdk em jsdom (pointer capture + scroll).
+if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = vi.fn(() => false) as unknown as typeof Element.prototype.hasPointerCapture;
+if (!Element.prototype.setPointerCapture) Element.prototype.setPointerCapture = vi.fn() as unknown as typeof Element.prototype.setPointerCapture;
+if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = vi.fn() as unknown as typeof Element.prototype.releasePointerCapture;
+Element.prototype.scrollIntoView = vi.fn();
 
 const originalWarn = console.warn;
 console.warn = (...args: unknown[]) => {
