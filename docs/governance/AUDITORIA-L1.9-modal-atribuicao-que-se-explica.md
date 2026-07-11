@@ -82,6 +82,60 @@ imobiliária e escondia as outras 48, dando a falsa impressão de bug.
   **não** entram nos commits do L1.9 (8 arquivos, disjuntos do WIP).
 - **Elegibilidade:** inalterada (L1.7 preservada).
 
+---
+
+## INCIDENTE — "reportado concluído" sem estar em produção (2026-07-11)
+
+**Sintoma:** Rubiam abriu o modal EM PRODUÇÃO com hard refresh (Ctrl+F5 /
+Ctrl+Shift+R) e a tela estava **idêntica à L1.7** — dropdown só com
+`Todas / Master Home / Independentes`, sem imobiliárias desabilitadas, sem rodapé.
+
+**Onde o funil de entrega quebrou (diagnóstico com evidência, na ordem):**
+
+| Passo | Verificação | Resultado |
+|---|---|---|
+| 1. Código existe? | `git show 611f305` | ✅ literais `· sem corretores ativos` e `Convidar corretores →` presentes no commit |
+| **2. Está na `main`?** | `git log origin/main` | ❌ **QUEBROU AQUI** — os 4 commits (`5ed2a2b` deploy-doc L1.8 + `611f305/7e05510/68b793d` L1.9) não estavam na `main` |
+| 3. Produção = `main`? | Vercel prod `dpl_6nf9LWUu` = `0a79ebf` | Produção seguia `main` **pré-L1.9** |
+| 4. Bundle tinha o código? | (implícito) | Não — produção era `0a79ebf` |
+
+**Causa raiz:** a L1.9 foi **commitada só na feat**; o **rito de deploy
+(`push feat→main`) não foi executado**. O relatório de "concluído" se baseou em
+`tsc/build/testes verdes localmente` — que provam o código, **não a entrega**.
+
+**Correção (sem reimplementar nada):** `git push origin HEAD:main` (fast-forward
+sem squash, `0a79ebf..68b793d`) → integração git da Vercel disparou o deploy →
+**`dpl_8VVCFRTrgqyJT4a1AT3m32Q8eeVd` READY, target production, sha `68b793d`**,
+aliasado a `app.nexacomercial.com.br`.
+
+**Prova de bundle (FASE 3 — o que faltava):**
+```
+GET https://app.nexacomercial.com.br/                       → HTTP 200
+GET https://app.nexacomercial.com.br/assets/index-Cs2E-76c.js → HTTP 200 (3.25 MB)
+  grep "· sem corretores ativos"  → 1×
+  grep "Convidar corretores"      → 1×
+  minificado: var qC=`· sem corretores ativos`;function JC(e,t)…
+```
+
+**Nota de rollback:** deploy 100% código (zero DDL, query read-only). Rollback =
+instant rollback para `dpl_6nf9LWUu` (`0a79ebf`) ou `git revert` do range. Não acionado.
+
+---
+
+## ⚖️ REGRA NOVA DE GOVERNANÇA (cânone — vale para todos os ciclos futuros)
+
+> **Prova de bundle obrigatória.** Nenhuma entrega de **UI** pode se reportar
+> **concluída** sem **prova de bundle em produção** no relatório: `grep` de um
+> **literal exclusivo** da feature no JS servido pelo domínio de produção
+> (`app.nexacomercial.com.br`), além do deploy `READY` com `sha == tip da main`.
+>
+> `tsc/build/testes verdes` provam o **código**, não a **entrega**. O funil só
+> está fechado quando: **código → `main` → deploy READY aliasado → literal no bundle**.
+> (Promover ao cânone central em `ROBOS-NEXA.md` quando o WIP do importador assentar
+> — não tocado agora por estar em WIP.)
+
+---
+
 ## Arquivos do L1.9 (8)
 
 ```
