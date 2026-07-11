@@ -88,7 +88,11 @@ O motor/fachada roteia por contagem; o quadro por categoria:
   +buildPickerModel). Zero regra de negócio nos componentes (modelo via
   `buildPickerModel`, contagens em batch pela hook). Tokens Brand Book; zero emojis.
 - Deps do motor já no lock (v3). Commits temáticos; WIP (22) intocado.
-- **Deploy + prova de bundle:** (rodapé abaixo).
+- **Deploy:** push ff `750a522..aaee82a` → main → **`dpl_DBwCFHrzDmgmgAAJp3rYBfH6QJX6` READY**
+  (production, sha `aaee82a`, `app.nexacomercial.com.br`).
+- **Prova de bundle** (`/assets/index-BBTHubJV.js`): `Filtrar pela imobiliária` 1×
+  (sugestão inteligente), `data-nexa-picker` 1× (EntityPicker), `Buscar por nome ou
+  imobiliária` 1× (barra). Rollback = instant rollback p/ `dpl_Asbd3LRT` (`e973194`).
 
 ### Checklist para o Rubiam validar CONTRA O PROTÓTIPO (lado a lado)
 - **Atribuir:** barra busca + Filtros; Filtros → Equipe interna/Imobiliárias→/Autônomos;
