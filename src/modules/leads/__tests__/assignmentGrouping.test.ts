@@ -85,8 +85,9 @@ describe("brokerageSelectOptions — dropdown que se explica (L1.9)", () => {
     const delta = opts.find((o) => o.id === "b4")!;
     expect(alfa).toEqual({ id: "b1", label: "Alfa Imóveis", disabled: false });
     expect(beta).toEqual({ id: "b2", label: "Beta Corretora", disabled: false });
-    expect(gama).toEqual({ id: "b3", label: "Gama Negócios · sem corretores ativos", disabled: true });
-    expect(delta).toEqual({ id: "b4", label: "Delta Imob · sem corretores ativos", disabled: true });
+    // Label limpo + motivo no hint (item desabilitado nunca é mudo).
+    expect(gama).toEqual({ id: "b3", label: "Gama Negócios", disabled: true, hint: "sem corretores ativos" });
+    expect(delta).toEqual({ id: "b4", label: "Delta Imob", disabled: true, hint: "sem corretores ativos" });
   });
 
   it("adiciona 'Independentes' (selecionável) por último quando há corretor independente com acesso", () => {

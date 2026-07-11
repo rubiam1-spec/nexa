@@ -79,9 +79,9 @@ export function brokerageOptions(grouped: GroupedMembers): { id: string | null; 
 // têm corretor ativo são selecionáveis; as demais aparecem desabilitadas com o
 // sufixo "· sem corretores ativos". A elegibilidade NÃO muda — só a visibilidade.
 
-const PENDING_SUFFIX = "· sem corretores ativos";
+const PENDING_HINT = "sem corretores ativos";
 
-export type BrokerageSelectOption = { id: string | null; label: string; disabled: boolean };
+export type BrokerageSelectOption = { id: string | null; label: string; disabled: boolean; hint?: string };
 
 /**
  * Opções do seletor a partir do DIRETÓRIO completo (todas as imobiliárias) e dos
@@ -114,7 +114,8 @@ export function brokerageSelectOptions(
     .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"))
     .map(({ id, name }) => {
       const active = activeIds.has(id);
-      return { id, label: active ? name : `${name} ${PENDING_SUFFIX}`, disabled: !active };
+      // Label limpo; o motivo do disabled vai no HINT (item desabilitado nunca é mudo).
+      return active ? { id, label: name, disabled: false } : { id, label: name, disabled: true, hint: PENDING_HINT };
     });
 
   const opts: BrokerageSelectOption[] = [{ id: null, label: "Todas", disabled: false }, ...brokerageOpts];

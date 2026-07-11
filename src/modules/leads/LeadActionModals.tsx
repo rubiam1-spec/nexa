@@ -10,6 +10,7 @@ import {
   type BrokerageDirectoryEntry,
   type PendingBrokersSummary,
 } from "./assignmentGrouping";
+import { NexaSelect } from "../../shared/ui/NexaSelect";
 
 const MONO = "var(--font-mono)";
 
@@ -107,9 +108,14 @@ export function AssignModal({ lead, members, brokerageDirectory = [], pendingBro
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, margin: "12px 2px 6px" }}>
                 <span style={{ fontFamily: MONO, fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--color-fog)" }}>Corretores</span>
                 {brokerageOpts.length > 1 && (
-                  <select value={brokerageFilter ?? ""} onChange={(e) => setBrokerageFilter(e.target.value || null)} style={{ background: "var(--surface-base)", border: "1px solid var(--border-default)", borderRadius: 6, color: "var(--text-primary)", fontSize: 11, padding: "4px 8px", outline: "none", cursor: "pointer", maxWidth: 180 }}>
-                    {brokerageOpts.map((o) => <option key={o.id ?? "all"} value={o.id ?? ""} disabled={o.disabled}>{o.label}</option>)}
-                  </select>
+                  <div style={{ width: 200, flexShrink: 0 }}>
+                    <NexaSelect
+                      ariaLabel="Filtrar por imobiliária"
+                      value={brokerageFilter ?? ""}
+                      onChange={(v) => setBrokerageFilter(v || null)}
+                      options={brokerageOpts.map((o) => ({ value: o.id ?? "", label: o.label, hint: o.hint, disabled: o.disabled }))}
+                    />
+                  </div>
                 )}
               </div>
               {grouped.brokerages.length === 0 ? <div style={{ fontSize: 12, color: "var(--color-clay)", fontStyle: "italic", padding: 8 }}>Nenhum corretor com acesso.</div> :
