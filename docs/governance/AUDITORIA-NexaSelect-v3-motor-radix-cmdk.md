@@ -66,7 +66,12 @@ verificável em jsdom** (sem layout real) — validação **manual** no checklis
 - Bundle +~85KB (Radix+cmdk+match-sorter) — troca consciente pela fluidez.
 - Zero regra em `.tsx`; tokens Brand Book; zero emojis.
 - Commits temáticos; WIP (22) intocado.
-- **Deploy + prova de bundle:** (rodapé abaixo).
+- **Deploy:** push ff `68d8879..e973194` → main → **`dpl_Asbd3LRTRY7DdCmYinRWgqtfiPzv` READY**
+  (production, sha `e973194`, `app.nexacomercial.com.br`).
+- **Prova de bundle** (`/assets/index-DyPGHKp2.js` + `index-Bm3rtdjn.css`):
+  `cmdk-input` 1× (motor cmdk), `radix` 2× (Radix Popover), `disabled-toggle` 1×
+  (L2 preservada), `.nexa-select-content` 1× (pele nova, no CSS).
+  Rollback = instant rollback p/ `dpl_6kNZSYua` (`9e00d14`) ou revert do range.
 
 ### Caso-farol + checklist para o Rubiam (hard refresh)
 - **Atribuir → imobiliárias:** abre **instantâneo** com animação suave; gatilho
