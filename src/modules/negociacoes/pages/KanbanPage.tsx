@@ -191,6 +191,7 @@ export default function KanbanPage() {
                 onChange={(v) => setMemberFilter(v)}
                 options={memberOptions}
                 ariaLabel="Filtrar por membro"
+                recentKey="kanban-member-filter"
               />
             </div>
           ) : null}

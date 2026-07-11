@@ -302,6 +302,7 @@ export default function NegotiationsPage() {
                     { value: "", label: "Opcional" },
                     ...brokers.filter((b) => b.status === "active" && b.approvalStatus === "approved").map((b) => ({ value: b.id, label: b.name })),
                   ]}
+                  recentKey="negotiation-broker"
                   placeholder="Opcional"
                   ariaLabel="Corretor"
                 />

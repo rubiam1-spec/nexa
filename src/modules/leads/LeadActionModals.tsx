@@ -114,6 +114,14 @@ export function AssignModal({ lead, members, brokerageDirectory = [], pendingBro
                       value={brokerageFilter ?? ""}
                       onChange={(v) => setBrokerageFilter(v || null)}
                       options={brokerageOpts.map((o) => ({ value: o.id ?? "", label: o.label, hint: o.hint, disabled: o.disabled }))}
+                      noun="imobiliárias"
+                      recentKey="assign-brokerage-filter"
+                      footer={onInvite ? (
+                        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
+                          {pendingLabel && <span style={{ color: "var(--color-fog)", flex: 1, minWidth: 0 }}>{pendingLabel}</span>}
+                          <button type="button" onClick={onInvite} style={{ background: "none", border: "none", color: "var(--color-sprout)", fontWeight: 600, cursor: "pointer", padding: 0, whiteSpace: "nowrap" }}>Convidar corretores →</button>
+                        </div>
+                      ) : undefined}
                     />
                   </div>
                 )}
@@ -128,17 +136,11 @@ export function AssignModal({ lead, members, brokerageDirectory = [], pendingBro
                   </div>
                 ))}
 
-              {/* L1.9 — Rodapé que explica o "vazio": o sistema está certo (só
-                  corretor com acesso é elegível); aqui contamos os cadastrados
-                  ainda sem acesso e oferecemos o convite (superfície existente). */}
+              {/* L1.9/DS-L8 — síntese do "vazio" sempre visível; o CTA "Convidar
+                  corretores →" migrou para o rodapé do painel do seletor (L8). */}
               {pendingLabel && (
-                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, margin: "10px 2px 2px", padding: "8px 10px", background: "var(--surface-base)", border: "1px dashed var(--border-default)", borderRadius: 8 }}>
-                  <span style={{ fontSize: 11, color: "var(--color-fog)", flex: 1, minWidth: 0 }}>{pendingLabel}</span>
-                  {onInvite && (
-                    <button type="button" onClick={onInvite} style={{ background: "none", border: "none", color: "var(--color-sprout)", fontSize: 11, fontWeight: 600, cursor: "pointer", padding: 0, whiteSpace: "nowrap" }}>
-                      Convidar corretores →
-                    </button>
-                  )}
+                <div style={{ margin: "10px 2px 2px", padding: "8px 10px", background: "var(--surface-base)", border: "1px dashed var(--border-default)", borderRadius: 8 }}>
+                  <span style={{ fontSize: 11, color: "var(--color-fog)" }}>{pendingLabel}</span>
                 </div>
               )}
             </>
