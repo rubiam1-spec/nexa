@@ -121,4 +121,17 @@ where id in (select id from ranked where rn > 1);
   (digest, singular/plural, código na falta), `shouldSuppressStale` (não-lido +
   cooldown 7d), invariantes de fonte (urgentes intactos).
 - Deploy: app pelo rito git (push feat→main). Edge functions: **nenhuma alterada**.
-- Prova de bundle: (registrada no rodapé após o deploy).
+
+## Deploy + prova de bundle (2026-07-11)
+
+- Push ff sem squash `d46c81b..26e9301` → `main`.
+- **`dpl_EJuP3tTE1aHYhqkLXJjXhTCvizXZ` READY**, target production, sha `26e9301`,
+  aliasado a `app.nexacomercial.com.br`.
+- **Prova de bundle** (`/assets/index-BASjlDYa.js`):
+  ```
+  "a mais antiga há"    → 1×   (template do digest)
+  "Negociações paradas" → 2×   (título)
+  "Sem cliente"         → 3×   (fallback do notificationSubject)
+  minificado: ${a} — a mais antiga há ${r}d (${i}).   ← buildStaleDigest
+  ```
+- Sem DDL. Rollback = instant rollback p/ `dpl_7CRSY8s9` (`d46c81b`) ou revert do range.
