@@ -7,6 +7,7 @@ import { useAuth } from "../../app/contexts/AuthContext";
 import { supabase } from "../../infra/supabase/supabaseClient";
 import { createClient } from "../../infra/repositories/clientsSupabaseRepository";
 import { useUnitQueue } from "../../modules/units/hooks/useUnitQueue";
+import { NexaSelect } from "../ui/NexaSelect";
 
 const T = {
   ink: "var(--surface-base)", carbon: "var(--surface-raised)", stone: "var(--border-default)",
@@ -180,10 +181,13 @@ export default function QueueEntryModal({ isOpen, onClose, unit, queuePosition, 
         {isManagerOrDirector && (
           <div style={{ marginBottom: 16 }}>
             <label style={LBL}>Corretor</label>
-            <select value={selectedBrokerId} onChange={(e) => setSelectedBrokerId(e.target.value)} style={{ ...IS, cursor: "pointer" }}>
-              <option value="">Selecionar corretor...</option>
-              {brokersList.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
+            <NexaSelect
+              value={selectedBrokerId}
+              onChange={(v) => setSelectedBrokerId(v)}
+              options={brokersList.map((b) => ({ value: b.id, label: b.name }))}
+              placeholder="Selecionar corretor..."
+              ariaLabel="Corretor"
+            />
           </div>
         )}
 

@@ -14,6 +14,7 @@ import {
   type MembroElegivel,
 } from "../repositories/relatorioIndividualSupabaseRepository";
 import { gerarPdfRelatorioIndividual } from "../utils/gerarPdfRelatorio";
+import { NexaSelect } from "../../../shared/ui/NexaSelect";
 
 const T = {
   ink: "var(--surface-base)",
@@ -201,19 +202,19 @@ export default function RelatorioIndividual({ fromDate, toDate, fromISO, toISO, 
           {membersError ? (
             <span style={{ fontSize: 13, color: T.red }}>Falha ao carregar membros.</span>
           ) : (
-            <select
-              id="ri-membro"
-              value={selectedId ?? ""}
-              onChange={(e) => setSelectedId(e.target.value || null)}
-              disabled={membersLoading || members.length === 0}
-              style={{ background: "var(--surface-raised)", border: `1px solid ${T.stone}`, borderRadius: 8, padding: "10px 12px", color: "var(--text-primary)", fontSize: 14, outline: "none", fontFamily: "var(--font-sans)", minHeight: 44, minWidth: 220, maxWidth: "100%" }}
-            >
-              {membersLoading && <option value="">Carregando...</option>}
-              {!membersLoading && members.length === 0 && <option value="">Nenhum membro elegível</option>}
-              {members.map((m) => (
-                <option key={m.id} value={m.id}>{m.name} · {ROLE_LABELS[m.role] ?? m.role}</option>
-              ))}
-            </select>
+            <div style={{ minWidth: 220, maxWidth: "100%" }}>
+              <NexaSelect
+                id="ri-membro"
+                value={selectedId ?? ""}
+                onChange={(v) => setSelectedId(v || null)}
+                options={members.map((m) => ({ value: m.id, label: `${m.name} · ${ROLE_LABELS[m.role] ?? m.role}` }))}
+                placeholder="Selecionar membro..."
+                emptyLabel="Nenhum membro elegível"
+                loading={membersLoading}
+                disabled={membersLoading || members.length === 0}
+                ariaLabel="Membro"
+              />
+            </div>
           )}
         </div>
       )}

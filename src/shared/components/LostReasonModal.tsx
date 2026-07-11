@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
+import { NexaSelect } from "../ui/NexaSelect";
 
 export const LOSS_REASONS = [
   { value: "PRECO", label: "Preço" },
@@ -74,17 +75,15 @@ export default function LostReasonModal({ isOpen, onClose, onConfirm, showCascad
         <label style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: 8, color: "#5C5647", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 6 }}>
           Motivo *
         </label>
-        <select value={reason} onChange={(e) => setReason(e.target.value)}
-          style={{
-            width: "100%", padding: "10px 14px",
-            background: "linear-gradient(168deg, rgba(34,33,28,0.5), rgba(18,17,14,0.15))",
-            border: "1px solid rgba(61,58,48,0.25)",
-            borderRadius: 8, color: "#E8E5DE", fontSize: 13,
-            outline: "none", marginBottom: 14, cursor: "pointer",
-          }}>
-          <option value="">Selecione o motivo...</option>
-          {LOSS_REASONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
-        </select>
+        <div style={{ marginBottom: 14 }}>
+          <NexaSelect
+            value={reason}
+            onChange={(v) => setReason(v)}
+            options={LOSS_REASONS.map((r) => ({ value: r.value, label: r.label }))}
+            placeholder="Selecione o motivo..."
+            ariaLabel="Motivo"
+          />
+        </div>
 
         <label style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: 8, color: "#5C5647", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 6 }}>
           Observação {isOther && "*"}

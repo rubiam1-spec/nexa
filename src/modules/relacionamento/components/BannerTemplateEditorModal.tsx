@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "../../../infra/supabase/supabaseClient";
+import { NexaSelect } from "../../../shared/ui/NexaSelect";
 
 export interface TextConfig {
   position_y: number;
@@ -278,9 +279,12 @@ export default function BannerTemplateEditorModal({
             </LabelRow>
 
             <LabelRow label="Tipo">
-              <select style={INP} value={templateType} onChange={(e) => setTemplateType(e.target.value)}>
-                {TEMPLATE_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-              </select>
+              <NexaSelect
+                value={templateType}
+                onChange={(v) => setTemplateType(v)}
+                options={TEMPLATE_TYPES.map((t) => ({ value: t.value, label: t.label }))}
+                ariaLabel="Tipo"
+              />
             </LabelRow>
 
             <LabelRow label={`Posição vertical — ${config.position_y}%`}>

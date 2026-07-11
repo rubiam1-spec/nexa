@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { useIsMobile } from "../hooks/useIsMobile";
+import { NexaSelect } from "../ui/NexaSelect";
 
 const T = { ink: "var(--surface-base)", carbon: "var(--surface-raised)", stone: "var(--border-default)", chalk: "var(--text-primary)", bone: "var(--text-secondary)", fog: "var(--text-muted)", red: "#F87171", sprout: "var(--interactive-primary)" };
 
@@ -91,10 +92,13 @@ export default function CancelNegotiationModal({ isOpen, onClose, negotiation, h
         {/* Reason select */}
         <div style={{ marginBottom: 16 }}>
           <label style={{ fontSize: 10, color: T.fog, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "var(--font-mono)", display: "block", marginBottom: 6 }}>Motivo da perda *</label>
-          <select value={reason} onChange={(e) => setReason(e.target.value)} style={{ ...IS, cursor: "pointer" }}>
-            <option value="">Selecione o motivo...</option>
-            {LOSS_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
-          </select>
+          <NexaSelect
+            value={reason}
+            onChange={(v) => setReason(v)}
+            options={LOSS_REASONS.map((r) => ({ value: r, label: r }))}
+            placeholder="Selecione o motivo..."
+            ariaLabel="Motivo da perda"
+          />
         </div>
 
         {/* Notes */}
