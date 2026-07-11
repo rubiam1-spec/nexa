@@ -5,6 +5,7 @@ import { useAuth } from "../../../app/contexts/AuthContext";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
 import { createClient, checkDuplicateClient } from "../../../infra/repositories/clientsSupabaseRepository";
 import { CLIENT_SOURCE_LABELS } from "../../../shared/types/client";
+import { NexaSelect } from "../../../shared/ui/NexaSelect";
 
 export default function ContatoFormPage() {
   const navigate = useNavigate();
@@ -91,7 +92,7 @@ export default function ContatoFormPage() {
           </div>
           <div><label style={LBL}>DATA DE NASCIMENTO</label><input type="date" value={dataNascimento} onChange={(e) => setDataNascimento(e.target.value)} style={INP} /></div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div><label style={LBL}>ORIGEM</label><select value={origin} onChange={(e) => setOrigin(e.target.value)} style={SEL}><option value="">Selecione...</option>{Object.entries(CLIENT_SOURCE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></div>
+            <div><label style={LBL}>ORIGEM</label><NexaSelect value={origin} onChange={(v) => setOrigin(v)} options={Object.entries(CLIENT_SOURCE_LABELS).map(([k, v]) => ({ value: k, label: v }))} placeholder="Selecione..." ariaLabel="Origem" /></div>
             <div><label style={LBL}>DETALHE DA ORIGEM</label><input type="text" value={originDetail} onChange={(e) => setOriginDetail(e.target.value)} placeholder="Campanha, corretor, etc." style={INP} /></div>
           </div>
           <div><label style={LBL}>TEMPERATURA</label>
@@ -112,16 +113,16 @@ export default function ContatoFormPage() {
         <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 12, padding: "20px 24px", marginBottom: 14 }}>
           <div style={{ display: "grid", gap: 14 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div><label style={LBL}>PERFIL DE COMPRADOR</label><select value={buyerProfile} onChange={(e) => setBuyerProfile(e.target.value)} style={SEL}><option value="">Selecione...</option><option value="investor">Investidor</option><option value="resident">Morador</option><option value="both">Ambos</option></select></div>
-              <div><label style={LBL}>TIPO DE IMÓVEL</label><select value={interestedUnitType} onChange={(e) => setInterestedUnitType(e.target.value)} style={SEL}><option value="">Selecione...</option><option value="lote">Lote</option><option value="casa">Casa</option><option value="apartamento">Apartamento</option><option value="comercial">Comercial</option></select></div>
+              <div><label style={LBL}>PERFIL DE COMPRADOR</label><NexaSelect value={buyerProfile} onChange={(v) => setBuyerProfile(v)} options={[{ value: "investor", label: "Investidor" }, { value: "resident", label: "Morador" }, { value: "both", label: "Ambos" }]} placeholder="Selecione..." ariaLabel="Perfil de comprador" /></div>
+              <div><label style={LBL}>TIPO DE IMÓVEL</label><NexaSelect value={interestedUnitType} onChange={(v) => setInterestedUnitType(v)} options={[{ value: "lote", label: "Lote" }, { value: "casa", label: "Casa" }, { value: "apartamento", label: "Apartamento" }, { value: "comercial", label: "Comercial" }]} placeholder="Selecione..." ariaLabel="Tipo de imóvel" /></div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div><label style={LBL}>BUDGET MÍNIMO (R$)</label><input type="number" value={budgetMin} onChange={(e) => setBudgetMin(e.target.value)} placeholder="0" style={INP} /></div>
               <div><label style={LBL}>BUDGET MÁXIMO (R$)</label><input type="number" value={budgetMax} onChange={(e) => setBudgetMax(e.target.value)} placeholder="0" style={INP} /></div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div><label style={LBL}>PRAZO DE COMPRA</label><select value={purchaseTimeline} onChange={(e) => setPurchaseTimeline(e.target.value)} style={SEL}><option value="">Selecione...</option><option value="immediate">Imediato</option><option value="1_to_3_months">1-3 meses</option><option value="3_to_6_months">3-6 meses</option><option value="6_to_12_months">6-12 meses</option><option value="over_12_months">+12 meses</option></select></div>
-              <div><label style={LBL}>PREFERÊNCIA PAGAMENTO</label><select value={paymentPreference} onChange={(e) => setPaymentPreference(e.target.value)} style={SEL}><option value="">Selecione...</option><option value="cash">À vista</option><option value="installment">Parcelado</option><option value="financing">Financiamento</option><option value="fgts">FGTS</option></select></div>
+              <div><label style={LBL}>PRAZO DE COMPRA</label><NexaSelect value={purchaseTimeline} onChange={(v) => setPurchaseTimeline(v)} options={[{ value: "immediate", label: "Imediato" }, { value: "1_to_3_months", label: "1-3 meses" }, { value: "3_to_6_months", label: "3-6 meses" }, { value: "6_to_12_months", label: "6-12 meses" }, { value: "over_12_months", label: "+12 meses" }]} placeholder="Selecione..." ariaLabel="Prazo de compra" /></div>
+              <div><label style={LBL}>PREFERÊNCIA PAGAMENTO</label><NexaSelect value={paymentPreference} onChange={(v) => setPaymentPreference(v)} options={[{ value: "cash", label: "À vista" }, { value: "installment", label: "Parcelado" }, { value: "financing", label: "Financiamento" }, { value: "fgts", label: "FGTS" }]} placeholder="Selecione..." ariaLabel="Preferência de pagamento" /></div>
             </div>
             <div><label style={LBL}>OBSERVAÇÕES</label><textarea value={internalNotes} onChange={(e) => setInternalNotes(e.target.value)} placeholder="Anotações internas..." rows={3} style={{ ...INP, resize: "vertical" }} /></div>
           </div>

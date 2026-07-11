@@ -5,9 +5,9 @@ import { useAuth } from "../../../app/contexts/AuthContext";
 import { supabase } from "../../../infra/supabase/supabaseClient";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
 import * as XLSX from "xlsx";
+import { NexaSelect } from "../../../shared/ui/NexaSelect";
 
 const T = { ink: "var(--surface-base)", carbon: "var(--surface-raised)", stone: "var(--border-default)", chalk: "var(--text-primary)", bone: "var(--text-secondary)", fog: "var(--text-muted)", slate: "var(--text-disabled)", sprout: "var(--interactive-primary)", blue: "#60A5FA", red: "#F87171", amber: "#FBBF24" };
-const IS: React.CSSProperties = { width: "100%", background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "10px 14px", color: T.chalk, fontSize: 14, outline: "none", boxSizing: "border-box" };
 const LBL: React.CSSProperties = { fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", display: "block", marginBottom: 4 };
 
 // Field mapping targets
@@ -283,9 +283,9 @@ export default function ImportarContatosPage() {
               <div key={h} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 8 }}>
                 <span style={{ flex: 1, fontSize: 13, color: T.bone, fontWeight: 500 }}>{h}</span>
                 <span style={{ fontSize: 13, color: T.slate }}>→</span>
-                <select value={mapping[h] ?? ""} onChange={(e) => setMapping((m) => ({ ...m, [h]: e.target.value }))} style={{ ...IS, width: 180, flex: "none" }}>
-                  {FIELD_OPTIONS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
-                </select>
+                <div style={{ width: 180, flex: "none" }}>
+                  <NexaSelect value={mapping[h] ?? ""} onChange={(v) => setMapping((m) => ({ ...m, [h]: v }))} ariaLabel={`Mapear coluna ${h}`} options={FIELD_OPTIONS.map((f) => ({ value: f.key, label: f.label }))} />
+                </div>
               </div>
             ))}
           </div>
@@ -310,7 +310,7 @@ export default function ImportarContatosPage() {
         <div>
           <div style={{ fontSize: 14, fontWeight: 600, color: T.bone, marginBottom: 16 }}>Valores padrão (aplicados a todos)</div>
           <div style={{ display: "grid", gap: 14, marginBottom: 20 }}>
-            <div><label style={LBL}>ORIGEM PADRÃO</label><select style={IS} value={defOrigin} onChange={(e) => setDefOrigin(e.target.value)}>{Object.entries(SOURCE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></div>
+            <div><label style={LBL}>ORIGEM PADRÃO</label><NexaSelect value={defOrigin} onChange={(v) => setDefOrigin(v)} ariaLabel="Origem padrão" options={Object.entries(SOURCE_LABELS).map(([k, v]) => ({ value: k, label: v }))} /></div>
             <div><label style={LBL}>TEMPERATURA</label>
               <div style={{ display: "flex", gap: 6 }}>
                 {(["cold", "warm", "hot"] as const).map((t) => {
@@ -320,7 +320,7 @@ export default function ImportarContatosPage() {
                 })}
               </div>
             </div>
-            <div><label style={LBL}>RESPONSÁVEL</label><select style={IS} value={defAssigned} onChange={(e) => setDefAssigned(e.target.value)}><option value="">— Sem responsável</option>{team.map((t) => <option key={t.userId} value={t.userId}>{t.name}</option>)}</select></div>
+            <div><label style={LBL}>RESPONSÁVEL</label><NexaSelect value={defAssigned} onChange={(v) => setDefAssigned(v)} ariaLabel="Responsável" options={[{ value: "", label: "— Sem responsável" }, ...team.map((t) => ({ value: t.userId, label: t.name }))]} /></div>
           </div>
           <div style={{ fontSize: 14, fontWeight: 600, color: T.bone, marginBottom: 12 }}>Estratégia de duplicatas</div>
           <div style={{ display: "grid", gap: 8, marginBottom: 20 }}>

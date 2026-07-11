@@ -14,6 +14,7 @@ import { getPermissions } from "../../../shared/utils/permissoes";
 import { formatPhone } from "../../../shared/utils/masks";
 import SpouseLinkModal from "../components/SpouseLinkModal";
 import type { MaritalStatus, LegalRegime } from "../../../shared/types/client";
+import { NexaSelect } from "../../../shared/ui/NexaSelect";
 
 const TEMP_COLORS: Record<string, string> = { hot: "#F87171", warm: "#FBBF24", cold: "#60A5FA", quente: "#F87171", morno: "#FBBF24", frio: "#60A5FA" };
 
@@ -170,24 +171,12 @@ export default function ClientsPage() {
           <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", marginTop: 10 }}>
             <label style={{ flex: 1, minWidth: 140 }}>
               <span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Estado civil</span>
-              <select value={maritalStatus} onChange={(e) => setMaritalStatus(e.target.value as typeof maritalStatus)} style={{ width: "100%", background: "var(--surface-base)", border: "1px solid var(--color-stone)", borderRadius: 8, padding: "9px 12px", color: "var(--text-primary)", fontSize: 14, outline: "none", boxSizing: "border-box" }}>
-                <option value="">— Selecione</option>
-                <option value="solteiro">Solteiro(a)</option>
-                <option value="casado">Casado(a)</option>
-                <option value="divorciado">Divorciado(a)</option>
-                <option value="viuvo">Viúvo(a)</option>
-                <option value="uniao_estavel">União estável</option>
-              </select>
+              <NexaSelect value={maritalStatus} onChange={(v) => setMaritalStatus(v as typeof maritalStatus)} placeholder="— Selecione" ariaLabel="Estado civil" options={[{ value: "solteiro", label: "Solteiro(a)" }, { value: "casado", label: "Casado(a)" }, { value: "divorciado", label: "Divorciado(a)" }, { value: "viuvo", label: "Viúvo(a)" }, { value: "uniao_estavel", label: "União estável" }]} />
             </label>
             {(maritalStatus === "casado" || maritalStatus === "uniao_estavel") ? (
               <label style={{ flex: 2, minWidth: 220 }}>
                 <span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Regime de bens *</span>
-                <select value={regimeCasamento} onChange={(e) => setRegimeCasamento(e.target.value as typeof regimeCasamento)} style={{ width: "100%", background: "var(--surface-base)", border: "1px solid var(--color-stone)", borderRadius: 8, padding: "9px 12px", color: "var(--text-primary)", fontSize: 14, outline: "none", boxSizing: "border-box" }}>
-                  <option value="comunhao_parcial">Comunhão parcial de bens</option>
-                  <option value="comunhao_universal">Comunhão universal de bens</option>
-                  <option value="separacao_total">Separação total de bens</option>
-                  <option value="participacao_final_aquestos">Participação final nos aquestos</option>
-                </select>
+                <NexaSelect value={regimeCasamento} onChange={(v) => setRegimeCasamento(v as typeof regimeCasamento)} ariaLabel="Regime de bens" options={[{ value: "comunhao_parcial", label: "Comunhão parcial de bens" }, { value: "comunhao_universal", label: "Comunhão universal de bens" }, { value: "separacao_total", label: "Separação total de bens" }, { value: "participacao_final_aquestos", label: "Participação final nos aquestos" }]} />
               </label>
             ) : null}
           </div>
@@ -210,10 +199,9 @@ export default function ClientsPage() {
             ))}
           </div>
           {perms.canViewFullDashboard && (
-            <select value={filterBroker} onChange={(e) => setFilterBroker(e.target.value)} style={{ background: "var(--surface-raised)", border: "1px solid var(--color-stone)", borderRadius: 8, padding: "6px 12px", color: "var(--color-bone)", fontSize: 12 }}>
-              <option value="all">Todos os corretores</option>
-              {activeBrokers.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
+            <div style={{ maxWidth: 260 }}>
+              <NexaSelect value={filterBroker} onChange={(v) => setFilterBroker(v)} ariaLabel="Filtrar por corretor" options={[{ value: "all", label: "Todos os corretores" }, ...activeBrokers.map((b) => ({ value: b.id, label: b.name }))]} />
+            </div>
           )}
         </div>
       )}

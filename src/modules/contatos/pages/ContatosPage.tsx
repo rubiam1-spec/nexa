@@ -16,6 +16,7 @@ import { fromLeadQualificationDb, isLeadActive } from "../../../domain/status/le
 import { LEAD_STAGE_META } from "../../leads/leadDisplay";
 import { secureMaskCPF } from "../../../lib/security";
 import { formatDateBRT } from "../../../shared/utils/dateUtils";
+import { NexaSelect } from "../../../shared/ui/NexaSelect";
 
 function TempBadge({ temp }: { temp: ClientTemperature }) {
   const cfg: Record<ClientTemperature, { label: string; bg: string; color: string; glow: string }> = {
@@ -248,39 +249,24 @@ export default function ContatosPage() {
             {/* Row 1 */}
             <div>
               <label style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)", letterSpacing: "0.1em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Status</label>
-              <select value={filters.status ?? ""} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value || undefined }))} style={FSEL}>
-                <option value="">Todos</option>
-                {(Object.entries(CLIENT_STATUS_LABELS) as [ClientStatus, string][]).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-              </select>
+              <NexaSelect value={filters.status ?? ""} onChange={(v) => setFilters((f) => ({ ...f, status: v || undefined }))} ariaLabel="Status" options={[{ value: "", label: "Todos" }, ...(Object.entries(CLIENT_STATUS_LABELS) as [ClientStatus, string][]).map(([k, v]) => ({ value: k, label: v }))]} />
             </div>
             <div>
               <label style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)", letterSpacing: "0.1em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Temperatura</label>
-              <select value={filters.temperature ?? ""} onChange={(e) => setFilters((f) => ({ ...f, temperature: e.target.value || undefined }))} style={FSEL}>
-                <option value="">Todas</option>
-                <option value="hot">Quente</option><option value="warm">Morno</option><option value="cold">Frio</option>
-              </select>
+              <NexaSelect value={filters.temperature ?? ""} onChange={(v) => setFilters((f) => ({ ...f, temperature: v || undefined }))} ariaLabel="Temperatura" options={[{ value: "", label: "Todas" }, { value: "hot", label: "Quente" }, { value: "warm", label: "Morno" }, { value: "cold", label: "Frio" }]} />
             </div>
             <div>
               <label style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)", letterSpacing: "0.1em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Origem</label>
-              <select value={filters.origin ?? ""} onChange={(e) => setFilters((f) => ({ ...f, origin: e.target.value || undefined }))} style={FSEL}>
-                <option value="">Todas</option>
-                {Object.entries(CLIENT_SOURCE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-              </select>
+              <NexaSelect value={filters.origin ?? ""} onChange={(v) => setFilters((f) => ({ ...f, origin: v || undefined }))} ariaLabel="Origem" options={[{ value: "", label: "Todas" }, ...Object.entries(CLIENT_SOURCE_LABELS).map(([k, v]) => ({ value: k, label: v }))]} />
             </div>
             {/* Row 2 */}
             <div>
               <label style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)", letterSpacing: "0.1em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Responsável</label>
-              <select value={filters.assignedTo ?? ""} onChange={(e) => setFilters((f) => ({ ...f, assignedTo: e.target.value || undefined }))} style={FSEL}>
-                <option value="">Todos</option>
-                {teamMembers.map((m) => <option key={m.userId} value={m.userId}>{m.name}</option>)}
-              </select>
+              <NexaSelect value={filters.assignedTo ?? ""} onChange={(v) => setFilters((f) => ({ ...f, assignedTo: v || undefined }))} ariaLabel="Responsável" options={[{ value: "", label: "Todos" }, ...teamMembers.map((m) => ({ value: m.userId, label: m.name }))]} />
             </div>
             <div>
               <label style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)", letterSpacing: "0.1em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Cadastrado em</label>
-              <select value={filters.period ?? ""} onChange={(e) => setFilters((f) => ({ ...f, period: e.target.value || undefined }))} style={FSEL}>
-                <option value="">Qualquer período</option>
-                <option value="today">Hoje</option><option value="7d">Últimos 7 dias</option><option value="30d">Últimos 30 dias</option><option value="90d">Últimos 90 dias</option><option value="this_month">Este mês</option><option value="last_month">Mês passado</option>
-              </select>
+              <NexaSelect value={filters.period ?? ""} onChange={(v) => setFilters((f) => ({ ...f, period: v || undefined }))} ariaLabel="Cadastrado em" options={[{ value: "", label: "Qualquer período" }, { value: "today", label: "Hoje" }, { value: "7d", label: "Últimos 7 dias" }, { value: "30d", label: "Últimos 30 dias" }, { value: "90d", label: "Últimos 90 dias" }, { value: "this_month", label: "Este mês" }, { value: "last_month", label: "Mês passado" }]} />
             </div>
             <div>
               <label style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)", letterSpacing: "0.1em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Cidade</label>
