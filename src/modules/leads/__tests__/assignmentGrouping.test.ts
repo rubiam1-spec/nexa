@@ -5,6 +5,7 @@ import {
   brokerageSelectOptions,
   summarizePendingBrokers,
   pendingBrokersLabel,
+  buildPickerModel,
   type AssignableMember,
 } from "../assignmentGrouping";
 import type { AssignableBrokerRow, BrokerageDirectoryEntry } from "../../../infra/repositories/clientsSupabaseRepository";
@@ -137,5 +138,20 @@ describe("summarizePendingBrokers / pendingBrokersLabel — a verdade que faltav
   it("só independentes pendentes: rótulo sem a parte de imobiliárias", () => {
     expect(pendingBrokersLabel({ brokeragesWithPending: 0, brokersWithoutAccess: 3 }))
       .toBe("3 corretores cadastrados ainda sem acesso");
+  });
+});
+
+describe("buildPickerModel — modelo do EntityPicker (DS v4)", () => {
+  it("separa interna, imobiliárias ativas, autônomos e imobiliárias sem ativos", () => {
+    const m = buildPickerModel(SAMPLE, [
+      { id: "b1", name: "Alfa Imóveis" },
+      { id: "b2", name: "Beta Corretora" },
+      { id: "b3", name: "Gama Negócios" }, // sem corretor ativo
+    ]);
+    expect(m.internal.map((p) => p.name)).toEqual(["Ana", "Suellen"]);
+    expect(m.brokerages.map((b) => b.brokerage.name)).toEqual(["Alfa Imóveis", "Beta Corretora"]);
+    expect(m.brokerages[0].brokerage.activeCount).toBe(2); // Ivo, Aline
+    expect(m.autonomos.map((p) => p.name)).toEqual(["Nina"]);
+    expect(m.inactiveBrokerages.map((b) => b.name)).toEqual(["Gama Negócios"]);
   });
 });

@@ -123,6 +123,51 @@ export function brokerageSelectOptions(
   return opts;
 }
 
+// ── DS v4 — Modelo do NexaEntityPicker (Atribuir). PURO/testável (fora do .tsx) ──
+
+export type PickerPerson = { id: string; name: string; subtitle: string; activeLeads: number };
+export type PickerBrokerage = { id: string; name: string; activeCount: number };
+export type PickerModel = {
+  internal: PickerPerson[];
+  /** Imobiliárias COM corretor ativo (tocáveis), cada uma com sua gente. */
+  brokerages: { brokerage: PickerBrokerage; people: PickerPerson[] }[];
+  /** Brokers sem brokerage_id. */
+  autonomos: PickerPerson[];
+  /** Imobiliárias do diretório SEM corretor ativo (apagadas no filtro). */
+  inactiveBrokerages: PickerBrokerage[];
+};
+
+const PICKER_ROLE_LABEL: Record<string, string> = {
+  manager: "Gestor(a)", commercial_consultant: "Consultor(a)", broker: "Corretor(a)",
+  director: "Diretor(a)", concierge: "Concierge", administrative: "Administrativo",
+};
+
+/**
+ * Achata o agrupamento elegível (L1.7) no modelo do EntityPicker. Sem regra nova:
+ * reusa groupAssignableMembers; separa autônomos (brokerageId null) e cruza com o
+ * diretório para as imobiliárias sem ativos.
+ */
+export function buildPickerModel(members: AssignableMember[], directory: BrokerageDirectoryEntry[]): PickerModel {
+  const grouped = groupAssignableMembers(members, false);
+  const internal: PickerPerson[] = grouped.internal.map((m) => ({ id: m.id, name: m.name, subtitle: PICKER_ROLE_LABEL[m.role] ?? m.role, activeLeads: m.activeLeads }));
+
+  const brokerages: PickerModel["brokerages"] = [];
+  let autonomos: PickerPerson[] = [];
+  for (const g of grouped.brokerages) {
+    const people = g.brokers.map((m) => ({ id: m.id, name: m.name, subtitle: g.brokerageId ? g.brokerageName : "Autônomo", activeLeads: m.activeLeads }));
+    if (g.brokerageId === null) { autonomos = people; continue; }
+    brokerages.push({ brokerage: { id: g.brokerageId, name: g.brokerageName, activeCount: people.length }, people });
+  }
+
+  const activeIds = new Set(brokerages.map((b) => b.brokerage.id));
+  const inactiveBrokerages = directory
+    .filter((d) => !activeIds.has(d.id))
+    .map((d) => ({ id: d.id, name: d.name, activeCount: 0 }))
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+
+  return { internal, brokerages, autonomos, inactiveBrokerages };
+}
+
 export type PendingBrokersSummary = { brokeragesWithPending: number; brokersWithoutAccess: number };
 
 /**
