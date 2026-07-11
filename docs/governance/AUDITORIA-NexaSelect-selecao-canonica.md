@@ -83,7 +83,12 @@ migrados** em 23 arquivos, todos 1:1 (mesmos values/handlers/ordem):
   NexaSelect). Zero regra em `.tsx` (componente controlado, dados do hook). Tokens
   Brand Book v7; zero emojis (ícones via SVG inline).
 - Commits temáticos: componente · flagship · 5 de migração por área. WIP (22) intocado.
-- Deploy + prova de bundle: (rodapé abaixo).
+- **Deploy:** push ff `e2d1750..b2111b0` → main → **`dpl_B46cqeLPn3R2GsWQv3LcnuDb7TCZ` READY**
+  (production, sha `b2111b0`, `app.nexacomercial.com.br`).
+- **Prova de bundle** (`/assets/index-D5620_zU.js`): `data-nexa-select` presente
+  (marker do componente; minificado `{ref:w,"data-nexa-select":"root",...}`) +
+  `sem corretores ativos` (hint do disabled no modal Atribuir, agora via NexaSelect).
+  Rollback = instant rollback p/ `dpl_4J8vbS6u` (`e2d1750`) ou revert do range.
 
 ### Checklist de validação por tela (para o Rubiam)
 Abrir e conferir que o dropdown é o NexaSelect (fundo Carbon, foco anel Sprout,
