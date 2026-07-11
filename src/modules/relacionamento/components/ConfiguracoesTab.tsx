@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../../../infra/supabase/supabaseClient";
 import BannerTemplateEditorModal, { type TextConfig } from "./BannerTemplateEditorModal";
+import { NexaSelect } from "../../../shared/ui/NexaSelect";
 
 // ── Types ──
 
@@ -248,9 +249,7 @@ export default function ConfiguracoesTab({ accountId, developmentId, userId, cor
             }}>
               <div style={{ marginBottom: 10 }}>
                 <div style={{ fontFamily: MONO, fontSize: 9, color: "var(--text-disabled)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Tipo</div>
-                <select value={newMsgType} onChange={(e) => setNewMsgType(e.target.value)} style={INP}>
-                  {MSG_TYPES.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
-                </select>
+                <NexaSelect value={newMsgType} onChange={(v) => setNewMsgType(v)} ariaLabel="Tipo" options={MSG_TYPES.map(({ value, label }) => ({ value, label }))} />
               </div>
               <div style={{ marginBottom: 12 }}>
                 <div style={{ fontFamily: MONO, fontSize: 9, color: "var(--text-disabled)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Mensagem</div>

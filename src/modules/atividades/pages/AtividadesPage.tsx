@@ -6,6 +6,7 @@ import { useDevelopment } from "../../../app/contexts/DevelopmentContext";
 import { useAuth } from "../../../app/contexts/AuthContext";
 import { supabase } from "../../../infra/supabase/supabaseClient";
 import { useIsMobile } from "../../../shared/hooks/useIsMobile";
+import { NexaSelect } from "../../../shared/ui/NexaSelect";
 import { IcVisita, IcClientes, IcEmpreendimentos, IcTreinamento, IcLigacao, IcFollowUp, IcReuniao, IcImobiliarias, IcOutro } from "../../../shared/components/icons/NexaIcons";
 import { type Participant } from "../../../shared/components/ParticipantInput";
 import ActivityDetailModal from "../../../shared/components/ActivityDetailModal";
@@ -3040,53 +3041,46 @@ export default function AtividadesPage() {
           background: "linear-gradient(145deg, var(--surface-raised), var(--surface-base))",
           border: "1px solid var(--border-default)", borderRadius: 10,
         }}>
-          <select value={periodFilter} onChange={(e) => setPeriodFilter(e.target.value)} style={{
-            padding: "6px 28px 6px 10px", borderRadius: 6,
-            background: "var(--surface-base)", border: "1px solid rgba(42,40,34,0.4)",
-            color: T.bone, fontFamily: "var(--font-mono)", fontSize: 10, cursor: "pointer",
-            appearance: "none",
-            backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%239C9686' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E\")",
-            backgroundRepeat: "no-repeat", backgroundPosition: "right 8px center",
-          }}>
-            <option value="today">Hoje</option>
-            <option value="week">Esta semana</option>
-            <option value="month">Este mês</option>
-            <option value="quarter">Este trimestre</option>
-            <option value="all">Todo período</option>
-          </select>
+          <div style={{ width: 150 }}>
+            <NexaSelect
+              value={periodFilter}
+              onChange={(v) => setPeriodFilter(v)}
+              ariaLabel="Período"
+              options={[
+                { value: "today", label: "Hoje" },
+                { value: "week", label: "Esta semana" },
+                { value: "month", label: "Este mês" },
+                { value: "quarter", label: "Este trimestre" },
+                { value: "all", label: "Todo período" },
+              ]}
+            />
+          </div>
 
           {/* Onda 1.6: toggle de modo de data (activity_date | created_at) */}
-          <select
-            value={periodCfg.dateMode}
-            onChange={(e) => periodCfg.setDateMode(e.target.value as typeof periodCfg.dateMode)}
-            title="Considerar período pela data da atividade ou pela data do registro"
-            style={{
-              padding: "6px 28px 6px 10px", borderRadius: 6,
-              background: "var(--surface-base)", border: "1px solid rgba(42,40,34,0.4)",
-              color: T.bone, fontFamily: "var(--font-mono)", fontSize: 10, cursor: "pointer",
-              appearance: "none",
-              backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%239C9686' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E\")",
-              backgroundRepeat: "no-repeat", backgroundPosition: "right 8px center",
-            }}
-          >
-            <option value="activity_date">Por data da atividade</option>
-            <option value="created_at">Por data do registro</option>
-          </select>
+          <div style={{ width: 190 }}>
+            <NexaSelect
+              value={periodCfg.dateMode}
+              onChange={(v) => periodCfg.setDateMode(v as typeof periodCfg.dateMode)}
+              ariaLabel="Considerar período pela data da atividade ou pela data do registro"
+              options={[
+                { value: "activity_date", label: "Por data da atividade" },
+                { value: "created_at", label: "Por data do registro" },
+              ]}
+            />
+          </div>
 
           {(isManager && viewMode === "team" || isDirector) && teamProfiles.length > 0 && (
-            <select value={consultantFilter} onChange={(e) => setConsultantFilter(e.target.value)} style={{
-              padding: "6px 28px 6px 10px", borderRadius: 6,
-              background: "var(--surface-base)", border: "1px solid rgba(42,40,34,0.4)",
-              color: T.bone, fontFamily: "var(--font-mono)", fontSize: 10, cursor: "pointer",
-              appearance: "none",
-              backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%239C9686' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E\")",
-              backgroundRepeat: "no-repeat", backgroundPosition: "right 8px center",
-            }}>
-              <option value="all">Todos os membros</option>
-              {teamProfiles.filter((p) => p.role !== "director" || isDirector).map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
+            <div style={{ width: 180 }}>
+              <NexaSelect
+                value={consultantFilter}
+                onChange={(v) => setConsultantFilter(v)}
+                ariaLabel="Filtrar por membro"
+                options={[
+                  { value: "all", label: "Todos os membros" },
+                  ...teamProfiles.filter((p) => p.role !== "director" || isDirector).map((p) => ({ value: p.id, label: p.name })),
+                ]}
+              />
+            </div>
           )}
 
           <div style={{ width: 1, height: 20, background: "rgba(42,40,34,0.3)" }} />
@@ -3221,24 +3215,19 @@ export default function AtividadesPage() {
             <span style={{ color: T.slate }}>·</span>
             <span>ordenadas por {sortLabels[listSort]}</span>
             <div style={{ flex: 1 }} />
-            <select
-              value={listSort}
-              onChange={(e) => setListSort(e.target.value as typeof listSort)}
-              title="Ordenação da lista"
-              style={{
-                padding: "5px 26px 5px 10px", borderRadius: 6,
-                background: "var(--surface-base)", border: "1px solid var(--border-default)",
-                color: T.bone, fontFamily: "var(--font-mono)", fontSize: 10, cursor: "pointer",
-                appearance: "none",
-                backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%239C9686' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E\")",
-                backgroundRepeat: "no-repeat", backgroundPosition: "right 8px center",
-              }}
-            >
-              <option value="date_desc">Data (mais recentes)</option>
-              <option value="date_asc">Data (mais antigas)</option>
-              <option value="type">Tipo</option>
-              <option value="profile">Responsável</option>
-            </select>
+            <div style={{ width: 200 }}>
+              <NexaSelect
+                value={listSort}
+                onChange={(v) => setListSort(v as typeof listSort)}
+                ariaLabel="Ordenação da lista"
+                options={[
+                  { value: "date_desc", label: "Data (mais recentes)" },
+                  { value: "date_asc", label: "Data (mais antigas)" },
+                  { value: "type", label: "Tipo" },
+                  { value: "profile", label: "Responsável" },
+                ]}
+              />
+            </div>
           </div>
         );
       })()}

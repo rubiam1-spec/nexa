@@ -4,6 +4,7 @@ import { UnidadeStatus } from "../../../domain/unidade/UnidadeStatus";
 import type { Unidade } from "../../../domain/unidade/Unidade";
 import { alinharPorGrade, posicionarAutomaticamente, type PinAlinhado, type PinComMetadata } from "../utils/alinharPins";
 import { alinharPinsComIA } from "../utils/alinharPinsComIA";
+import { NexaSelect } from "../../../shared/ui/NexaSelect";
 
 const DOT_COLORS: Record<string, string> = {
   [UnidadeStatus.DISPONIVEL]: "#4ade80",
@@ -166,11 +167,14 @@ export default function EditorMapaPins({ mapaUrl, units, developmentId, accountI
       {editando && !pinsPreview ? (
         <div style={{ marginBottom: 12, padding: 12, background: "var(--color-ink)", borderRadius: 8, border: "1px solid var(--color-stone)" }}>
           <div style={{ fontSize: 12, color: "var(--color-fog)", marginBottom: 8 }}>Selecione uma unidade e clique no mapa:</div>
-          <select value={unitParaVincular?.id ?? ""} onChange={(e) => { const u = units.find((x) => x.id === e.target.value); setUnitParaVincular(u ?? null); }}
-            style={{ width: "100%", background: "var(--color-carbon)", border: "1px solid var(--color-stone)", borderRadius: 8, padding: "8px 12px", color: "var(--color-bone)", fontSize: 13 }}>
-            <option value="">{semPin.length === 0 ? "Todas posicionadas" : "Selecione..."}</option>
-            {semPin.map((u) => <option key={u.id} value={u.id}>{labelAgrupamento} {u.quadra} · {labelUnidade} {u.lote}</option>)}
-          </select>
+          <NexaSelect
+            value={unitParaVincular?.id ?? ""}
+            onChange={(v) => { const u = units.find((x) => x.id === v); setUnitParaVincular(u ?? null); }}
+            placeholder={semPin.length === 0 ? "Todas posicionadas" : "Selecione..."}
+            ariaLabel="Selecionar unidade"
+            allowClear
+            options={semPin.map((u) => ({ value: u.id, label: `${labelAgrupamento} ${u.quadra} · ${labelUnidade} ${u.lote}` }))}
+          />
           {unitParaVincular ? <div style={{ fontSize: 11, color: "var(--color-sprout)", marginTop: 6 }}>Clique no mapa para posicionar: {labelAgrupamento} {unitParaVincular.quadra} · {labelUnidade} {unitParaVincular.lote}</div> : null}
         </div>
       ) : null}

@@ -15,6 +15,7 @@ import UploadImagem from "../../../shared/components/UploadImagem";
 import EditorMapaPins from "../components/EditorMapaPins";
 import PermissionsPanel from "../components/PermissionsPanel";
 import { useUnits } from "../../units/hooks/useUnits";
+import { NexaSelect } from "../../../shared/ui/NexaSelect";
 
 type Aba = "marca" | "empreendimento" | "documentos" | "operacao" | "materiais" | "leads" | "cadencia" | "checklist" | "permissoes";
 
@@ -425,8 +426,8 @@ export default function SettingsPage() {
                   <NumField label="Máximo de parcelas" suffix="x" value={df.parcelasMaximas} disabled={dis} onChange={(v) => setDf((c) => ({ ...c, parcelasMaximas: v }))} />
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
-                  <F label="Índice pré-entrega"><select style={INPUT} value={df.indicePreEntrega} disabled={dis} onChange={(e) => setDf((c) => ({ ...c, indicePreEntrega: e.target.value }))}><option>INCC</option><option>IGP-M</option><option>IPCA</option><option>Fixo</option><option>Sem correção</option></select></F>
-                  <F label="Índice pós-entrega"><select style={INPUT} value={df.indicePosEntrega} disabled={dis} onChange={(e) => setDf((c) => ({ ...c, indicePosEntrega: e.target.value }))}><option>IPCA</option><option>INCC</option><option>IGP-M</option><option>Fixo</option><option>Sem correção</option></select></F>
+                  <F label="Índice pré-entrega"><NexaSelect value={df.indicePreEntrega} disabled={dis} onChange={(v) => setDf((c) => ({ ...c, indicePreEntrega: v }))} ariaLabel="Índice pré-entrega" options={[{ value: "INCC", label: "INCC" }, { value: "IGP-M", label: "IGP-M" }, { value: "IPCA", label: "IPCA" }, { value: "Fixo", label: "Fixo" }, { value: "Sem correção", label: "Sem correção" }]} /></F>
+                  <F label="Índice pós-entrega"><NexaSelect value={df.indicePosEntrega} disabled={dis} onChange={(v) => setDf((c) => ({ ...c, indicePosEntrega: v }))} ariaLabel="Índice pós-entrega" options={[{ value: "IPCA", label: "IPCA" }, { value: "INCC", label: "INCC" }, { value: "IGP-M", label: "IGP-M" }, { value: "Fixo", label: "Fixo" }, { value: "Sem correção", label: "Sem correção" }]} /></F>
                 </div>
                 <F label="Data prevista de entrega" sub="Quando atingida, o sistema muda para o índice pós-entrega"><input style={INPUT} type="date" value={df.dataEntregaEmpreendimento} disabled={dis} onChange={(e) => setDf((c) => ({ ...c, dataEntregaEmpreendimento: e.target.value }))} /></F>
                 <NumField label="Carência máxima" suffix=" meses" sub="Meses sem pagamento que o corretor pode oferecer" value={df.carenciaMaximaMeses} min={0} max={24} disabled={dis} onChange={(v) => setDf((c) => ({ ...c, carenciaMaximaMeses: v }))} />
@@ -831,7 +832,7 @@ function WebhooksPanel({ accountId, isMobile, setMsg }: { accountId: string | nu
         <div style={{ background: "var(--color-ink)", border: "1px solid var(--color-stone)", borderRadius: 10, padding: 16, marginBottom: 16 }}>
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
             <div><label style={{ fontSize: 10, color: "var(--color-fog)", fontFamily: "var(--font-mono)", letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>NOME *</label><input type="text" value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="Ex: Facebook Vivendas" style={WH_INPUT} autoFocus /></div>
-            <div><label style={{ fontSize: 10, color: "var(--color-fog)", fontFamily: "var(--font-mono)", letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>FONTE</label><select value={formSource} onChange={(e) => setFormSource(e.target.value)} style={WH_INPUT}>{SOURCE_OPTS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>
+            <div><label style={{ fontSize: 10, color: "var(--color-fog)", fontFamily: "var(--font-mono)", letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>FONTE</label><NexaSelect value={formSource} onChange={(v) => setFormSource(v)} ariaLabel="Fonte" options={SOURCE_OPTS.map(([k, l]) => ({ value: k, label: l }))} /></div>
             <div><label style={{ fontSize: 10, color: "var(--color-fog)", fontFamily: "var(--font-mono)", letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>TEMPERATURA PADRÃO</label>
               <div style={{ display: "flex", gap: 4 }}>
                 {(["cold", "warm", "hot"] as const).map((t) => { const c = { hot: "#F87171", warm: "#F59E0B", cold: "#60A5FA" }[t]; const l = { hot: "Quente", warm: "Morno", cold: "Frio" }[t]; return <button key={t} type="button" onClick={() => setFormTemp(t)} style={{ flex: 1, padding: "8px", borderRadius: 6, border: `1.5px solid ${formTemp === t ? c : "var(--color-stone)"}`, background: formTemp === t ? c + "15" : "transparent", color: formTemp === t ? c : "var(--color-fog)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{l}</button>; })}
@@ -1003,10 +1004,16 @@ function LeadDistributionPanel({ accountId, developmentId, canEdit }: { accountI
       {canEdit && (
         <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
           {showAdd ? (
-            <select disabled={d.busy} defaultValue="" onChange={(e) => { const v = e.target.value; if (v) { void d.add(v); setShowAdd(false); } }} style={{ minHeight: 36, padding: "0 12px", borderRadius: 8, border: "1px solid var(--border-default)", background: "var(--surface-raised)", color: "var(--text-primary)", fontSize: 13 }}>
-              <option value="" disabled>Escolher pessoa…</option>
-              {d.addable.map((p) => <option key={p.userId} value={p.userId}>{p.name} · {ROLE_LABELS[p.role] ?? p.role}</option>)}
-            </select>
+            <div style={{ width: 240 }}>
+              <NexaSelect
+                value=""
+                disabled={d.busy}
+                onChange={(v) => { if (v) { void d.add(v); setShowAdd(false); } }}
+                placeholder="Escolher pessoa…"
+                ariaLabel="Escolher pessoa"
+                options={d.addable.map((p) => ({ value: p.userId, label: `${p.name} · ${ROLE_LABELS[p.role] ?? p.role}` }))}
+              />
+            </div>
           ) : (
             <button type="button" onClick={() => setShowAdd(true)} disabled={d.busy || d.addable.length === 0} style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid var(--border-strong)", background: "transparent", color: "var(--text-secondary)", fontSize: 13, fontWeight: 600, cursor: d.addable.length === 0 ? "default" : "pointer", opacity: d.addable.length === 0 ? 0.5 : 1 }}>+ Adicionar participante</button>
           )}

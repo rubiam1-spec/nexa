@@ -14,6 +14,7 @@ import {
   deleteUser,
 } from "../../../infra/repositories/usersSupabaseRepository";
 import type { AccountUser } from "../../../shared/types/accountUser";
+import { NexaSelect } from "../../../shared/ui/NexaSelect";
 
 const roleOptions: Array<{ value: UserRole; label: string; desc: string }> = [
   { value: "director", label: "Diretor", desc: "Acesso total, configurações estruturais" },
@@ -245,7 +246,7 @@ export default function UsersPage() {
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 12, maxWidth: 700 }}>
             <label><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Nome completo *</span><input ref={fullNameRef} type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Nome do usuário" /></label>
             <label><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>E-mail *</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@exemplo.com" /></label>
-            <label><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Perfil</span><select value={role} onChange={(e) => setRole(e.target.value as UserRole)}>{roleOptions.map((opt) => (<option key={opt.value} value={opt.value}>{opt.label} — {opt.desc}</option>))}</select></label>
+            <label><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Perfil</span><NexaSelect value={role} onChange={(v) => setRole(v as UserRole)} ariaLabel="Perfil" options={roleOptions.map((opt) => ({ value: opt.value, label: `${opt.label} — ${opt.desc}` }))} /></label>
           </div>
           <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
             <button type="button" disabled={!email.trim() || !fullName.trim() || isInviting} onClick={() => void handleInvite()} style={btnP}>{isInviting ? "Enviando convite..." : "Enviar convite"}</button>
@@ -271,10 +272,15 @@ export default function UsersPage() {
                 </div>
                 <div style={{ marginBottom: 20 }}>
                   <span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Novo perfil</span>
-                  <select value={changeRoleValue} onChange={(e) => setChangeRoleValue(e.target.value as UserRole)}>
-                    <option value="director">Diretor</option>
-                    {roleOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                  </select>
+                  <NexaSelect
+                    value={changeRoleValue}
+                    onChange={(v) => setChangeRoleValue(v as UserRole)}
+                    ariaLabel="Novo perfil"
+                    options={[
+                      { value: "director", label: "Diretor" },
+                      ...roleOptions.map((opt) => ({ value: opt.value, label: opt.label })),
+                    ]}
+                  />
                 </div>
                 <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                   <button type="button" disabled={actionBusy} onClick={() => setModal(null)} style={btnS}>Cancelar</button>
