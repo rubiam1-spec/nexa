@@ -8,6 +8,7 @@ import { supabase } from "../../../infra/supabase/supabaseClient";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
 import { maskCNPJ, maskPhone, UF_OPTIONS } from "../../../shared/utils/masks";
 import { formatDateBRT } from "../../../shared/utils/dateUtils";
+import { NexaSelect } from "../../../shared/ui/NexaSelect";
 
 const T = { ink: "var(--surface-base)", carbon: "var(--surface-raised)", stone: "var(--border-default)", chalk: "var(--text-primary)", bone: "var(--text-secondary)", fog: "var(--text-muted)", slate: "var(--text-disabled)", sprout: "var(--interactive-primary)", red: "#F87171" };
 const IS: React.CSSProperties = { width: "100%", background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "10px 14px", color: T.chalk, fontSize: 14, outline: "none", boxSizing: "border-box" };
@@ -229,7 +230,7 @@ export default function BrokerageDetailPage() {
               <div style={{ gridColumn: isMobile ? "1" : "1 / -1" }}><label style={LBL}>Endereço</label>{editing ? <input style={IS} value={f("endereco")} onChange={(e) => setF("endereco", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{brokerage.endereco || "—"}</div>}</div>
               <div><label style={LBL}>Bairro</label>{editing ? <input style={IS} value={f("bairro")} onChange={(e) => setF("bairro", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{brokerage.bairro || "—"}</div>}</div>
               <div><label style={LBL}>Cidade</label>{editing ? <input style={IS} value={f("cidade")} onChange={(e) => setF("cidade", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{brokerage.cidade || "—"}</div>}</div>
-              <div><label style={LBL}>UF</label>{editing ? <select style={IS} value={f("uf")} onChange={(e) => setF("uf", e.target.value)}><option value="">—</option>{UF_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}</select> : <div style={{ fontSize: 14, color: T.bone }}>{brokerage.uf || "—"}</div>}</div>
+              <div><label style={LBL}>UF</label>{editing ? <NexaSelect value={f("uf")} onChange={(v) => setF("uf", v)} options={[{ value: "", label: "—" }, ...UF_OPTIONS.map((u) => ({ value: u, label: u }))]} ariaLabel="UF" /> : <div style={{ fontSize: 14, color: T.bone }}>{brokerage.uf || "—"}</div>}</div>
               {editing && <div style={{ gridColumn: isMobile ? "1" : "1 / -1" }}><label style={LBL}>Observações</label><textarea rows={3} style={{ ...IS, resize: "vertical" }} value={f("observacoes")} onChange={(e) => setF("observacoes", e.target.value)} /></div>}
               {!editing && brokerage.observacoes && <div style={{ gridColumn: isMobile ? "1" : "1 / -1" }}><label style={LBL}>Observações</label><div style={{ fontSize: 14, color: T.bone, whiteSpace: "pre-wrap" }}>{brokerage.observacoes}</div></div>}
             </div>
@@ -325,10 +326,7 @@ export default function BrokerageDetailPage() {
             ) : (
               <>
                 <label style={LBL}>Corretor</label>
-                <select value={selectedBrokerId} onChange={(e) => setSelectedBrokerId(e.target.value)} style={{ ...IS, marginBottom: 16 }}>
-                  <option value="">Selecionar corretor...</option>
-                  {availableBrokers.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                </select>
+                <div style={{ marginBottom: 16 }}><NexaSelect value={selectedBrokerId} onChange={(v) => setSelectedBrokerId(v)} options={availableBrokers.map((b) => ({ value: b.id, label: b.name }))} placeholder="Selecionar corretor..." ariaLabel="Corretor" /></div>
               </>
             )}
             <div style={{ display: "flex", gap: 8 }}>

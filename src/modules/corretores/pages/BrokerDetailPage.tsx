@@ -6,6 +6,7 @@ import { useScreen } from "../../../shared/hooks/useIsMobile";
 import { timeAgo } from "../../../shared/utils/timeAgo";
 import NexaBadge from "../../../shared/components/NexaBadge";
 import { getNegotiationStatusLabel } from "../../../domain/negociacao/NegotiationStatusLabel";
+import { NexaSelect } from "../../../shared/ui/NexaSelect";
 
 const T = { ink: "var(--surface-base)", carbon: "var(--surface-raised)", stone: "var(--border-default)", chalk: "var(--text-primary)", bone: "var(--text-secondary)", fog: "var(--text-muted)", slate: "var(--text-disabled)", sprout: "var(--interactive-primary)", blue: "#60A5FA", red: "#F87171" };
 const IS: React.CSSProperties = { width: "100%", background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "10px 14px", color: T.chalk, fontSize: 14, outline: "none", boxSizing: "border-box" };
@@ -135,8 +136,8 @@ export default function BrokerDetailPage() {
           <div><label style={LBL}>Email</label>{editing ? <input type="email" style={IS} value={f("email")} onChange={(e) => setF("email", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{broker.email || "—"}</div>}</div>
           <div><label style={LBL}>Data de nascimento</label>{editing ? <input type="date" style={IS} value={f("data_nascimento")} onChange={(e) => setF("data_nascimento", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{broker.data_nascimento ? formatDateBRT(broker.data_nascimento + "T12:00:00") : "—"}</div>}</div>
           <div><label style={LBL}>Cidade</label>{editing ? <input style={IS} value={f("city")} onChange={(e) => setF("city", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{broker.city || "—"}</div>}</div>
-          <div><label style={LBL}>UF</label>{editing ? <select style={IS} value={f("uf")} onChange={(e) => setF("uf", e.target.value)}>{UF_OPTS.map((u) => <option key={u} value={u}>{u}</option>)}</select> : <div style={{ fontSize: 14, color: T.bone }}>{broker.uf || "—"}</div>}</div>
-          <div style={{ gridColumn: "1 / -1" }}><label style={LBL}>Consultor responsável</label>{editing ? <select style={IS} value={f("consultant_id")} onChange={(e) => setF("consultant_id", e.target.value)}><option value="">Nenhum</option>{consultants.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select> : <div style={{ fontSize: 14, color: T.bone }}>{consultants.find((c) => c.id === broker.consultant_id)?.name || "—"}</div>}</div>
+          <div><label style={LBL}>UF</label>{editing ? <NexaSelect value={f("uf")} onChange={(v) => setF("uf", v)} options={UF_OPTS.map((u) => ({ value: u, label: u }))} ariaLabel="UF" /> : <div style={{ fontSize: 14, color: T.bone }}>{broker.uf || "—"}</div>}</div>
+          <div style={{ gridColumn: "1 / -1" }}><label style={LBL}>Consultor responsável</label>{editing ? <NexaSelect value={f("consultant_id")} onChange={(v) => setF("consultant_id", v)} options={[{ value: "", label: "Nenhum" }, ...consultants.map((c) => ({ value: c.id, label: c.name }))]} ariaLabel="Consultor responsável" /> : <div style={{ fontSize: 14, color: T.bone }}>{consultants.find((c) => c.id === broker.consultant_id)?.name || "—"}</div>}</div>
         </div>
       )}
 
@@ -144,7 +145,7 @@ export default function BrokerDetailPage() {
       {tab === "imobiliaria" && (
         <div>
           <label style={LBL}>Imobiliária vinculada</label>
-          {editing ? <select style={{ ...IS, marginBottom: 16 }} value={f("brokerage_id")} onChange={(e) => setF("brokerage_id", e.target.value)}><option value="">Nenhuma</option>{brokerages.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select> : <div style={{ fontSize: 14, color: T.bone, marginBottom: 16 }}>{broker.brokerage_name || brokerages.find((b) => b.id === broker.brokerage_id)?.name || "Nenhuma"}</div>}
+          {editing ? <div style={{ marginBottom: 16 }}><NexaSelect value={f("brokerage_id")} onChange={(v) => setF("brokerage_id", v)} options={[{ value: "", label: "Nenhuma" }, ...brokerages.map((b) => ({ value: b.id, label: b.name }))]} ariaLabel="Imobiliária vinculada" /></div> : <div style={{ fontSize: 14, color: T.bone, marginBottom: 16 }}>{broker.brokerage_name || brokerages.find((b) => b.id === broker.brokerage_id)?.name || "Nenhuma"}</div>}
           {broker.brokerage_id && <Link to={`/imobiliarias/${broker.brokerage_id}`} style={{ fontSize: 13, color: T.sprout }}>Ver ficha da imobiliária →</Link>}
         </div>
       )}

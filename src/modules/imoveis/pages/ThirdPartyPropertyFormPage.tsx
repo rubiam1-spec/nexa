@@ -6,6 +6,7 @@ import { useScreen } from "../../../shared/hooks/useIsMobile";
 import { createProperty, updateProperty, uploadPropertyPhoto, uploadPropertyDocument, notifyManagersNewProperty, useThirdPartyProperty, deletePropertyPhoto } from "../hooks/useThirdPartyProperties";
 import { maskCurrency, currencyToNumber, maskCEP, UF_OPTIONS } from "../../../shared/utils/masks";
 import { generateSlug } from "../../../shared/utils/generateSlug";
+import { NexaSelect } from "../../../shared/ui/NexaSelect";
 
 const T = { ink: "var(--surface-base)", carbon: "var(--surface-raised)", stone: "var(--border-default)", chalk: "var(--text-primary)", bone: "var(--text-secondary)", fog: "var(--text-muted)", slate: "var(--text-disabled)", sprout: "var(--interactive-primary)" };
 const IS: React.CSSProperties = { width: "100%", background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "10px 14px", color: T.chalk, fontSize: 14, outline: "none", boxSizing: "border-box" };
@@ -379,7 +380,7 @@ export default function ThirdPartyPropertyFormPage() {
       <Section title="Identificação">
         <div style={{ display: "grid", gridTemplateColumns: grid, gap: 12 }}>
           <div style={{ gridColumn: isMobile ? "1" : "1 / -1" }}><label style={LBL}>Título *</label><input style={IS} value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Ex: Casa 3Q — Jardim Europa" /></div>
-          <div><label style={LBL}>Origem</label><select style={IS} value={origem} onChange={(e) => setOrigem(e.target.value)}><option value="permuta">Permuta</option><option value="aquisicao">Aquisição</option><option value="outro">Outro</option></select></div>
+          <div><label style={LBL}>Origem</label><NexaSelect value={origem} onChange={(v) => setOrigem(v)} options={[{ value: "permuta", label: "Permuta" }, { value: "aquisicao", label: "Aquisição" }, { value: "outro", label: "Outro" }]} ariaLabel="Origem" /></div>
           <div><label style={LBL}>Matrícula</label><input style={IS} value={matricula} onChange={(e) => setMatricula(e.target.value)} /></div>
         </div>
       </Section>
@@ -389,7 +390,7 @@ export default function ThirdPartyPropertyFormPage() {
         {isRural ? (
           <div style={{ display: "grid", gridTemplateColumns: grid2, gap: 12 }}>
             <div><label style={LBL}>Município *</label><input style={IS} value={cidade} onChange={(e) => setCidade(e.target.value)} /></div>
-            <div><label style={LBL}>UF</label><select style={IS} value={estado} onChange={(e) => setEstado(e.target.value)}>{UF_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}</select></div>
+            <div><label style={LBL}>UF</label><NexaSelect value={estado} onChange={(v) => setEstado(v)} options={UF_OPTIONS.map((u) => ({ value: u, label: u }))} ariaLabel="UF" /></div>
             <div style={{ gridColumn: "1 / -1" }}><label style={LBL}>Referência de localização</label><textarea rows={2} style={{ ...IS, resize: "vertical" }} value={refLocal} onChange={(e) => setRefLocal(e.target.value)} placeholder="Estrada da Cachoeira, km 7, próximo à ponte..." /></div>
             <div><label style={LBL}>Latitude</label><input style={IS} value={lat} onChange={(e) => setLat(e.target.value)} placeholder="-25.3005" onPaste={(e) => { const t = e.clipboardData.getData("text"); const m = t.match(/(-?\d+\.?\d*)[,\s]+(-?\d+\.?\d*)/); if (m) { e.preventDefault(); setLat(m[1]); setLng(m[2]); } }} /></div>
             <div><label style={LBL}>Longitude</label><input style={IS} value={lng} onChange={(e) => setLng(e.target.value)} placeholder="-53.4321" /></div>
@@ -405,7 +406,7 @@ export default function ThirdPartyPropertyFormPage() {
             </div>
             <div><label style={LBL}>Bairro</label><input style={IS} value={bairro} onChange={(e) => setBairro(e.target.value)} /></div>
             <div><label style={LBL}>Cidade</label><input style={IS} value={cidade} onChange={(e) => setCidade(e.target.value)} /></div>
-            <div><label style={LBL}>UF</label><select style={IS} value={estado} onChange={(e) => setEstado(e.target.value)}>{UF_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}</select></div>
+            <div><label style={LBL}>UF</label><NexaSelect value={estado} onChange={(v) => setEstado(v)} options={UF_OPTIONS.map((u) => ({ value: u, label: u }))} ariaLabel="UF" /></div>
           </div>
         )}
       </Section>
@@ -480,7 +481,7 @@ export default function ThirdPartyPropertyFormPage() {
             <div><label style={LBL}>Fundo (m)</label><input type="number" style={IS} value={fundo} onChange={(e) => setFundo(e.target.value)} /></div>
             <div><label style={LBL}>Lateral esq. (m)</label><input type="number" style={IS} value={latEsq} onChange={(e) => setLatEsq(e.target.value)} /></div>
             <div><label style={LBL}>Lateral dir. (m)</label><input type="number" style={IS} value={latDir} onChange={(e) => setLatDir(e.target.value)} /></div>
-            <div><label style={LBL}>Topografia</label><select style={IS} value={topografia} onChange={(e) => setTopografia(e.target.value)}><option value="">—</option><option value="plano">Plano</option><option value="aclive">Aclive</option><option value="declive">Declive</option><option value="irregular">Irregular</option></select></div>
+            <div><label style={LBL}>Topografia</label><NexaSelect value={topografia} onChange={(v) => setTopografia(v)} options={[{ value: "", label: "—" }, { value: "plano", label: "Plano" }, { value: "aclive", label: "Aclive" }, { value: "declive", label: "Declive" }, { value: "irregular", label: "Irregular" }]} ariaLabel="Topografia" /></div>
           </div>
         </Section>
       )}
@@ -502,8 +503,8 @@ export default function ThirdPartyPropertyFormPage() {
             {!isRural && <><TogCard label="Água encanada" checked={possuiAgua} onChange={setPossuiAgua} /><TogCard label="Energia elétrica" checked={possuiLuz} onChange={setPossuiLuz} /><TogCard label="Rede de esgoto" checked={possuiEsgoto} onChange={setPossuiEsgoto} /><TogCard label="Rua asfaltada" checked={possuiAsfalto} onChange={setPossuiAsfalto} /></>}
             {isRural && <>
               <div style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: grid, gap: 12 }}>
-                <div><label style={LBL}>Tipo de acesso</label><select style={IS} value={acesso} onChange={(e) => setAcesso(e.target.value)}><option value="">—</option><option value="asfalto">Asfalto</option><option value="terra">Terra</option><option value="cascalho">Cascalho</option><option value="misto">Misto</option></select></div>
-                <div><label style={LBL}>Fonte de água</label><select style={IS} value={fonteAgua} onChange={(e) => setFonteAgua(e.target.value)}><option value="">—</option><option value="rio">Rio</option><option value="poço">Poço</option><option value="nascente">Nascente</option><option value="represa">Represa</option><option value="nenhuma">Nenhuma</option></select></div>
+                <div><label style={LBL}>Tipo de acesso</label><NexaSelect value={acesso} onChange={(v) => setAcesso(v)} options={[{ value: "", label: "—" }, { value: "asfalto", label: "Asfalto" }, { value: "terra", label: "Terra" }, { value: "cascalho", label: "Cascalho" }, { value: "misto", label: "Misto" }]} ariaLabel="Tipo de acesso" /></div>
+                <div><label style={LBL}>Fonte de água</label><NexaSelect value={fonteAgua} onChange={(v) => setFonteAgua(v)} options={[{ value: "", label: "—" }, { value: "rio", label: "Rio" }, { value: "poço", label: "Poço" }, { value: "nascente", label: "Nascente" }, { value: "represa", label: "Represa" }, { value: "nenhuma", label: "Nenhuma" }]} ariaLabel="Fonte de água" /></div>
                 <div><label style={LBL}>Tipo de solo</label><input style={IS} value={tipoSolo} onChange={(e) => setTipoSolo(e.target.value)} placeholder="Terra roxa..." /></div>
               </div>
               <TogCard label="Energia elétrica" checked={possuiEnergia} onChange={setPossuiEnergia} />
@@ -608,9 +609,7 @@ export default function ThirdPartyPropertyFormPage() {
                 <span style={{ fontSize: 16, flexShrink: 0 }}>{doc.file.type === "application/pdf" ? "📄" : "🖼"}</span>
                 {editingDocIdx === i ? (
                   <div style={{ flex: 1, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                    <select value={doc.tipo} onChange={(e) => setDocFiles((prev) => prev.map((d, j) => j === i ? { ...d, tipo: e.target.value } : d))} style={{ background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 6, padding: "4px 8px", color: T.chalk, fontSize: 12, fontFamily: "var(--font-mono)" }}>
-                      <option value="matricula">Matrícula</option><option value="escritura">Escritura</option><option value="iptu">IPTU</option><option value="laudo_avaliacao">Laudo de avaliação</option><option value="contrato">Contrato</option><option value="procuracao">Procuração</option><option value="certidao">Certidão</option><option value="outro">Outro</option>
-                    </select>
+                    <div style={{ width: 180 }}><NexaSelect value={doc.tipo} onChange={(v) => setDocFiles((prev) => prev.map((d, j) => j === i ? { ...d, tipo: v } : d))} options={[{ value: "matricula", label: "Matrícula" }, { value: "escritura", label: "Escritura" }, { value: "iptu", label: "IPTU" }, { value: "laudo_avaliacao", label: "Laudo de avaliação" }, { value: "contrato", label: "Contrato" }, { value: "procuracao", label: "Procuração" }, { value: "certidao", label: "Certidão" }, { value: "outro", label: "Outro" }]} ariaLabel="Tipo de documento" /></div>
                     <input value={doc.nome} onChange={(e) => setDocFiles((prev) => prev.map((d, j) => j === i ? { ...d, nome: e.target.value } : d))} style={{ ...IS, flex: 1, minWidth: 120, padding: "4px 8px", fontSize: 12 }} />
                     <button type="button" onClick={() => setEditingDocIdx(null)} style={{ fontSize: 11, fontWeight: 600, color: T.sprout, background: "none", border: "none", cursor: "pointer", padding: "4px 8px", minHeight: 44 }}>OK</button>
                   </div>

@@ -19,6 +19,7 @@ import { supabase } from "../../../infra/supabase/supabaseClient";
 import { getPermissions } from "../../../shared/utils/permissoes";
 import { usePermissions } from "../../../shared/hooks/usePermissions";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
+import { NexaSelect } from "../../../shared/ui/NexaSelect";
 
 const btnP: React.CSSProperties = { background: "var(--color-sprout)", color: "var(--color-ink)", border: "none", borderRadius: 8, padding: "0 16px", height: 36, fontSize: 13, fontWeight: 700, cursor: "pointer" };
 const btnS: React.CSSProperties = { background: "transparent", color: "var(--color-bone)", border: "1px solid var(--color-stone)", borderRadius: 8, padding: "0 16px", height: 36, fontSize: 13, fontWeight: 700, cursor: "pointer" };
@@ -382,10 +383,7 @@ export default function BrokersPage() {
             <label><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Telefone *</span><input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
             <label><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>CRECI</span><input type="text" value={creci} onChange={(e) => setCreci(e.target.value)} /></label>
             <label><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Imobiliária</span>
-              <select value={brokerageId} onChange={(e) => setBrokerageId(e.target.value)}>
-                <option value="">Selecione</option>
-                {brokerages.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
+              <NexaSelect value={brokerageId} onChange={(v) => setBrokerageId(v)} options={brokerages.map((b) => ({ value: b.id, label: b.name }))} placeholder="Selecione" ariaLabel="Imobiliária" />
             </label>
             <label><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Cidade</span><input type="text" value={city} onChange={(e) => setCity(e.target.value)} /></label>
             <label><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Data de nascimento</span><input type="date" value={dataNascimento} onChange={(e) => setDataNascimento(e.target.value)} /></label>
@@ -494,24 +492,14 @@ export default function BrokersPage() {
             }}
           />
           {uniqueBrokerages.length > 0 ? (
-            <select
-              value={filterBrokerageId}
-              onChange={(e) => setFilterBrokerageId(e.target.value)}
-              style={{
-                padding: "10px 32px 10px 14px", borderRadius: 10,
-                background: "var(--surface-raised)", border: "1px solid var(--border-default)",
-                color: "var(--text-primary)", fontFamily: "var(--font-mono)", fontSize: 12,
-                minWidth: 220, appearance: "none", outline: "none",
-                backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%239C9686' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E\")",
-                backgroundRepeat: "no-repeat",
-                backgroundPosition: "right 12px center",
-              }}
-            >
-              <option value="">Todas as imobiliárias</option>
-              {uniqueBrokerages.map((b) => (
-                <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
-            </select>
+            <div style={{ width: 220 }}>
+              <NexaSelect
+                value={filterBrokerageId}
+                onChange={(v) => setFilterBrokerageId(v)}
+                options={[{ value: "", label: "Todas as imobiliárias" }, ...uniqueBrokerages.map((b) => ({ value: b.id, label: b.name }))]}
+                ariaLabel="Filtrar por imobiliária"
+              />
+            </div>
           ) : null}
         </div>
       ) : null}

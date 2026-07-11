@@ -10,6 +10,7 @@ import { supabase } from "../../../infra/supabase/supabaseClient";
 import { getQuartoInfo, getBanheiroInfo, getDetailPills, getAreaInfo, getVagaInfo, getEntregaInfo } from "../utils/propertyDisplayHelpers";
 import { RegistrationModal } from "../../atividades/pages/AtividadesPage";
 import { formatDateBRT } from "../../../shared/utils/dateUtils";
+import { NexaSelect } from "../../../shared/ui/NexaSelect";
 
 const MANAGER_ROLES = new Set(["owner", "director", "manager"]);
 
@@ -463,7 +464,7 @@ export default function ThirdPartyPropertyDetailPage() {
           <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 14, padding: 24, width: 400, maxWidth: "90vw", zIndex: 1 }}>
             <h3 style={{ fontSize: 16, fontWeight: 700, color: T.chalk, margin: "0 0 16px" }}>Adicionar documento</h3>
             <label style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>TIPO</label>
-            <select value={docTipo} onChange={(e) => setDocTipo(e.target.value)} style={{ width: "100%", background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "10px 14px", color: T.chalk, fontSize: 14, marginBottom: 12 }}>{DOC_TIPOS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+            <div style={{ marginBottom: 12 }}><NexaSelect value={docTipo} onChange={(v) => setDocTipo(v)} options={DOC_TIPOS.map(([k, l]) => ({ value: k, label: l }))} ariaLabel="Tipo de documento" /></div>
             <label style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>NOME</label>
             <input value={docNome} onChange={(e) => setDocNome(e.target.value)} placeholder="Nome do documento" style={{ width: "100%", background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "10px 14px", color: T.chalk, fontSize: 14, marginBottom: 16, boxSizing: "border-box" }} />
             <div style={{ display: "flex", gap: 8 }}>
