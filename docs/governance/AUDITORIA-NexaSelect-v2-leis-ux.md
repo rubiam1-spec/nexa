@@ -54,7 +54,11 @@ sem risco.
   L1/L2 ordem+colapso, busca em desabilitadas, recentes, teclado, rodapé).
 - Tokens Brand Book v7; zero emojis (ícones SVG). Zero regra em `.tsx`.
 - Commits temáticos; WIP (22) intocado.
-- **Deploy + prova de bundle:** (rodapé abaixo).
+- **Deploy:** push ff `33e58a1..9e00d14` → main → **`dpl_6kNZSYuaRixJoEZJzo5D59W8a6ZJ` READY**
+  (production, sha `9e00d14`, `app.nexacomercial.com.br`).
+- **Prova de bundle** (`/assets/index-csN4btzD.js`): `disabled-toggle` (cabeçalho de
+  colapso L2; minificado `-select":"disabled-toggle",onClick:()=>`), `nexa-recents`
+  (L6) e `Recentes` (3×). Rollback = instant rollback p/ `dpl_B46cqeLP` (`b2111b0`).
 
 ### Checklist para o Rubiam (hard refresh)
 - **Atribuir lead** (o print): gatilho "Todas"; Master Home única acionável no topo;
