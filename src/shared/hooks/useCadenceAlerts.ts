@@ -2,6 +2,14 @@ import { useEffect, useRef, useCallback } from "react";
 import { supabase } from "../../infra/supabase/supabaseClient";
 import { NegotiationStatus } from "../../domain/status/negotiation";
 import { RESERVATION_ACTIVE_DB } from "../../domain/status/reservation";
+import { notificationSubject } from "../notifications/notificationSubject";
+import {
+  buildStaleDigest,
+  shouldSuppressStale,
+  STALE_TYPE,
+  STALE_DIGEST_ACTION_URL,
+  type StaleNegotiation,
+} from "../notifications/staleDigest";
 
 const TYPE_LABELS: Record<string, string> = {
   visit_client: "Visita", visit_broker: "Visita corretor", visit_development: "Visita empreendimento",
@@ -105,16 +113,20 @@ export function useCadenceAlerts(
         if (cadCfg?.negotiation_idle_hours) idleHours = Number(cadCfg.negotiation_idle_hours);
       } catch { /* use default */ }
       const idleSince = new Date(Date.now() - idleHours * 3600000).toISOString();
-      const { data: stale } = await supabase.from("negotiations").select("id, updated_at, broker_id, clients(name), units(quadra, lote)").eq("account_id", accountId).in("status", [NegotiationStatus.IN_PROGRESS, NegotiationStatus.OPEN]).lt("updated_at", idleSince).limit(10);
+      const { data: stale } = await supabase.from("negotiations").select("id, updated_at, broker_id, clients(name), units(quadra, lote)").eq("account_id", accountId).in("status", [NegotiationStatus.IN_PROGRESS, NegotiationStatus.OPEN]).lt("updated_at", idleSince).limit(50);
       if (stale && stale.length > 0) {
-        const { data: existingStale } = await supabase.from("notifications").select("id").eq("type", "negotiation_stale").eq("account_id", accountId).gte("created_at", today + "T00:00:00Z").limit(1);
-        if (!existingStale || existingStale.length === 0) {
-          const notifs = stale.map((n: Record<string, unknown>) => {
+        // Fim da metralhadora: UMA notificação-digest por destinatário, suprimida
+        // enquanto houver uma NÃO LIDA e por cooldown após a última (ver staleDigest).
+        const { data: last } = await supabase.from("notifications").select("read, created_at").eq("type", STALE_TYPE).eq("recipient_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+        if (!shouldSuppressStale(last, Date.now())) {
+          const negs: StaleNegotiation[] = stale.map((n: Record<string, unknown>) => {
             const cl = n.clients as Record<string, unknown> | null; const un = n.units as Record<string, unknown> | null;
-            const days = Math.floor((Date.now() - new Date(n.updated_at as string).getTime()) / 864e5);
-            return { account_id: accountId, recipient_id: userId, sender_id: null, type: "negotiation_stale", title: "Negociação parada", message: `${(cl?.name as string) || "Cliente"} (${un ? `Q${un.quadra}/L${un.lote}` : ""}) sem atividade há ${days} dias.`, read: false, action_url: `/negociacoes/${n.id}` };
+            return { id: n.id as string, updatedAt: n.updated_at as string, clientName: cl?.name as string | null, quadra: un?.quadra as string | number | null, lote: un?.lote as string | number | null };
           });
-          if (notifs.length > 0) await supabase.from("notifications").insert(notifs);
+          const digest = buildStaleDigest(negs, Date.now());
+          if (digest) {
+            await supabase.from("notifications").insert({ account_id: accountId, recipient_id: userId, sender_id: null, type: STALE_TYPE, title: digest.title, message: digest.message, read: false, action_url: STALE_DIGEST_ACTION_URL });
+          }
         }
       }
 
@@ -127,7 +139,8 @@ export function useCadenceAlerts(
         if (!existingExp || existingExp.length === 0) {
           const notifs = expiring.map((r: Record<string, unknown>) => {
             const neg = r.negotiations as Record<string, unknown> | null; const cl = neg?.clients as Record<string, unknown> | null; const un = neg?.units as Record<string, unknown> | null;
-            return { account_id: accountId, recipient_id: userId, sender_id: null, type: "reservation_expiring", title: "Reserva expirando", message: `Reserva de ${(cl?.name as string) || "Cliente"} (${un ? `Q${un.quadra}/L${un.lote}` : ""}) expira em menos de 24h.`, read: false, action_url: "/pipeline" };
+            const subject = notificationSubject({ clientName: cl?.name as string | null, quadra: un?.quadra as string | number | null, lote: un?.lote as string | number | null, negotiationId: r.negotiation_id as string | null });
+            return { account_id: accountId, recipient_id: userId, sender_id: null, type: "reservation_expiring", title: "Reserva expirando", message: `Reserva de ${subject} expira em menos de 24h.`, read: false, action_url: "/pipeline" };
           });
           if (notifs.length > 0) await supabase.from("notifications").insert(notifs);
         }
