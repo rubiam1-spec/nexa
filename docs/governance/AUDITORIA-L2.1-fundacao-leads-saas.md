@@ -56,12 +56,25 @@ antigos ficam nulos.
 - Tela de Leads: **filtro por campanha** (dropdown) + **chip de campanha** no card.
 - (Cadastro manual origem/campanha + wizard rico de Canais 2a: ver "Próximo passo".)
 
-## Próximo passo (L2.1b — schema já pronto, sem novo DDL)
+## L2.1b — Canais (wizard) + cadastro manual + aviso de roleta (2026-07-13)
 
-- **2a wizard de Canais** completo: seleção de plataforma → `provider_adapter`,
-  `distribution_mode` (fixed/round_robin/unassigned) + `fallback_assigned_to`,
-  entrega com URL/chave e instruções por plataforma, regenerar chave.
-- Campos **origem (catálogo) + campanha** no formulário de cadastro manual.
+**Diagnóstico da `receive-lead` (SEM alterar):** o canal é identificado por
+`api_key` (plaintext) via header `x-api-key` **ou** `?key=` → lookup em
+`webhook_endpoints.api_key`. `api_key_encrypted` **não é usada** (nem app nem
+ingestão); único trigger em webhook_endpoints é `updated_at` (sem sync de chave).
+**Decisão:** "Regenerar chave" é **seguro e habilitado** — a coluna regenerada
+(`api_key`) é exatamente a que a receive-lead valida; sem desync. Confirmação
+DUPLA + aviso de que a chave atual para na hora protege a intenção. URL de
+entrega: `RECEIVE_LEAD_URL?key=<api_key>` (ou header x-api-key).
+
+- **Camada de dados:** `webhookChannelsSupabaseRepository` (+ `useLeadChannels`)
+  com os novos campos, `PROVIDER_ADAPTERS`/`DISTRIBUTION_MODES`, instruções por
+  plataforma, `regenerateApiKey` (hex 32B client-side), delete-só-se-nunca-recebeu.
+- **UI:** wizard 3 passos (plataforma → config → entrega), lista enriquecida,
+  editar/desativar/regenerar; **campos origem+campanha no cadastro manual**;
+  **aviso** "roleta ativa sem canal round_robin" na Distribuição.
+- `receive-lead` **intocada** (L2.2). `source` guarda o slug da origem
+  (compatível com o insert atual da receive-lead).
 
 ## DoD
 - tsc 0 · build verde · check:contracts · suíte. RLS em toda tabela nova; toda query
