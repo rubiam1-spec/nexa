@@ -12,6 +12,7 @@ export type LeadDistParticipant = {
   name: string;
   role: string;
   active: boolean;
+  paused: boolean;
   weight: number;
   currentCount: number;
   lastAssignedAt: string | null;
@@ -54,7 +55,7 @@ export async function getLeadDistParticipants(accountId: string): Promise<LeadDi
   const client = getSupabaseClientOrThrow("leadDistribution.getParticipants");
   const { data: rows, error } = await client
     .from("lead_distribution")
-    .select("id, consultant_id, active, weight, current_count, last_assigned_at")
+    .select("id, consultant_id, active, paused, weight, current_count, last_assigned_at")
     .eq("account_id", accountId);
   if (error) throw error;
   const list = (rows ?? []) as Record<string, unknown>[];
@@ -79,6 +80,7 @@ export async function getLeadDistParticipants(accountId: string): Promise<LeadDi
         name: a ? nameOf(a) : "—",
         role: (a?.role as string) ?? "—",
         active: Boolean(r.active),
+        paused: Boolean(r.paused),
         weight: Number(r.weight ?? 1),
         currentCount: Number(r.current_count ?? 0),
         lastAssignedAt: (r.last_assigned_at as string) ?? null,
@@ -136,6 +138,12 @@ export async function setParticipantActive(id: string, active: boolean): Promise
 export async function setParticipantWeight(id: string, weight: number): Promise<void> {
   const client = getSupabaseClientOrThrow("leadDistribution.setWeight");
   const { error } = await client.from("lead_distribution").update({ weight }).eq("id", id);
+  if (error) throw error;
+}
+
+export async function setParticipantPaused(id: string, paused: boolean): Promise<void> {
+  const client = getSupabaseClientOrThrow("leadDistribution.setPaused");
+  const { error } = await client.from("lead_distribution").update({ paused }).eq("id", id);
   if (error) throw error;
 }
 

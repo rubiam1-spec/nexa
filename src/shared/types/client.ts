@@ -52,6 +52,7 @@ export type Client = {
   originDetail: string | null;
   utmSource: string | null;
   utmCampaign: string | null;
+  campaignId: string | null;
 
   // Interest
   budgetMin: number | null;

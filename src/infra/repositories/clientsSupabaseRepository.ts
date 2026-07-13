@@ -42,6 +42,7 @@ function mapRow(row: Record<string, unknown>): Client {
     originDetail: (row.origin_detail as string) ?? null,
     utmSource: (row.utm_source as string) ?? null,
     utmCampaign: (row.utm_campaign as string) ?? null,
+    campaignId: (row.campaign_id as string) ?? null,
     budgetMin: (row.budget_min as number) ?? null,
     budgetMax: (row.budget_max as number) ?? null,
     purchaseTimeline: (row.purchase_timeline as string) ?? null,
@@ -92,7 +93,7 @@ const CLIENT_SELECT = `
   id, account_id, development_id,
   name, full_name, email, phone, phone_secondary, cpf, city,
   status, temperature, buyer_profile, priority, score, qualification_status,
-  origin, origin_detail, utm_source, utm_campaign,
+  origin, origin_detail, utm_source, utm_campaign, campaign_id,
   budget_min, budget_max, purchase_timeline, payment_preference, interested_unit_type,
   assigned_to, assigned_profile:profiles!clients_assigned_to_fkey(name),
   broker_id, brokers(name),
@@ -402,6 +403,19 @@ async function transitionLead(input: {
   }
   const { error } = await supabase.from("clients").update(patch).eq("id", input.clientId);
   if (error) throw new Error(`Falha ao mudar qualificação do lead: ${error.message}`);
+
+  // L2.1 Parte 1b — carimbos denormalizados de funil (para dashboards). Primeira
+  // ocorrência vale: guarda `.is(col, null)` nunca sobrescreve. Best-effort (o
+  // status já mudou); falha do carimbo é logada, não derruba a ação.
+  const stampNow = new Date().toISOString();
+  const stampFirst = async (col: string, extra?: Record<string, unknown>) => {
+    const { error: e } = await supabase.from("clients").update({ [col]: stampNow, ...extra }).eq("id", input.clientId).is(col, null);
+    if (e) console.error(`Carimbo de funil ${col} falhou (não bloqueante):`, e.message);
+  };
+  if (input.to === LeadQualificationStatus.IN_SERVICE) await stampFirst("first_contact_at");
+  else if (input.to === LeadQualificationStatus.QUALIFIED) await stampFirst("qualified_at");
+  else if (input.to === LeadQualificationStatus.DISCARDED) await stampFirst("discarded_at", { discard_reason: input.reason ?? null });
+
   await addContactInteraction({
     accountId: input.accountId, clientId: input.clientId,
     type: "qualification_change", title: input.title, description: input.reason,
