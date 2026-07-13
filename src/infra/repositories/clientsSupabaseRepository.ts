@@ -200,6 +200,7 @@ export async function createClient(input: {
   temperature?: string;
   origin?: string;
   originDetail?: string;
+  campaignId?: string;
   buyerProfile?: string;
   budgetMin?: number;
   budgetMax?: number;
@@ -227,6 +228,7 @@ export async function createClient(input: {
     temperature: input.temperature || "warm",
     origin: input.origin || null,
     origin_detail: input.originDetail || null,
+    campaign_id: input.campaignId || null,
     buyer_profile: input.buyerProfile || null,
     budget_min: input.budgetMin || null,
     budget_max: input.budgetMax || null,
@@ -243,7 +245,7 @@ export async function createClient(input: {
   const { data, error } = await supabase
     .from("clients")
     .insert(insertPayload)
-    .select("id, name, email, phone, city, status, broker_id, brokers(name), account_id, temperature, origin, created_at, created_by, marital_status, regime_casamento, current_spouse_client_id")
+    .select("id, name, email, phone, city, status, broker_id, brokers(name), account_id, temperature, origin, campaign_id, created_at, created_by, marital_status, regime_casamento, current_spouse_client_id")
     .maybeSingle();
   if (error) throw new Error(`Falha ao criar contato: ${error.message}`);
   if (!data) throw new Error("Contato não retornado após criação.");

@@ -4,7 +4,8 @@ import { useAccount } from "../../../app/contexts/AccountContext";
 import { useAuth } from "../../../app/contexts/AuthContext";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
 import { createClient, checkDuplicateClient } from "../../../infra/repositories/clientsSupabaseRepository";
-import { CLIENT_SOURCE_LABELS } from "../../../shared/types/client";
+import { useLeadOrigins } from "../../configuracoes/hooks/useLeadOrigins";
+import { useLeadCampaigns } from "../../configuracoes/hooks/useLeadCampaigns";
 import { NexaSelect } from "../../../shared/ui/NexaSelect";
 
 export default function ContatoFormPage() {
@@ -15,11 +16,23 @@ export default function ContatoFormPage() {
   const isMobile = !screen.isDesktop;
   const accountId = account?.accountId ?? null;
 
+  // Catálogo de Configurações → Leads (origens = slug; campanhas = uuid). Regra no hook.
+  const { origins } = useLeadOrigins();
+  const { campaigns } = useLeadCampaigns();
+  const originOptions = origins
+    .filter((o) => o.active)
+    .map((o) => ({ value: o.slug, label: o.label }));
+  const campaignOptions = [
+    { value: "", label: "Nenhuma" },
+    ...campaigns.filter((c) => c.active).map((c) => ({ value: c.id, label: c.name })),
+  ];
+
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [origin, setOrigin] = useState("");
   const [originDetail, setOriginDetail] = useState("");
+  const [campaignId, setCampaignId] = useState("");
   const [temperature, setTemperature] = useState("warm");
   const [showStep2, setShowStep2] = useState(false);
   const [buyerProfile, setBuyerProfile] = useState("");
@@ -47,6 +60,7 @@ export default function ContatoFormPage() {
         accountId, name: fullName.trim(),
         phone: phone.replace(/\D/g, "") || undefined, email: email.trim() || undefined,
         origin: origin || undefined, originDetail: originDetail.trim() || undefined,
+        campaignId: campaignId || undefined,
         temperature, status: "new",
         buyerProfile: buyerProfile || undefined, budgetMin: budgetMin ? Number(budgetMin) : undefined,
         budgetMax: budgetMax ? Number(budgetMax) : undefined, purchaseTimeline: purchaseTimeline || undefined,
@@ -92,9 +106,10 @@ export default function ContatoFormPage() {
           </div>
           <div><label style={LBL}>DATA DE NASCIMENTO</label><input type="date" value={dataNascimento} onChange={(e) => setDataNascimento(e.target.value)} style={INP} /></div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div><label style={LBL}>ORIGEM</label><NexaSelect value={origin} onChange={(v) => setOrigin(v)} options={Object.entries(CLIENT_SOURCE_LABELS).map(([k, v]) => ({ value: k, label: v }))} placeholder="Selecione..." ariaLabel="Origem" /></div>
-            <div><label style={LBL}>DETALHE DA ORIGEM</label><input type="text" value={originDetail} onChange={(e) => setOriginDetail(e.target.value)} placeholder="Campanha, corretor, etc." style={INP} /></div>
+            <div><label style={LBL}>ORIGEM</label><NexaSelect value={origin} onChange={(v) => setOrigin(v)} options={originOptions} placeholder="Selecione..." emptyLabel="Nenhuma origem cadastrada" ariaLabel="Origem" allowClear /></div>
+            <div><label style={LBL}>CAMPANHA</label><NexaSelect value={campaignId} onChange={(v) => setCampaignId(v)} options={campaignOptions} placeholder="Nenhuma" emptyLabel="Nenhuma campanha cadastrada" ariaLabel="Campanha" /></div>
           </div>
+          <div><label style={LBL}>DETALHE DA ORIGEM</label><input type="text" value={originDetail} onChange={(e) => setOriginDetail(e.target.value)} placeholder="Corretor, indicação, etc." style={INP} /></div>
           <div><label style={LBL}>TEMPERATURA</label>
             <div style={{ display: "flex", gap: 6 }}>
               {(["cold", "warm", "hot"] as const).map((t) => {
