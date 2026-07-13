@@ -20,6 +20,8 @@ import { NexaModal } from "../../../shared/ui/NexaModal";
 import { useLeadOrigins } from "../hooks/useLeadOrigins";
 import { useLeadCampaigns } from "../hooks/useLeadCampaigns";
 import type { LeadCampaign, LeadCampaignInput } from "../../../infra/repositories/leadCampaignsSupabaseRepository";
+import { useLeadChannels } from "../hooks/useLeadChannels";
+import { RECEIVE_LEAD_URL, PROVIDER_ADAPTERS, DISTRIBUTION_MODES, providerLabel, providerInstructions, type LeadChannel, type LeadChannelInput } from "../../../infra/repositories/webhookChannelsSupabaseRepository";
 
 type Aba = "marca" | "empreendimento" | "documentos" | "operacao" | "materiais" | "leads" | "cadencia" | "checklist" | "permissoes";
 
@@ -598,7 +600,7 @@ export default function SettingsPage() {
           ) : null}
 
           {aba === "leads" ? <>
-            <WebhooksPanel accountId={actx.account?.accountId ?? null} isMobile={isMobile} setMsg={setMsg} />
+            <WebhooksPanel accountId={actx.account?.accountId ?? null} isMobile={isMobile} setMsg={setMsg} developments={dctx.availableDevelopments.map((d) => ({ id: d.developmentId, name: d.developmentName }))} />
             <div style={{ marginTop: 20 }} />
             <LeadDistributionPanel accountId={actx.account?.accountId ?? null} developmentId={dctx.development?.developmentId ?? null} canEdit={canUpd} />
             <div style={{ marginTop: 20 }} />
@@ -770,149 +772,323 @@ function SaveBtn({ onClick, saving, label = "Salvar" }: { onClick: () => void; s
   );
 }
 
-// ── Webhooks Panel ──
+// ── Canais de Entrada (wizard self-service) ──
+// Regra de negócio vive no hook useLeadChannels + repositório. A UI apenas
+// coleta intenções e exibe. NÃO tocar em receive-lead (L2.2).
 
-const WEBHOOK_URL = "https://phpbsiyxwsbzeevqgixk.supabase.co/functions/v1/receive-lead";
-const SOURCE_OPTS = [["facebook", "Facebook Lead Ads"], ["instagram", "Instagram"], ["google_ads", "Google Ads"], ["website", "Website/Landing Page"], ["rd_station", "RD Station"], ["custom", "Personalizado"]];
-const WH_INPUT: React.CSSProperties = { width: "100%", boxSizing: "border-box", background: "var(--color-ink)", border: "1px solid var(--color-stone)", borderRadius: 8, padding: "10px 14px", color: "var(--color-bone)", fontSize: 14, outline: "none" };
+const MONO_LABEL: React.CSSProperties = { fontSize: 10, color: "var(--color-fog)", fontFamily: "var(--font-mono)", letterSpacing: "0.08em", display: "block", marginBottom: 4, textTransform: "uppercase" };
+const CH_READONLY: React.CSSProperties = { ...INPUT, flex: 1, fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--color-fog)" };
+const CH_COPY_BTN: React.CSSProperties = { minHeight: 44, padding: "8px 12px", borderRadius: 6, border: "1px solid var(--color-stone)", background: "transparent", color: "var(--color-bone)", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" };
 
-type WH = { id: string; name: string; source: string; api_key: string; is_active: boolean; default_temperature: string; total_received: number; last_received_at: string | null; created_at: string };
+type ChannelForm = {
+  providerAdapter: string; name: string; source: string; defaultDevelopmentId: string;
+  defaultTemperature: string; distributionMode: string; defaultAssignedTo: string; fallbackAssignedTo: string;
+};
+const EMPTY_CHANNEL_FORM: ChannelForm = { providerAdapter: "", name: "", source: "", defaultDevelopmentId: "", defaultTemperature: "warm", distributionMode: "fixed", defaultAssignedTo: "", fallbackAssignedTo: "" };
 
-function WebhooksPanel({ accountId, isMobile, setMsg }: { accountId: string | null; isMobile: boolean; setMsg: (m: string | null) => void }) {
-  const [webhooks, setWebhooks] = useState<WH[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [formName, setFormName] = useState("");
-  const [formSource, setFormSource] = useState("facebook");
-  const [formTemp, setFormTemp] = useState("warm");
-  const [saving, setSaving] = useState(false);
+// Membros da conta (para "Responsável" fixo e "Fallback" do rodízio).
+function useAccountPeople(accountId: string | null) {
+  const [people, setPeople] = useState<{ value: string; label: string }[]>([]);
+  useEffect(() => {
+    if (!supabase || !accountId) { setPeople([]); return; }
+    let active = true;
+    void supabase.from("user_account_access").select("user_id, profiles!inner(name)").eq("account_id", accountId).then(({ data }) => {
+      if (!active) return;
+      const list = ((data ?? []) as Record<string, unknown>[]).map((r) => {
+        const p = (Array.isArray(r.profiles) ? r.profiles[0] : r.profiles) as Record<string, unknown> | null;
+        return { value: r.user_id as string, label: (p?.name as string) ?? "—" };
+      }).sort((a, b) => a.label.localeCompare(b.label));
+      setPeople(list);
+    });
+    return () => { active = false; };
+  }, [accountId]);
+  return people;
+}
+
+// Bloco de entrega (URL + API Key + instruções) — reutilizado na lista e no passo 3.
+function ChannelDelivery({ channel, onCopy }: { channel: LeadChannel; onCopy: (t: string, l: string) => void }) {
+  const url = `${RECEIVE_LEAD_URL}?key=${channel.apiKey}`;
+  return (
+    <>
+      <div style={{ marginBottom: 12 }}>
+        <div style={MONO_LABEL}>URL de entrega</div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <input readOnly value={url} style={CH_READONLY} onFocus={(e) => e.target.select()} />
+          <button type="button" onClick={() => onCopy(url, "URL")} style={CH_COPY_BTN}>Copiar</button>
+        </div>
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <div style={MONO_LABEL}>API Key</div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <input readOnly value={channel.apiKey} style={CH_READONLY} onFocus={(e) => e.target.select()} />
+          <button type="button" onClick={() => onCopy(channel.apiKey, "API Key")} style={CH_COPY_BTN}>Copiar</button>
+        </div>
+      </div>
+      <div style={{ fontSize: 12, color: "var(--color-fog)", lineHeight: 1.6, padding: "10px 12px", background: "rgba(96,165,250,0.06)", borderRadius: 8, border: "1px solid rgba(96,165,250,0.15)" }}>
+        <strong style={{ color: "var(--color-bone)" }}>Como conectar:</strong> {providerInstructions(channel.providerAdapter)}
+      </div>
+    </>
+  );
+}
+
+function WebhooksPanel({ accountId, isMobile, setMsg, developments }: { accountId: string | null; isMobile: boolean; setMsg: (m: string | null) => void; developments: { id: string; name: string }[] }) {
+  const { channels, loading, error, actions } = useLeadChannels();
+  const { origins } = useLeadOrigins();
+  const people = useAccountPeople(accountId);
+
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<ChannelForm>(EMPTY_CHANNEL_FORM);
+  const [saving, setSaving] = useState(false);
+  const [createdName, setCreatedName] = useState<string | null>(null);
+  const [regen, setRegen] = useState<{ id: string; stage: 1 | 2 } | null>(null);
+  const [regenKey, setRegenKey] = useState<{ id: string; key: string } | null>(null);
 
-  useEffect(() => { loadWebhooks(); }, [accountId]);
+  const originLabel = (slug: string) => origins.find((o) => o.slug === slug)?.label ?? slug;
+  const devName = (id: string | null) => (id ? developments.find((d) => d.id === id)?.name ?? "—" : "—");
+  const distLabel = (v: string) => DISTRIBUTION_MODES.find((m) => m.value === v)?.label ?? v;
 
-  async function loadWebhooks() {
-    if (!supabase || !accountId) { setLoading(false); return; }
-    setLoading(true);
-    const { data } = await supabase.from("webhook_endpoints").select("id, name, source, api_key, is_active, default_temperature, total_received, last_received_at, created_at").eq("account_id", accountId).order("created_at", { ascending: false });
-    setWebhooks((data ?? []) as WH[]);
-    setLoading(false);
-  }
-
-  async function handleCreate() {
-    if (!supabase || !accountId || !formName.trim()) return;
-    setSaving(true);
-    try {
-      await supabase.from("webhook_endpoints").insert({ account_id: accountId, name: formName.trim(), source: formSource, default_temperature: formTemp });
-      setShowForm(false); setFormName(""); setMsg("Webhook criado!"); setTimeout(() => setMsg(null), 2000);
-      await loadWebhooks();
-    } finally { setSaving(false); }
-  }
-
-  async function toggleActive(wh: WH) {
-    if (!supabase) return;
-    await supabase.from("webhook_endpoints").update({ is_active: !wh.is_active }).eq("id", wh.id);
-    setWebhooks((prev) => prev.map((w) => w.id === wh.id ? { ...w, is_active: !w.is_active } : w));
-  }
-
-  async function deleteWebhook(wh: WH) {
-    if (!supabase || !confirm(`Excluir webhook "${wh.name}"?`)) return;
-    await supabase.from("webhook_endpoints").delete().eq("id", wh.id);
-    setWebhooks((prev) => prev.filter((w) => w.id !== wh.id));
-    setMsg("Webhook excluído"); setTimeout(() => setMsg(null), 2000);
-  }
+  // Origens do catálogo (ativas) + garante que a origem atual do form apareça.
+  const sourceOptions = () => {
+    const opts = origins.filter((o) => o.active).map((o) => ({ value: o.slug, label: o.label }));
+    if (form.source && !opts.some((o) => o.value === form.source)) opts.unshift({ value: form.source, label: form.source });
+    return opts;
+  };
 
   function copyToClipboard(text: string, label: string) {
     navigator.clipboard.writeText(text);
     setMsg(`${label} copiada!`); setTimeout(() => setMsg(null), 2000);
   }
 
-  if (loading) return <div className="nexa-card"><div style={{ fontSize: 13, color: "var(--color-fog)" }}>Carregando webhooks...</div></div>;
+  const openCreate = () => { setEditingId(null); setForm(EMPTY_CHANNEL_FORM); setCreatedName(null); setStep(1); setRegen(null); setRegenKey(null); setWizardOpen(true); };
+  const openEdit = (c: LeadChannel) => {
+    setEditingId(c.id);
+    setForm({ providerAdapter: c.providerAdapter, name: c.name, source: c.source, defaultDevelopmentId: c.defaultDevelopmentId ?? "", defaultTemperature: c.defaultTemperature, distributionMode: c.distributionMode, defaultAssignedTo: c.defaultAssignedTo ?? "", fallbackAssignedTo: c.fallbackAssignedTo ?? "" });
+    setCreatedName(null); setStep(2); setWizardOpen(true);
+  };
+  const closeWizard = () => { setWizardOpen(false); setEditingId(null); setForm(EMPTY_CHANNEL_FORM); setStep(1); setCreatedName(null); };
+
+  const selectProvider = (p: typeof PROVIDER_ADAPTERS[number]) => {
+    setForm((f) => ({ ...f, providerAdapter: p.value, source: f.source || p.originSlug }));
+    setStep(2);
+  };
+
+  // Regra na UI apenas de bloqueio de avanço: round_robin exige fallback.
+  const canSubmit = form.name.trim() !== "" && form.source !== "" && !(form.distributionMode === "round_robin" && !form.fallbackAssignedTo);
+
+  const buildInput = (): LeadChannelInput => ({
+    name: form.name.trim(), source: form.source, providerAdapter: form.providerAdapter,
+    distributionMode: form.distributionMode, defaultTemperature: form.defaultTemperature,
+    defaultDevelopmentId: form.defaultDevelopmentId || null,
+    defaultAssignedTo: form.distributionMode === "fixed" ? (form.defaultAssignedTo || null) : null,
+    fallbackAssignedTo: form.distributionMode === "round_robin" ? (form.fallbackAssignedTo || null) : null,
+  });
+
+  const submitStep2 = async () => {
+    if (!canSubmit || saving) return;
+    setSaving(true);
+    try {
+      if (editingId) { await actions.update(editingId, buildInput()); setMsg("Canal atualizado"); }
+      else { await actions.create(buildInput()); setCreatedName(form.name.trim()); setMsg("Canal criado"); }
+      setTimeout(() => setMsg(null), 2500);
+      setStep(3);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Não foi possível salvar o canal."); setTimeout(() => setMsg(null), 4000);
+    } finally { setSaving(false); }
+  };
+
+  const handleRegenerate = async (id: string) => {
+    try {
+      const key = await actions.regenerate(id);
+      setRegen(null); setRegenKey({ id, key });
+      setMsg("Chave regenerada — copie a nova chave"); setTimeout(() => setMsg(null), 3500);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Não foi possível regenerar a chave."); setTimeout(() => setMsg(null), 4000);
+    }
+  };
+
+  const handleDelete = async (c: LeadChannel) => {
+    if (!confirm(`Excluir canal "${c.name}"? Esta ação não pode ser desfeita.`)) return;
+    try { await actions.remove(c); setMsg("Canal excluído"); setTimeout(() => setMsg(null), 2500); }
+    catch (e) { setMsg(e instanceof Error ? e.message : "Canal com leads recebidos não pode ser excluído — desative-o."); setTimeout(() => setMsg(null), 4000); }
+  };
+
+  const wizardChannel = editingId ? channels.find((c) => c.id === editingId) ?? null : (createdName ? channels.find((c) => c.name === createdName) ?? null : null);
+
+  const cardStyle: React.CSSProperties = isMobile
+    ? { width: "100%", height: "100%", maxHeight: "100%", borderRadius: 0, background: "var(--surface-raised)", border: "1px solid var(--border-default)", padding: 20, overflowY: "auto", boxSizing: "border-box" }
+    : { width: "100%", maxWidth: 560, maxHeight: "90vh", borderRadius: 12, background: "var(--surface-raised)", border: "1px solid var(--border-default)", padding: 24, overflowY: "auto", boxSizing: "border-box" };
+
+  if (loading) return <div className="nexa-card" id="lead-channels-panel"><div style={{ fontSize: 13, color: "var(--color-fog)" }}>Carregando canais...</div></div>;
 
   return (
-    <div className="nexa-card">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <div className="nexa-label" style={{ margin: 0 }}>Webhooks de captação</div>
-        <button type="button" onClick={() => setShowForm(!showForm)} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "var(--color-sprout)", color: "var(--color-ink)", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>+ Novo webhook</button>
+    <div className="nexa-card" id="lead-channels-panel">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 20 }}>
+        <div style={{ minWidth: 0 }}>
+          <div className="nexa-label" style={{ margin: 0 }}>Canais de Entrada</div>
+          <div style={{ fontSize: 11, color: "var(--color-fog)", marginTop: 2 }}>Cada canal gera uma URL de entrega e uma chave. Os leads recebidos entram automaticamente em Contatos.</div>
+        </div>
+        <button type="button" onClick={openCreate} style={{ minHeight: 44, padding: "0 16px", borderRadius: 8, border: "none", background: "var(--color-sprout)", color: "var(--color-ink)", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>+ Novo canal</button>
       </div>
 
-      {/* Create form */}
-      {showForm && (
-        <div style={{ background: "var(--color-ink)", border: "1px solid var(--color-stone)", borderRadius: 10, padding: 16, marginBottom: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-            <div><label style={{ fontSize: 10, color: "var(--color-fog)", fontFamily: "var(--font-mono)", letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>NOME *</label><input type="text" value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="Ex: Facebook Vivendas" style={WH_INPUT} autoFocus /></div>
-            <div><label style={{ fontSize: 10, color: "var(--color-fog)", fontFamily: "var(--font-mono)", letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>FONTE</label><NexaSelect value={formSource} onChange={(v) => setFormSource(v)} ariaLabel="Fonte" options={SOURCE_OPTS.map(([k, l]) => ({ value: k, label: l }))} /></div>
-            <div><label style={{ fontSize: 10, color: "var(--color-fog)", fontFamily: "var(--font-mono)", letterSpacing: "0.08em", display: "block", marginBottom: 4 }}>TEMPERATURA PADRÃO</label>
-              <div style={{ display: "flex", gap: 4 }}>
-                {(["cold", "warm", "hot"] as const).map((t) => { const c = { hot: "#F87171", warm: "#F59E0B", cold: "#60A5FA" }[t]; const l = { hot: "Quente", warm: "Morno", cold: "Frio" }[t]; return <button key={t} type="button" onClick={() => setFormTemp(t)} style={{ flex: 1, padding: "8px", borderRadius: 6, border: `1.5px solid ${formTemp === t ? c : "var(--color-stone)"}`, background: formTemp === t ? c + "15" : "transparent", color: formTemp === t ? c : "var(--color-fog)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{l}</button>; })}
-              </div>
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <button type="button" onClick={() => setShowForm(false)} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid var(--color-stone)", background: "transparent", color: "var(--color-fog)", fontSize: 13, cursor: "pointer" }}>Cancelar</button>
-            <button type="button" onClick={handleCreate} disabled={!formName.trim() || saving} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "var(--color-sprout)", color: "var(--color-ink)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{saving ? "..." : "Criar"}</button>
-          </div>
-        </div>
-      )}
+      {error ? <div style={{ marginBottom: 12, fontSize: 12, color: "var(--color-terracotta)" }}>{error}</div> : null}
 
-      {/* Webhook list */}
-      {webhooks.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "32px 0", color: "var(--color-fog)", fontSize: 13 }}>Nenhum webhook configurado. Crie um para receber leads automaticamente.</div>
+      {channels.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "32px 0", color: "var(--color-fog)", fontSize: 13 }}>Nenhum canal configurado. Crie um para receber leads automaticamente.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {webhooks.map((wh) => {
-            const isExpanded = expandedId === wh.id;
-            const fullUrl = `${WEBHOOK_URL}?key=${wh.api_key}`;
+          {channels.map((c) => {
+            const isExpanded = expandedId === c.id;
             return (
-              <div key={wh.id} style={{ background: "var(--color-ink)", border: `1px solid ${wh.is_active ? "var(--color-stone)" : "rgba(248,113,113,0.2)"}`, borderRadius: 10, overflow: "hidden" }}>
-                {/* Row */}
-                <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", cursor: "pointer" }} onClick={() => setExpandedId(isExpanded ? null : wh.id)}>
-                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: wh.is_active ? "#4ADE80" : "#F87171", flexShrink: 0 }} />
+              <div key={c.id} style={{ background: "var(--color-ink)", border: `1px solid ${c.isActive ? "var(--color-stone)" : "rgba(248,113,113,0.2)"}`, borderRadius: 10, overflow: "hidden" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", cursor: "pointer" }} onClick={() => setExpandedId(isExpanded ? null : c.id)}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: c.isActive ? "#4ADE80" : "#F87171", flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: "var(--color-bone)" }}>{wh.name}</div>
-                    <div style={{ fontSize: 11, color: "var(--color-fog)", marginTop: 2 }}>{SOURCE_OPTS.find(([k]) => k === wh.source)?.[1] ?? wh.source} · {wh.total_received} recebidos{wh.last_received_at ? ` · Último: ${formatDateBRT(wh.last_received_at)}` : ""}</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "var(--color-bone)" }}>{c.name}</div>
+                    <div style={{ fontSize: 11, color: "var(--color-fog)", marginTop: 2 }}>{providerLabel(c.providerAdapter)} · {originLabel(c.source)} · {devName(c.defaultDevelopmentId)} · {distLabel(c.distributionMode)} · {c.totalReceived} recebidos{c.lastReceivedAt ? ` · Último: ${formatDateBRT(c.lastReceivedAt)}` : ""}</div>
                   </div>
                   <span style={{ fontSize: 11, color: "var(--color-fog)", transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▾</span>
                 </div>
-                {/* Expanded details */}
-                {isExpanded && (
-                  <div style={{ padding: "0 16px 16px", borderTop: "1px solid var(--color-stone)" }}>
+                {isExpanded ? (
+                  <div style={{ padding: "12px 16px 16px", borderTop: "1px solid var(--color-stone)" }}>
+                    <ChannelDelivery channel={c} onCopy={copyToClipboard} />
                     <div style={{ marginTop: 12, marginBottom: 12 }}>
-                      <div style={{ fontSize: 10, color: "var(--color-fog)", fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>URL DO WEBHOOK</div>
-                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <input readOnly value={fullUrl} style={{ ...WH_INPUT, flex: 1, fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--color-fog)" }} onFocus={(e) => e.target.select()} />
-                        <button type="button" onClick={() => copyToClipboard(fullUrl, "URL")} style={{ padding: "8px 12px", borderRadius: 6, border: "1px solid var(--color-stone)", background: "transparent", color: "var(--color-bone)", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>Copiar</button>
-                      </div>
+                      {regenKey?.id === c.id ? (
+                        <div style={{ marginBottom: 8 }}>
+                          <div style={MONO_LABEL}>Nova API Key</div>
+                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            <input readOnly value={regenKey.key} style={CH_READONLY} onFocus={(e) => e.target.select()} />
+                            <button type="button" onClick={() => copyToClipboard(regenKey.key, "Nova API Key")} style={CH_COPY_BTN}>Copiar</button>
+                          </div>
+                        </div>
+                      ) : null}
+                      {regen?.id === c.id && regen.stage === 1 ? (
+                        <div style={{ padding: "10px 12px", background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.35)", borderRadius: 8, fontSize: 12, color: "var(--color-bone)" }}>
+                          <div style={{ marginBottom: 8 }}>Regenerar a chave deste canal?</div>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <button type="button" onClick={() => setRegen({ id: c.id, stage: 2 })} style={{ minHeight: 40, padding: "6px 12px", borderRadius: 6, border: "1px solid #F59E0B", background: "rgba(245,158,11,0.12)", color: "#F59E0B", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Sim, continuar</button>
+                            <button type="button" onClick={() => setRegen(null)} style={{ minHeight: 40, padding: "6px 12px", borderRadius: 6, border: "1px solid var(--color-stone)", background: "transparent", color: "var(--color-fog)", fontSize: 12, cursor: "pointer" }}>Cancelar</button>
+                          </div>
+                        </div>
+                      ) : regen?.id === c.id && regen.stage === 2 ? (
+                        <div style={{ padding: "10px 12px", background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.35)", borderRadius: 8, fontSize: 12, color: "var(--color-bone)" }}>
+                          <div style={{ marginBottom: 8 }}>A chave atual <strong>para de funcionar imediatamente</strong>. Você precisará colar a nova chave no formulário da plataforma.</div>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <button type="button" onClick={() => void handleRegenerate(c.id)} style={{ minHeight: 40, padding: "6px 12px", borderRadius: 6, border: "none", background: "#F87171", color: "var(--color-ink)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Confirmar regeneração</button>
+                            <button type="button" onClick={() => setRegen(null)} style={{ minHeight: 40, padding: "6px 12px", borderRadius: 6, border: "1px solid var(--color-stone)", background: "transparent", color: "var(--color-fog)", fontSize: 12, cursor: "pointer" }}>Cancelar</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button type="button" onClick={() => { setRegen({ id: c.id, stage: 1 }); setRegenKey(null); }} style={{ minHeight: 40, padding: "8px 14px", borderRadius: 6, border: "1px solid var(--color-stone)", background: "transparent", color: "var(--color-bone)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Regenerar chave</button>
+                      )}
                     </div>
-                    <div style={{ marginBottom: 12 }}>
-                      <div style={{ fontSize: 10, color: "var(--color-fog)", fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>API KEY</div>
-                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <input readOnly value={wh.api_key} style={{ ...WH_INPUT, flex: 1, fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--color-fog)" }} onFocus={(e) => e.target.select()} />
-                        <button type="button" onClick={() => copyToClipboard(wh.api_key, "API Key")} style={{ padding: "8px 12px", borderRadius: 6, border: "1px solid var(--color-stone)", background: "transparent", color: "var(--color-bone)", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>Copiar</button>
-                      </div>
-                    </div>
-                    <div style={{ fontSize: 12, color: "var(--color-fog)", lineHeight: 1.6, marginBottom: 12, padding: "10px 12px", background: "rgba(96,165,250,0.06)", borderRadius: 8, border: "1px solid rgba(96,165,250,0.15)" }}>
-                      <strong style={{ color: "var(--color-bone)" }}>Como usar:</strong> Envie um POST para a URL com header <code style={{ fontSize: 11, background: "var(--color-stone)", padding: "1px 4px", borderRadius: 3 }}>x-api-key: {wh.api_key.slice(0, 8)}...</code> e body JSON: {`{ "name": "João", "phone": "45999...", "email": "...", "campaign": "..." }`}
-                    </div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button type="button" onClick={() => toggleActive(wh)} style={{ padding: "8px 14px", borderRadius: 6, border: `1px solid ${wh.is_active ? "rgba(248,113,113,0.3)" : "rgba(74,222,128,0.3)"}`, background: wh.is_active ? "rgba(248,113,113,0.06)" : "rgba(74,222,128,0.06)", color: wh.is_active ? "#F87171" : "#4ADE80", fontSize: 12, cursor: "pointer" }}>{wh.is_active ? "Desativar" : "Ativar"}</button>
-                      <button type="button" onClick={() => deleteWebhook(wh)} style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: "transparent", color: "var(--color-fog)", fontSize: 12, cursor: "pointer" }}>Excluir</button>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      <button type="button" onClick={() => openEdit(c)} style={{ minHeight: 40, padding: "8px 14px", borderRadius: 6, border: "1px solid var(--color-stone)", background: "transparent", color: "var(--color-bone)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Editar</button>
+                      <button type="button" onClick={() => void actions.toggleActive(c.id, !c.isActive)} style={{ minHeight: 40, padding: "8px 14px", borderRadius: 6, border: `1px solid ${c.isActive ? "rgba(248,113,113,0.3)" : "rgba(74,222,128,0.3)"}`, background: c.isActive ? "rgba(248,113,113,0.06)" : "rgba(74,222,128,0.06)", color: c.isActive ? "#F87171" : "#4ADE80", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{c.isActive ? "Desativar" : "Ativar"}</button>
+                      <button type="button" onClick={() => void handleDelete(c)} style={{ minHeight: 40, padding: "8px 14px", borderRadius: 6, border: "none", background: "transparent", color: "var(--color-fog)", fontSize: 12, cursor: "pointer" }}>Excluir</button>
                     </div>
                   </div>
-                )}
+                ) : null}
               </div>
             );
           })}
         </div>
       )}
 
-      {/* Integration guide */}
-      <div style={{ marginTop: 20, padding: "14px 16px", background: "rgba(96,165,250,0.06)", border: "1px solid rgba(96,165,250,0.2)", borderRadius: 10, fontSize: 12, color: "#60A5FA", lineHeight: 1.6 }}>
-        <strong>Como integrar:</strong><br />
-        <strong style={{ color: "var(--color-bone)" }}>Facebook/Instagram:</strong> Cole a URL do webhook no Facebook Business Suite → Formulários → Integrações.<br />
-        <strong style={{ color: "var(--color-bone)" }}>Google Ads:</strong> Use Zapier ou Make para conectar o formulário ao webhook.<br />
-        <strong style={{ color: "var(--color-bone)" }}>Site/Landing Page:</strong> Envie um POST com {`{ name, phone, email }`} e header x-api-key.<br />
-        Leads recebidos aparecem automaticamente em Contatos.
-      </div>
+      {wizardOpen ? (
+        <NexaModal onClose={closeWizard} padding={isMobile ? 0 : 24} ariaLabel={editingId ? "Editar canal" : "Novo canal de entrada"}>
+          <div style={cardStyle}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div className="nexa-label" style={{ margin: 0 }}>{editingId ? "Editar canal" : "Novo canal de entrada"}</div>
+              <button type="button" onClick={closeWizard} aria-label="Fechar" style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "0 4px" }}>×</button>
+            </div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
+              {[1, 2, 3].map((n) => <div key={n} style={{ flex: 1, height: 4, borderRadius: 2, background: step >= n ? "var(--color-sprout)" : "var(--color-stone)" }} />)}
+            </div>
+
+            {step === 1 ? (
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--color-bone)", marginBottom: 4 }}>De onde vêm esses leads?</div>
+                <div style={{ fontSize: 12, color: "var(--color-fog)", marginBottom: 16 }}>Selecione a plataforma de origem. Isso ajusta as instruções de conexão e pré-seleciona a origem.</div>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr", gap: 10 }}>
+                  {PROVIDER_ADAPTERS.map((p) => (
+                    <button key={p.value} type="button" onClick={() => selectProvider(p)} style={{ textAlign: "left", minHeight: 64, padding: "14px 16px", borderRadius: 10, border: `1px solid ${form.providerAdapter === p.value ? "var(--color-sprout)" : "var(--color-stone)"}`, background: form.providerAdapter === p.value ? "rgba(74,222,128,0.08)" : "var(--color-ink)", cursor: "pointer", display: "flex", flexDirection: "column", gap: 4 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: "var(--color-bone)" }}>{p.label}</span>
+                      <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--color-fog)", letterSpacing: "0.04em" }}>{p.originSlug}</span>
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
+                  <button type="button" onClick={closeWizard} style={{ minHeight: 44, padding: "0 16px", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Cancelar</button>
+                </div>
+              </div>
+            ) : null}
+
+            {step === 2 ? (
+              <div>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={MONO_LABEL}>Nome *</label>
+                  <input type="text" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Ex: Meta — Lançamento Vivendas" style={INPUT} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 16 }}>
+                  <div>
+                    <label style={MONO_LABEL}>Origem *</label>
+                    <NexaSelect value={form.source} onChange={(v) => setForm((f) => ({ ...f, source: v }))} ariaLabel="Origem do lead" placeholder="Selecionar origem…" options={sourceOptions()} emptyLabel="Nenhuma origem cadastrada" />
+                  </div>
+                  <div>
+                    <label style={MONO_LABEL}>Empreendimento padrão</label>
+                    <NexaSelect value={form.defaultDevelopmentId} onChange={(v) => setForm((f) => ({ ...f, defaultDevelopmentId: v }))} ariaLabel="Empreendimento padrão" placeholder="Opcional" allowClear options={developments.map((dd) => ({ value: dd.id, label: dd.name }))} />
+                  </div>
+                </div>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={MONO_LABEL}>Temperatura padrão</label>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    {(["cold", "warm", "hot"] as const).map((t) => { const cc = { hot: "#F87171", warm: "#F59E0B", cold: "#60A5FA" }[t]; const l = { hot: "Quente", warm: "Morno", cold: "Frio" }[t]; return <button key={t} type="button" onClick={() => setForm((f) => ({ ...f, defaultTemperature: t }))} style={{ flex: 1, minHeight: 44, padding: "8px", borderRadius: 6, border: `1.5px solid ${form.defaultTemperature === t ? cc : "var(--color-stone)"}`, background: form.defaultTemperature === t ? cc + "15" : "transparent", color: form.defaultTemperature === t ? cc : "var(--color-fog)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{l}</button>; })}
+                  </div>
+                </div>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={MONO_LABEL}>Modo de distribuição</label>
+                  <NexaSelect value={form.distributionMode} onChange={(v) => setForm((f) => ({ ...f, distributionMode: v }))} ariaLabel="Modo de distribuição" options={DISTRIBUTION_MODES.map((m) => ({ value: m.value, label: m.label }))} />
+                </div>
+                {form.distributionMode === "fixed" ? (
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={MONO_LABEL}>Responsável</label>
+                    <NexaSelect value={form.defaultAssignedTo} onChange={(v) => setForm((f) => ({ ...f, defaultAssignedTo: v }))} ariaLabel="Responsável fixo" placeholder="Sem responsável definido" allowClear options={people} emptyLabel="Nenhuma pessoa na conta" />
+                  </div>
+                ) : null}
+                {form.distributionMode === "round_robin" ? (
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={MONO_LABEL}>Fallback (obrigatório)</label>
+                    <NexaSelect value={form.fallbackAssignedTo} onChange={(v) => setForm((f) => ({ ...f, fallbackAssignedTo: v }))} ariaLabel="Fallback do rodízio" placeholder="Selecionar pessoa…" options={people} emptyLabel="Nenhuma pessoa na conta" />
+                    {!form.fallbackAssignedTo ? <div style={{ fontSize: 11, color: "var(--color-terracotta)", marginTop: 6 }}>Defina um fallback para quando o rodízio não encontrar destino.</div> : null}
+                  </div>
+                ) : null}
+                <div style={{ display: "flex", gap: 8, justifyContent: "space-between", marginTop: 8 }}>
+                  {editingId ? <span /> : <button type="button" onClick={() => setStep(1)} style={{ minHeight: 44, padding: "0 16px", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Voltar</button>}
+                  <button type="button" onClick={() => void submitStep2()} disabled={!canSubmit || saving} style={{ minHeight: 44, padding: "0 24px", borderRadius: 8, border: "none", background: "var(--color-sprout)", color: "var(--color-ink)", fontSize: 13, fontWeight: 700, cursor: !canSubmit || saving ? "default" : "pointer", opacity: !canSubmit || saving ? 0.6 : 1 }}>{saving ? "Salvando..." : editingId ? "Salvar" : "Criar canal"}</button>
+                </div>
+              </div>
+            ) : null}
+
+            {step === 3 ? (
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--color-bone)", marginBottom: 4 }}>Entrega</div>
+                <div style={{ fontSize: 12, color: "var(--color-fog)", marginBottom: 16 }}>Use a URL e a chave abaixo na plataforma de origem.</div>
+                {wizardChannel ? (
+                  <ChannelDelivery channel={wizardChannel} onCopy={copyToClipboard} />
+                ) : (
+                  <div style={{ fontSize: 12, color: "var(--color-fog)", padding: "12px 14px", background: "var(--surface-base)", borderRadius: 8 }}>Canal salvo. Abra o canal na lista para copiar a URL e a chave.</div>
+                )}
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
+                  <button type="button" onClick={closeWizard} style={{ minHeight: 44, padding: "0 24px", borderRadius: 8, border: "none", background: "var(--color-sprout)", color: "var(--color-ink)", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Concluir</button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </NexaModal>
+      ) : null}
     </div>
   );
 }
@@ -921,6 +1097,7 @@ function WebhooksPanel({ accountId, isMobile, setMsg }: { accountId: string | nu
 
 function LeadDistributionPanel({ accountId, developmentId, canEdit }: { accountId: string | null; developmentId: string | null; canEdit: boolean }) {
   const d = useLeadDistributionAdmin(accountId, developmentId);
+  const { hasRoundRobinChannel } = useLeadChannels();
   const [showAdd, setShowAdd] = useState(false);
 
   const ROLE_LABELS: Record<string, string> = { commercial_consultant: "Consultor", broker: "Corretor", director: "Diretor", manager: "Gestor", owner: "Dono", administrative: "Administrativo" };
@@ -964,6 +1141,13 @@ function LeadDistributionPanel({ accountId, developmentId, canEdit }: { accountI
           <div style={{ width: 18, height: 18, borderRadius: "50%", background: "#fff", position: "absolute", top: 2, left: d.enabled ? 20 : 2, transition: "left 150ms ease", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
         </button>
       </div>
+
+      {d.enabled && !hasRoundRobinChannel ? (
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, justifyContent: "space-between", padding: "10px 14px", background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.35)", borderRadius: 10, marginBottom: 14 }}>
+          <div style={{ fontSize: 12, color: "var(--color-bone)", lineHeight: 1.5, minWidth: 0 }}>A roleta está ativa, mas nenhum canal usa o modo Rodízio — os leads não serão distribuídos automaticamente.</div>
+          <button type="button" onClick={() => document.getElementById("lead-channels-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })} style={{ minHeight: 36, padding: "6px 12px", borderRadius: 8, border: "1px solid #F59E0B", background: "rgba(245,158,11,0.12)", color: "#F59E0B", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>Configurar canais</button>
+        </div>
+      ) : null}
 
       <div style={{ marginBottom: 16 }}>
         <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-disabled)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>Papéis elegíveis</div>
