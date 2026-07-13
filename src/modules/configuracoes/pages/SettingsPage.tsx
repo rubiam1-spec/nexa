@@ -16,6 +16,10 @@ import EditorMapaPins from "../components/EditorMapaPins";
 import PermissionsPanel from "../components/PermissionsPanel";
 import { useUnits } from "../../units/hooks/useUnits";
 import { NexaSelect } from "../../../shared/ui/NexaSelect";
+import { NexaModal } from "../../../shared/ui/NexaModal";
+import { useLeadOrigins } from "../hooks/useLeadOrigins";
+import { useLeadCampaigns } from "../hooks/useLeadCampaigns";
+import type { LeadCampaign, LeadCampaignInput } from "../../../infra/repositories/leadCampaignsSupabaseRepository";
 
 type Aba = "marca" | "empreendimento" | "documentos" | "operacao" | "materiais" | "leads" | "cadencia" | "checklist" | "permissoes";
 
@@ -597,6 +601,10 @@ export default function SettingsPage() {
             <WebhooksPanel accountId={actx.account?.accountId ?? null} isMobile={isMobile} setMsg={setMsg} />
             <div style={{ marginTop: 20 }} />
             <LeadDistributionPanel accountId={actx.account?.accountId ?? null} developmentId={dctx.development?.developmentId ?? null} canEdit={canUpd} />
+            <div style={{ marginTop: 20 }} />
+            <LeadOriginsPanel canEdit={canUpd} />
+            <div style={{ marginTop: 20 }} />
+            <LeadCampaignsPanel canEdit={canUpd} isMobile={isMobile} setMsg={setMsg} developments={dctx.availableDevelopments.map((d) => ({ id: d.developmentId, name: d.developmentName }))} />
           </> : null}
 
           {aba === "cadencia" ? (
@@ -973,13 +981,21 @@ function LeadDistributionPanel({ accountId, developmentId, canEdit }: { accountI
         <div style={{ textAlign: "center", padding: "20px 0", color: "var(--color-fog)", fontSize: 13 }}>Nenhum participante no rodízio. Adicione abaixo.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {d.participants.map((p) => (
-            <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: p.active ? "var(--surface-base)" : "transparent", border: `1px solid ${p.active ? "var(--border-default)" : "var(--border-subtle)"}`, borderRadius: 10, opacity: p.active ? 1 : 0.6 }}>
-              <div style={{ width: 34, height: 34, borderRadius: "50%", background: p.active ? "var(--status-sprout-muted)" : "var(--surface-overlay)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: p.active ? "var(--interactive-primary)" : "var(--text-disabled)", flexShrink: 0 }}>{p.name.charAt(0).toUpperCase()}</div>
+          {d.participants.map((p) => {
+            const dimmed = !p.active || p.paused;
+            return (
+            <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: dimmed ? "transparent" : "var(--surface-base)", border: `1px solid ${dimmed ? "var(--border-subtle)" : "var(--border-default)"}`, borderRadius: 10, opacity: dimmed ? 0.6 : 1 }}>
+              <div style={{ width: 34, height: 34, borderRadius: "50%", background: dimmed ? "var(--surface-overlay)" : "var(--status-sprout-muted)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: dimmed ? "var(--text-disabled)" : "var(--interactive-primary)", flexShrink: 0 }}>{p.name.charAt(0).toUpperCase()}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                  {p.paused ? <span style={{ flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#F59E0B", background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.35)", borderRadius: 6, padding: "1px 6px" }}>Pausado</span> : null}
+                </div>
                 <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--text-disabled)", letterSpacing: "0.08em", textTransform: "uppercase" }}>{ROLE_LABELS[p.role] ?? p.role}</div>
               </div>
+              {canEdit && (
+                <button type="button" onClick={() => void d.setPaused(p.id, !p.paused)} disabled={d.busy} title={p.paused ? "Retomar (fim do afastamento)" : "Pausar (férias/afastamento)"} style={{ minHeight: 32, padding: "6px 10px", borderRadius: 8, border: `1px solid ${p.paused ? "rgba(245,158,11,0.45)" : "var(--border-default)"}`, background: p.paused ? "rgba(245,158,11,0.12)" : "transparent", color: p.paused ? "#F59E0B" : "var(--text-muted)", fontSize: 11, fontWeight: 600, cursor: d.busy ? "default" : "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>{p.paused ? "Retomar" : "Pausar"}</button>
+              )}
               {canEdit && (
                 <button type="button" onClick={() => void d.toggleActive(p.id, !p.active)} disabled={d.busy} title={p.active ? "Desativar" : "Ativar"} style={{ width: 36, height: 20, borderRadius: 10, border: "none", cursor: "pointer", background: p.active ? "var(--interactive-primary)" : "var(--surface-hover)", position: "relative", flexShrink: 0 }}>
                   <div style={{ width: 16, height: 16, borderRadius: "50%", background: "#fff", position: "absolute", top: 2, left: p.active ? 18 : 2, transition: "left 150ms ease", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
@@ -997,7 +1013,8 @@ function LeadDistributionPanel({ accountId, developmentId, canEdit }: { accountI
                 <button type="button" onClick={() => void d.remove(p.id)} disabled={d.busy} title="Remover" style={{ background: "none", border: "none", color: "var(--text-disabled)", fontSize: 16, cursor: "pointer", flexShrink: 0, lineHeight: 1, padding: "0 2px" }}>×</button>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -1109,6 +1126,241 @@ function DocumentChecklistPanel({ accountId, developmentId, developmentName, can
       <div style={{ marginTop: 16, padding: "10px 14px", background: "var(--surface-overlay)", borderRadius: 8, fontSize: 11, color: "var(--color-fog)", lineHeight: 1.6 }}>
         Estes requisitos alimentam o checklist semeado para novos clientes (papel Comprador) e a ficha de documentos. Clientes existentes mantêm seus documentos atuais.
       </div>
+    </div>
+  );
+}
+
+// ── Lead Origins Panel (catálogo de origens) ──
+
+function LeadOriginsPanel({ canEdit }: { canEdit: boolean }) {
+  const { origins, loading, error, actions } = useLeadOrigins();
+  const [newLabel, setNewLabel] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const handleCreate = async () => {
+    const label = newLabel.trim();
+    if (!label || busy) return;
+    setBusy(true);
+    try { await actions.create(label); setNewLabel(""); } finally { setBusy(false); }
+  };
+
+  if (loading) return <div className="nexa-card" style={{ padding: 20 }}><div style={{ fontSize: 13, color: "var(--color-fog)" }}>Carregando origens...</div></div>;
+
+  return (
+    <div className="nexa-card" style={{ padding: 20 }}>
+      <div>
+        <div className="nexa-label" style={{ margin: 0 }}>Origens</div>
+        <div style={{ fontSize: 11, color: "var(--color-fog)", marginTop: 2 }}>Catálogo de canais de origem dos leads. Origens do sistema não podem ser excluídas — apenas desativadas.</div>
+      </div>
+
+      {error ? <div style={{ marginTop: 12, fontSize: 12, color: "var(--color-terracotta)" }}>{error}</div> : null}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 14 }}>
+        {origins.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "16px 0", color: "var(--color-fog)", fontSize: 13 }}>Nenhuma origem cadastrada.</div>
+        ) : origins.map((o) => (
+          <div key={o.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: o.active ? "var(--surface-base)" : "transparent", border: `1px solid ${o.active ? "var(--border-default)" : "var(--border-subtle)"}`, borderRadius: 10, opacity: o.active ? 1 : 0.6 }}>
+            <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</span>
+              {o.isSystem ? <span style={{ flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", background: "var(--surface-overlay)", border: "1px solid var(--border-default)", borderRadius: 6, padding: "1px 6px" }}>sistema</span> : null}
+            </div>
+            {canEdit ? (
+              <button type="button" onClick={() => void actions.toggleActive(o.id, !o.active)} title={o.active ? "Desativar" : "Ativar"} style={{ width: 36, height: 20, borderRadius: 10, border: "none", cursor: "pointer", background: o.active ? "var(--interactive-primary)" : "var(--surface-hover)", position: "relative", flexShrink: 0 }}>
+                <div style={{ width: 16, height: 16, borderRadius: "50%", background: "#fff", position: "absolute", top: 2, left: o.active ? 18 : 2, transition: "left 150ms ease", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
+              </button>
+            ) : (
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-disabled)" }}>{o.active ? "Ativa" : "Inativa"}</span>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {canEdit ? (
+        <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+          <input type="text" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void handleCreate(); }} placeholder="Nova origem (ex: Indicação)" disabled={busy} style={{ ...INPUT, flex: 1 }} />
+          <button type="button" onClick={() => void handleCreate()} disabled={!newLabel.trim() || busy} style={{ minHeight: 44, padding: "0 16px", borderRadius: 8, border: "none", background: "var(--color-sprout)", color: "var(--color-ink)", fontSize: 13, fontWeight: 700, cursor: !newLabel.trim() || busy ? "default" : "pointer", opacity: !newLabel.trim() || busy ? 0.6 : 1, whiteSpace: "nowrap" }}>+ Nova origem</button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// ── Lead Campaigns Panel (Campanhas & Ações) ──
+
+type CampaignForm = { name: string; channel: string; developmentId: string; utmCampaignMatch: string; startsAt: string; endsAt: string; budget: string; active: boolean };
+const EMPTY_CAMPAIGN_FORM: CampaignForm = { name: "", channel: "", developmentId: "", utmCampaignMatch: "", startsAt: "", endsAt: "", budget: "", active: true };
+const MODAL_LABEL: React.CSSProperties = { fontSize: 10, color: "var(--color-fog)", fontFamily: "var(--font-mono)", letterSpacing: "0.08em", display: "block", marginBottom: 4, textTransform: "uppercase" };
+
+function LeadCampaignsPanel({ canEdit, isMobile, setMsg, developments }: { canEdit: boolean; isMobile: boolean; setMsg: (m: string | null) => void; developments: { id: string; name: string }[] }) {
+  const { campaigns, loading, error, actions } = useLeadCampaigns();
+  const { origins } = useLeadOrigins();
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<LeadCampaign | null>(null);
+  const [form, setForm] = useState<CampaignForm>(EMPTY_CAMPAIGN_FORM);
+  const [saving, setSaving] = useState(false);
+
+  const originLabel = (slug: string) => origins.find((o) => o.slug === slug)?.label ?? slug;
+  const channelOptions = origins.map((o) => ({ value: o.slug, label: o.active ? o.label : `${o.label} (inativa)` }));
+  const devName = (id: string | null) => (id ? developments.find((d) => d.id === id)?.name ?? "—" : null);
+
+  const openNew = () => {
+    const firstActive = origins.find((o) => o.active)?.slug ?? "";
+    setEditing(null);
+    setForm({ ...EMPTY_CAMPAIGN_FORM, channel: firstActive });
+    setModalOpen(true);
+  };
+  const openEdit = (c: LeadCampaign) => {
+    setEditing(c);
+    setForm({
+      name: c.name, channel: c.channel, developmentId: c.developmentId ?? "",
+      utmCampaignMatch: c.utmCampaignMatch ?? "", startsAt: (c.startsAt ?? "").slice(0, 10),
+      endsAt: (c.endsAt ?? "").slice(0, 10), budget: c.budget != null ? String(c.budget) : "", active: c.active,
+    });
+    setModalOpen(true);
+  };
+  const closeModal = () => { setModalOpen(false); setEditing(null); };
+
+  const handleSave = async () => {
+    const name = form.name.trim();
+    if (!name || !form.channel || saving) return;
+    setSaving(true);
+    const input: LeadCampaignInput = {
+      name, channel: form.channel,
+      developmentId: form.developmentId || null,
+      utmCampaignMatch: form.utmCampaignMatch.trim() || null,
+      startsAt: form.startsAt || null, endsAt: form.endsAt || null,
+      budget: form.budget.trim() === "" ? null : Number(form.budget),
+      active: form.active,
+    };
+    try {
+      if (editing) await actions.update(editing.id, input); else await actions.create(input);
+      closeModal();
+      setMsg("Campanha salva"); setTimeout(() => setMsg(null), 2500);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Não foi possível salvar a campanha."); setTimeout(() => setMsg(null), 4000);
+    } finally { setSaving(false); }
+  };
+
+  const handleDelete = async (c: LeadCampaign) => {
+    if (!confirm(`Excluir campanha "${c.name}"?`)) return;
+    try {
+      await actions.remove(c.id);
+      setMsg("Campanha excluída"); setTimeout(() => setMsg(null), 2500);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Campanha com leads vinculados não pode ser excluída — desative-a."); setTimeout(() => setMsg(null), 4000);
+    }
+  };
+
+  if (loading) return <div className="nexa-card" style={{ padding: 20 }}><div style={{ fontSize: 13, color: "var(--color-fog)" }}>Carregando campanhas...</div></div>;
+
+  const cardStyle: React.CSSProperties = isMobile
+    ? { width: "100%", height: "100%", maxHeight: "100%", borderRadius: 0, background: "var(--surface-raised)", border: "1px solid var(--border-default)", padding: 20, overflowY: "auto", boxSizing: "border-box" }
+    : { width: "100%", maxWidth: 520, maxHeight: "90vh", borderRadius: 12, background: "var(--surface-raised)", border: "1px solid var(--border-default)", padding: 24, overflowY: "auto", boxSizing: "border-box" };
+
+  return (
+    <div className="nexa-card" style={{ padding: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 4 }}>
+        <div style={{ minWidth: 0 }}>
+          <div className="nexa-label" style={{ margin: 0 }}>Campanhas &amp; Ações</div>
+          <div style={{ fontSize: 11, color: "var(--color-fog)", marginTop: 2 }}>Campanhas de captação com casamento de UTM, período e orçamento. A contagem mostra os leads vinculados.</div>
+        </div>
+        {canEdit ? <button type="button" onClick={openNew} style={{ minHeight: 44, padding: "0 16px", borderRadius: 8, border: "none", background: "var(--color-sprout)", color: "var(--color-ink)", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>+ Nova campanha</button> : null}
+      </div>
+
+      {error ? <div style={{ marginTop: 12, fontSize: 12, color: "var(--color-terracotta)" }}>{error}</div> : null}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 14 }}>
+        {campaigns.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "20px 0", color: "var(--color-fog)", fontSize: 13 }}>Nenhuma campanha cadastrada.</div>
+        ) : campaigns.map((c) => {
+          const period = c.startsAt || c.endsAt ? `${c.startsAt ? formatDateBRT(c.startsAt) : "…"} – ${c.endsAt ? formatDateBRT(c.endsAt) : "…"}` : null;
+          return (
+            <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: c.active ? "var(--surface-base)" : "transparent", border: `1px solid ${c.active ? "var(--border-default)" : "var(--border-subtle)"}`, borderRadius: 10, opacity: c.active ? 1 : 0.6, flexWrap: isMobile ? "wrap" : "nowrap" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
+                  <span style={{ flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: c.active ? "var(--interactive-primary)" : "var(--text-disabled)", background: c.active ? "var(--status-sprout-muted)" : "var(--surface-overlay)", border: `1px solid ${c.active ? "rgba(74,222,128,0.35)" : "var(--border-default)"}`, borderRadius: 6, padding: "1px 6px" }}>{c.active ? "Ativa" : "Inativa"}</span>
+                </div>
+                <div style={{ fontSize: 11, color: "var(--color-fog)", marginTop: 3 }}>
+                  {originLabel(c.channel)}
+                  {devName(c.developmentId) ? ` · ${devName(c.developmentId)}` : ""}
+                  {period ? ` · ${period}` : ""}
+                  {c.utmCampaignMatch ? ` · UTM: ${c.utmCampaignMatch}` : ""}
+                </div>
+              </div>
+              <div style={{ textAlign: "center", width: 54, flexShrink: 0 }}>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 8, color: "var(--text-disabled)", letterSpacing: "0.1em" }}>LEADS</div>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 15, fontWeight: 700, color: "var(--text-secondary)" }}>{c.leadCount}</div>
+              </div>
+              {canEdit ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                  <button type="button" onClick={() => openEdit(c)} style={{ minHeight: 32, padding: "6px 10px", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-secondary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Editar</button>
+                  <button type="button" onClick={() => void actions.toggleActive(c.id, !c.active)} title={c.active ? "Desativar" : "Ativar"} style={{ width: 36, height: 20, borderRadius: 10, border: "none", cursor: "pointer", background: c.active ? "var(--interactive-primary)" : "var(--surface-hover)", position: "relative" }}>
+                    <div style={{ width: 16, height: 16, borderRadius: "50%", background: "#fff", position: "absolute", top: 2, left: c.active ? 18 : 2, transition: "left 150ms ease", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
+                  </button>
+                  <button type="button" onClick={() => void handleDelete(c)} title="Excluir" style={{ background: "none", border: "none", color: "var(--text-disabled)", fontSize: 16, cursor: "pointer", lineHeight: 1, padding: "0 2px" }}>×</button>
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+
+      {modalOpen ? (
+        <NexaModal onClose={closeModal} padding={isMobile ? 0 : 24} ariaLabel={editing ? "Editar campanha" : "Nova campanha"}>
+          <div style={cardStyle}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div className="nexa-label" style={{ margin: 0 }}>{editing ? "Editar campanha" : "Nova campanha"}</div>
+              <button type="button" onClick={closeModal} aria-label="Fechar" style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "0 4px" }}>×</button>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={MODAL_LABEL}>Nome *</label>
+              <input type="text" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Ex: Facebook — Lançamento Vivendas" style={INPUT} />
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 16 }}>
+              <div>
+                <label style={MODAL_LABEL}>Canal (origem) *</label>
+                <NexaSelect value={form.channel} onChange={(v) => setForm((f) => ({ ...f, channel: v }))} ariaLabel="Canal da campanha" placeholder="Selecionar origem…" options={channelOptions} emptyLabel="Nenhuma origem cadastrada" />
+              </div>
+              <div>
+                <label style={MODAL_LABEL}>Empreendimento</label>
+                <NexaSelect value={form.developmentId} onChange={(v) => setForm((f) => ({ ...f, developmentId: v }))} ariaLabel="Empreendimento da campanha" placeholder="Todos os empreendimentos" allowClear options={developments.map((d) => ({ value: d.id, label: d.name }))} />
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 16 }}>
+              <div>
+                <label style={MODAL_LABEL}>Início</label>
+                <input type="date" value={form.startsAt} onChange={(e) => setForm((f) => ({ ...f, startsAt: e.target.value }))} style={INPUT} />
+              </div>
+              <div>
+                <label style={MODAL_LABEL}>Fim</label>
+                <input type="date" value={form.endsAt} onChange={(e) => setForm((f) => ({ ...f, endsAt: e.target.value }))} style={INPUT} />
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 16 }}>
+              <div>
+                <label style={MODAL_LABEL}>Casamento UTM</label>
+                <input type="text" value={form.utmCampaignMatch} onChange={(e) => setForm((f) => ({ ...f, utmCampaignMatch: e.target.value }))} placeholder="utm_campaign a casar" style={INPUT} />
+              </div>
+              <div>
+                <label style={MODAL_LABEL}>Orçamento (R$)</label>
+                <input type="number" min={0} value={form.budget} onChange={(e) => setForm((f) => ({ ...f, budget: e.target.value }))} placeholder="Opcional" style={INPUT} />
+              </div>
+            </div>
+
+            <Tog ativo={form.active} onChange={(v) => setForm((f) => ({ ...f, active: v }))} label="Campanha ativa" sub="Campanhas inativas não recebem novos leads pelo casamento de UTM" />
+
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
+              <button type="button" onClick={closeModal} style={{ minHeight: 44, padding: "0 16px", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Cancelar</button>
+              <button type="button" onClick={() => void handleSave()} disabled={!form.name.trim() || !form.channel || saving} style={{ minHeight: 44, padding: "0 24px", borderRadius: 8, border: "none", background: "var(--color-sprout)", color: "var(--color-ink)", fontSize: 13, fontWeight: 700, cursor: !form.name.trim() || !form.channel || saving ? "default" : "pointer", opacity: !form.name.trim() || !form.channel || saving ? 0.6 : 1 }}>{saving ? "Salvando..." : "Salvar"}</button>
+            </div>
+          </div>
+        </NexaModal>
+      ) : null}
     </div>
   );
 }

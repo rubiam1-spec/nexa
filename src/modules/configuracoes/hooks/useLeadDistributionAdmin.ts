@@ -7,6 +7,7 @@ import {
   addParticipant,
   removeParticipant,
   setParticipantActive,
+  setParticipantPaused,
   setParticipantWeight,
   resetCounts,
   type LeadDistParticipant,
@@ -69,6 +70,7 @@ export function useLeadDistributionAdmin(accountId: string | null, developmentId
   const add = (consultantId: string) => withBusy(async () => { if (accountId) await addParticipant(accountId, developmentId, consultantId); });
   const remove = (id: string) => withBusy(async () => { await removeParticipant(id); });
   const toggleActive = (id: string, active: boolean) => withBusy(async () => { await setParticipantActive(id, active); });
+  const setPaused = (id: string, paused: boolean) => withBusy(async () => { await setParticipantPaused(id, paused); });
   const setWeight = (id: string, weight: number) => withBusy(async () => { await setParticipantWeight(id, weight); });
   const reset = () => withBusy(async () => { if (accountId) await resetCounts(accountId); });
 
@@ -77,6 +79,6 @@ export function useLeadDistributionAdmin(accountId: string | null, developmentId
 
   return {
     enabled, eligibleRoles, participants, addable, loading, busy, error,
-    toggleEnabled, saveEligibleRoles, add, remove, toggleActive, setWeight, reset,
+    toggleEnabled, saveEligibleRoles, add, remove, toggleActive, setPaused, setWeight, reset,
   };
 }
