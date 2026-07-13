@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { createPortal } from "react-dom";
+import { NexaModal } from "../ui/NexaModal";
 import InlineEdit from "../../modules/atividades/components/InlineEdit";
 import EntityPicker from "../../modules/atividades/fields/EntityPicker";
 import { formatDateBRT, formatWeekdayDateLongBRT } from "../utils/dateUtils";
@@ -131,12 +131,11 @@ export default function ActivityDetailModal({ activity, participants, teamProfil
   const statusLabel = isOverdue ? `Atrasada — há ${Math.abs(daysUntil)} dias` : isExpired ? `Expirada — ${Math.abs(daysUntil)} dias sem ação` : isToday && isScheduled ? "Hoje" : isScheduled ? `Agendada — em ${daysUntil} dias` : isSkipped ? "Pulada" : "";
   const statusColor = isOverdue || isExpired ? T.red : isToday && isScheduled ? T.blue : isScheduled ? T.blue : isSkipped ? T.slate : T.sprout;
 
-  return createPortal(
-    <div style={{ position: "fixed", inset: 0, zIndex: 9998 }}>
-      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)" }} />
+  return (
+    <NexaModal onClose={onClose} zIndex={9998} initialFocus={false} ariaLabel="Detalhe da atividade">
       <div style={mobile
-        ? { position: "absolute", inset: 0, zIndex: 1, overflowY: "auto", background: T.ink }
-        : { position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 1, width: 480, maxWidth: "95vw", maxHeight: "90vh", overflowY: "auto", background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 16, boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }
+        ? { position: "fixed", inset: 0, overflowY: "auto", background: T.ink }
+        : { width: 480, maxWidth: "95vw", maxHeight: "90vh", overflowY: "auto", background: T.ink, border: `1px solid ${T.stone}`, borderRadius: 16, boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }
       }>
         {/* Header */}
         <div style={{ padding: "20px 24px 16px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -374,7 +373,6 @@ export default function ActivityDetailModal({ activity, participants, teamProfil
           {lightbox.urls.length > 1 && lightbox.idx < lightbox.urls.length - 1 && <button type="button" onClick={(e) => { e.stopPropagation(); setLightbox({ ...lightbox, idx: lightbox.idx + 1 }); }} style={{ position: "absolute", right: 16, background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", fontSize: 24, padding: "12px 16px", borderRadius: 8, cursor: "pointer" }}>›</button>}
         </div>
       )}
-    </div>,
-    document.body,
+    </NexaModal>
   );
 }

@@ -14,6 +14,7 @@ import NegotiationImportWizard from "../components/NegotiationImportWizard";
 import { EmptyState } from "../../../shared/components/EmptyState";
 import { SearchableSelect } from "../../../shared/components/SearchableSelect";
 import { NexaSelect } from "../../../shared/ui/NexaSelect";
+import { NexaModal } from "../../../shared/ui/NexaModal";
 import { createClient } from "../../../infra/repositories/clientsSupabaseRepository";
 import { getPermissions } from "../../../shared/utils/permissoes";
 import { formatCurrency } from "../../../shared/utils/masks";
@@ -446,8 +447,8 @@ export default function NegotiationsPage() {
 
       {/* Quick client creation modal */}
       {showNewClient ? (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => { if (!ncSaving) setShowNewClient(false); }}>
-          <div style={{ background: "var(--color-carbon)", border: "1px solid var(--color-stone)", borderRadius: 16, padding: 32, width: "100%", maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
+        <NexaModal onClose={() => { if (!ncSaving) setShowNewClient(false); }}>
+          <div style={{ background: "var(--color-carbon)", border: "1px solid var(--color-stone)", borderRadius: 16, padding: 32, width: "100%", maxWidth: 400 }}>
             <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--color-bone)", margin: "0 0 16px" }}>Novo cliente</h2>
             <div style={{ display: "grid", gap: 12 }}>
               <div><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Nome *</span><input type="text" value={ncName} onChange={(e) => setNcName(e.target.value)} placeholder="Nome completo" autoFocus /></div>
@@ -460,7 +461,7 @@ export default function NegotiationsPage() {
               <button type="button" disabled={ncSaving || !ncName.trim() || !ncEmail.trim() || !ncPhone.trim()} onClick={() => void handleQuickClient()} style={{ ...btnPrimary, height: 36 }}>{ncSaving ? "Salvando..." : "Salvar cliente"}</button>
             </div>
           </div>
-        </div>
+        </NexaModal>
       ) : null}
     </div>
   );

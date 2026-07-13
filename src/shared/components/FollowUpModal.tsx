@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { createPortal } from "react-dom";
+import { NexaModal } from "../ui/NexaModal";
 import { formatWeekdayShortBRT } from "../utils/dateUtils";
 import { useIsMobile } from "../hooks/useIsMobile";
 
@@ -47,12 +47,11 @@ export default function FollowUpModal({ open, title, subtitle, onConfirm, onCanc
     onConfirm(addDays(days));
   }
 
-  return createPortal(
-    <>
-      <div onClick={onCancel} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 9998 }} />
+  return (
+    <NexaModal onClose={onCancel} ariaLabel={title ?? "Quando deseja retomar?"}>
       <div style={mobile
-        ? { position: "fixed", inset: 0, zIndex: 9999, overflowY: "auto", display: "flex", flexDirection: "column" }
-        : { position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 9999, width: 420, maxWidth: "95vw" }
+        ? { position: "fixed", inset: 0, overflowY: "auto", display: "flex", flexDirection: "column" }
+        : { width: 420, maxWidth: "95vw" }
       }>
         <div style={{ background: "var(--surface-raised)", border: mobile ? "none" : "1px solid var(--border-default)", borderRadius: mobile ? 0 : 16, overflow: "hidden", boxShadow: mobile ? "none" : "0 24px 64px rgba(0,0,0,0.5)", minHeight: mobile ? "100vh" : "auto", display: "flex", flexDirection: "column" }}>
           {/* Header */}
@@ -117,7 +116,6 @@ export default function FollowUpModal({ open, title, subtitle, onConfirm, onCanc
           </div>
         </div>
       </div>
-    </>,
-    document.body,
+    </NexaModal>
   );
 }

@@ -16,6 +16,7 @@ import { useScreen } from "../../../shared/hooks/useIsMobile";
 import { useMapaPins } from "../hooks/useMapaPins";
 import MapaInterativo from "../components/MapaInterativo";
 import QueueEntryModal from "../../../shared/components/QueueEntryModal";
+import { NexaModal } from "../../../shared/ui/NexaModal";
 import type { Unidade } from "../../../domain/unidade/Unidade";
 
 // ── v7 constants ──
@@ -458,9 +459,8 @@ export default function UnitsPage() {
         (() => {
           const myEntry = selQueue.queue.find((q) => q.requested_by === userId);
           return (
-            <>
-              <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 9000 }} onClick={() => setShowLeaveConfirm(false)} />
-              <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 12, padding: 24, width: 380, maxWidth: "90vw", zIndex: 9001 }}>
+            <NexaModal onClose={() => setShowLeaveConfirm(false)}>
+              <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 12, padding: 24, width: 380, maxWidth: "90vw" }}>
                 <div style={{ fontSize: 16, fontWeight: 600, color: "#E8E5DE", marginBottom: 8 }}>Sair da fila</div>
                 <div style={{ fontSize: 13, color: "#706B5F", marginBottom: 6 }}>Tem certeza que deseja sair da fila do {lblUnidade} {sel.lote}?</div>
                 <div style={{ fontSize: 13, color: "#F87171", marginBottom: 20 }}>Sua posição #{selQueue.myPosition} será perdida. Esta ação não pode ser desfeita.</div>
@@ -482,7 +482,7 @@ export default function UnitsPage() {
                   </button>
                 </div>
               </div>
-            </>
+            </NexaModal>
           );
         })()
       )}

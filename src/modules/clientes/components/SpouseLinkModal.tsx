@@ -3,12 +3,12 @@
 // ou cadastra um novo mínimo (nome + CPF) herdando marital_status e
 // regime_casamento do cliente principal.
 //
-// Padrão visual: FollowUpModal (createPortal, overlay escuro, card centralizado,
-// mobile full-screen). Todos os hooks chamados ANTES de qualquer early return
-// (Rules of Hooks — lição do fix React #310).
+// Padrão visual: NexaModal (portal p/ body, overlay escuro com dismiss, Esc,
+// scroll lock, card centralizado, mobile full-screen). Todos os hooks chamados
+// ANTES de qualquer early return (Rules of Hooks — lição do fix React #310).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
+import { NexaModal } from "../../../shared/ui/NexaModal";
 import { useAccount } from "../../../app/contexts/AccountContext";
 import { useAuth } from "../../../app/contexts/AuthContext";
 import { useIsMobile } from "../../../shared/hooks/useIsMobile";
@@ -212,45 +212,21 @@ export default function SpouseLinkModal({
     onClose,
   ]);
 
-  // Fecha com ESC.
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose]);
-
   if (!open) return null;
 
-  return createPortal(
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.6)",
-        zIndex: 9998,
-        display: "flex",
-        alignItems: mobile ? "stretch" : "center",
-        justifyContent: "center",
-      }}
-    >
+  return (
+    <NexaModal onClose={onClose} ariaLabel={`Cadastrar cônjuge de ${clientName}`}>
       <div
-        onClick={(e) => e.stopPropagation()}
         style={
           mobile
             ? {
                 position: "fixed",
                 inset: 0,
-                zIndex: 9999,
                 background: "var(--surface-raised)",
                 display: "flex",
                 flexDirection: "column",
               }
             : {
-                zIndex: 9999,
                 width: 520,
                 maxWidth: "95vw",
                 background: "var(--surface-raised)",
@@ -477,8 +453,7 @@ export default function SpouseLinkModal({
           ) : null}
         </div>
       </div>
-    </div>,
-    document.body,
+    </NexaModal>
   );
 }
 

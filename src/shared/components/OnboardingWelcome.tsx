@@ -1,5 +1,5 @@
-import { createPortal } from "react-dom";
 import { useState, useEffect } from "react";
+import { NexaModal } from "../ui/NexaModal";
 
 const STORAGE_KEY = "nexa_onboarding_done";
 
@@ -25,10 +25,9 @@ export function OnboardingWelcome({ open, onDismiss }: { open: boolean; onDismis
   const s = steps[step];
   const isLast = step === steps.length - 1;
 
-  return createPortal(
-    <>
-      <div onClick={onDismiss} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 10001 }} />
-      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 10002, width: 420, maxWidth: "92vw", background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 20, overflow: "hidden", boxShadow: "0 32px 80px rgba(0,0,0,0.5)", animation: "celebrationSlideIn 0.4s cubic-bezier(0.32,0.72,0,1)" }}>
+  return (
+    <NexaModal onClose={onDismiss} zIndex={10001} ariaLabel="Bem-vindo ao NEXA">
+      <div style={{ width: 420, maxWidth: "92vw", background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 20, overflow: "hidden", boxShadow: "0 32px 80px rgba(0,0,0,0.5)", animation: "celebrationSlideIn 0.4s cubic-bezier(0.32,0.72,0,1)" }}>
         {/* Progress dots */}
         <div style={{ display: "flex", gap: 6, justifyContent: "center", padding: "20px 0 0" }}>
           {steps.map((_, i) => (
@@ -53,7 +52,6 @@ export function OnboardingWelcome({ open, onDismiss }: { open: boolean; onDismis
           </button>
         </div>
       </div>
-    </>,
-    document.body
+    </NexaModal>
   );
 }

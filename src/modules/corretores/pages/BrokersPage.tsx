@@ -20,6 +20,7 @@ import { getPermissions } from "../../../shared/utils/permissoes";
 import { usePermissions } from "../../../shared/hooks/usePermissions";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
 import { NexaSelect } from "../../../shared/ui/NexaSelect";
+import { NexaModal } from "../../../shared/ui/NexaModal";
 
 const btnP: React.CSSProperties = { background: "var(--color-sprout)", color: "var(--color-ink)", border: "none", borderRadius: 8, padding: "0 16px", height: 36, fontSize: 13, fontWeight: 700, cursor: "pointer" };
 const btnS: React.CSSProperties = { background: "transparent", color: "var(--color-bone)", border: "1px solid var(--color-stone)", borderRadius: 8, padding: "0 16px", height: 36, fontSize: 13, fontWeight: 700, cursor: "pointer" };
@@ -405,8 +406,8 @@ export default function BrokersPage() {
 
       {/* Invite modal */}
       {confirmInvite ? (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => { if (!inviting) setConfirmInvite(null); }}>
-          <div style={{ background: "var(--color-carbon)", border: "1px solid var(--color-stone)", borderRadius: 16, padding: 32, width: "100%", maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+        <NexaModal onClose={() => { if (!inviting) setConfirmInvite(null); }}>
+          <div style={{ background: "var(--color-carbon)", border: "1px solid var(--color-stone)", borderRadius: 16, padding: 32, width: "100%", maxWidth: 440 }}>
             <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--color-bone)", margin: "0 0 12px" }}>Convidar para o sistema</h2>
             <p style={{ fontSize: 13, color: "var(--color-dust)", lineHeight: 1.6, margin: "0 0 20px" }}>
               Deseja convidar <strong style={{ color: "var(--color-bone)" }}>{confirmInvite.name}</strong> ({confirmInvite.email}) para acessar o sistema NEXA? Ele receberá um link por email para definir sua senha.
@@ -416,13 +417,13 @@ export default function BrokersPage() {
               <button type="button" disabled={inviting} onClick={() => void handleInviteBroker(confirmInvite)} style={btnP}>{inviting ? "Enviando..." : "Confirmar convite"}</button>
             </div>
           </div>
-        </div>
+        </NexaModal>
       ) : null}
 
       {/* Lifecycle action modal */}
       {modalAction ? (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => { if (!actionBusy) setModalAction(null); }}>
-          <div style={{ background: "var(--color-carbon)", border: "1px solid var(--color-stone)", borderRadius: 16, padding: 32, width: "100%", maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+        <NexaModal onClose={() => { if (!actionBusy) setModalAction(null); }}>
+          <div style={{ background: "var(--color-carbon)", border: "1px solid var(--color-stone)", borderRadius: 16, padding: 32, width: "100%", maxWidth: 440 }}>
             {modalAction.type === "deactivate" ? (
               <>
                 <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--color-bone)", margin: "0 0 12px" }}>Desativar corretor</h2>
@@ -471,7 +472,7 @@ export default function BrokersPage() {
               </>
             )}
           </div>
-        </div>
+        </NexaModal>
       ) : null}
 
       {/* Action dropdown */}

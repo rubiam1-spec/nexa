@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { NexaModal } from "../../../shared/ui/NexaModal";
 import { type TextConfig } from "./BannerTemplateEditorModal";
 import { useBannerCapture } from "../hooks/useBannerCapture";
 import {
@@ -303,19 +304,7 @@ export default function BirthdayBannerModal({
   ];
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.7)",
-        zIndex: 1000,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 16,
-      }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
+    <NexaModal onClose={onClose}>
       <div
         style={{
           background: "#1C1B18",
@@ -496,6 +485,6 @@ export default function BirthdayBannerModal({
 
         <WhatsAppHint />
       </div>
-    </div>
+    </NexaModal>
   );
 }

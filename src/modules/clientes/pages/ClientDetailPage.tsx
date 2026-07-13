@@ -22,6 +22,7 @@ import { isNegotiationActive } from "../../../domain/status/negotiation";
 import { fromLeadQualificationDb, isLeadActive } from "../../../domain/status/leadQualification";
 import { LEAD_STAGE_META } from "../../leads/leadDisplay";
 import { NexaSelect } from "../../../shared/ui/NexaSelect";
+import { NexaModal } from "../../../shared/ui/NexaModal";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 
@@ -149,9 +150,8 @@ function QuickActivityModal({ clientId, clientName, accountId, developmentId, pr
   }
   const IS2: React.CSSProperties = { width: "100%", background: "var(--surface-base)", border: "1px solid var(--border-default)", borderRadius: 8, padding: "10px 14px", color: "var(--text-primary)", fontSize: 14, outline: "none", boxSizing: "border-box" };
   return (
-    <>
-      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 9000 }} onClick={onClose} />
-      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 14, padding: 24, width: 420, maxWidth: "90vw", zIndex: 9001 }}>
+    <NexaModal onClose={onClose}>
+      <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 14, padding: 24, width: 420, maxWidth: "90vw" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <h3 style={{ fontSize: 16, fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>Registrar atendimento</h3>
           <button type="button" onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 18, cursor: "pointer" }}>x</button>
@@ -167,7 +167,7 @@ function QuickActivityModal({ clientId, clientName, accountId, developmentId, pr
         <input style={{ ...IS2, marginBottom: 20 }} value={outcome} onChange={(e) => setOutcome(e.target.value)} placeholder="O que aconteceu?" />
         <button type="button" onClick={handleSave} disabled={!title.trim() || saving} style={{ width: "100%", padding: "12px", borderRadius: 8, border: "none", background: "var(--interactive-primary)", color: "var(--interactive-on-primary)", fontSize: 14, fontWeight: 700, cursor: !title.trim() || saving ? "not-allowed" : "pointer", opacity: !title.trim() || saving ? 0.5 : 1 }}>{saving ? "Salvando..." : "Registrar"}</button>
       </div>
-    </>
+    </NexaModal>
   );
 }
 

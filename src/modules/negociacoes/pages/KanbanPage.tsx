@@ -25,6 +25,7 @@ import LeadCard from "../../leads/LeadCard";
 import { AssignModal, DiscardModal } from "../../leads/LeadActionModals";
 import { splitLeadColumns } from "../../leads/leadColumns";
 import { NexaSelect } from "../../../shared/ui/NexaSelect";
+import { NexaModal } from "../../../shared/ui/NexaModal";
 
 const MONO = "var(--font-mono)";
 const MAX_CARDS_PER_COL = 6;
@@ -343,8 +344,8 @@ export default function KanbanPage() {
 
     {/* Simulação detail (preserva Iniciar negociação + Excluir) */}
     {simDetail ? (
-      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setSimDetail(null)}>
-        <div style={{ background: "var(--color-carbon)", border: "1px solid var(--color-stone)", borderRadius: 16, padding: 28, width: "100%", maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+      <NexaModal onClose={() => setSimDetail(null)}>
+        <div style={{ background: "var(--color-carbon)", border: "1px solid var(--color-stone)", borderRadius: 16, padding: 28, width: "100%", maxWidth: 420 }}>
           <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--color-bone)", margin: "0 0 4px" }}>Simulação</h2>
           <div style={{ fontSize: 11, color: "var(--color-fog)", marginBottom: 16 }}>{simDetail.clienteNome || "Sem cliente"} · {unitLabel(simDetail)} · {fmtBRL(simDetail.valor)} · {timeAgo(simDetail.createdAt)}</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -353,7 +354,7 @@ export default function KanbanPage() {
             <button type="button" disabled={deletingSim} onClick={async () => { setDeletingSim(true); try { await deleteSimulation(simDetail.id); celebrate("Simulação excluída"); setSimDetail(null); onActionSuccess(); } catch (e: unknown) { celebrateError("Falha ao excluir", e instanceof Error ? e.message : undefined); } finally { setDeletingSim(false); } }} style={{ padding: 10, borderRadius: 8, border: "none", background: "transparent", color: "#F87171", fontSize: 12, cursor: "pointer" }}>{deletingSim ? "Excluindo..." : "Excluir simulação"}</button>
           </div>
         </div>
-      </div>
+      </NexaModal>
     ) : null}
     {/* Modais de ação de lead (compartilhados com /leads) */}
     {leadAssignTarget ? (

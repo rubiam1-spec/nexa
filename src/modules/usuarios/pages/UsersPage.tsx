@@ -15,6 +15,7 @@ import {
 } from "../../../infra/repositories/usersSupabaseRepository";
 import type { AccountUser } from "../../../shared/types/accountUser";
 import { NexaSelect } from "../../../shared/ui/NexaSelect";
+import { NexaModal } from "../../../shared/ui/NexaModal";
 
 const roleOptions: Array<{ value: UserRole; label: string; desc: string }> = [
   { value: "director", label: "Diretor", desc: "Acesso total, configurações estruturais" },
@@ -260,8 +261,8 @@ export default function UsersPage() {
 
       {/* Modals */}
       {modal ? (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => { if (!actionBusy) setModal(null); }}>
-          <div style={{ background: "var(--color-carbon)", border: "1px solid var(--color-stone)", borderRadius: 16, padding: 32, width: "100%", maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+        <NexaModal onClose={() => { if (!actionBusy) setModal(null); }}>
+          <div style={{ background: "var(--color-carbon)", border: "1px solid var(--color-stone)", borderRadius: 16, padding: 32, width: "100%", maxWidth: 440 }}>
 
             {modal.type === "changeRole" ? (
               <>
@@ -323,7 +324,7 @@ export default function UsersPage() {
             ) : null}
 
           </div>
-        </div>
+        </NexaModal>
       ) : null}
 
       {/* Inactive filter */}

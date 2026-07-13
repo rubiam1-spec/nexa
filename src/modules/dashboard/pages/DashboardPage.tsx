@@ -12,6 +12,7 @@ import { timeAgo } from "../../../shared/utils/timeAgo";
 import BrokerDashboard from "./BrokerDashboard";
 import ConsultantDashboard from "./ConsultantDashboard";
 import { formatWeekdayLongBRT } from "../../../shared/utils/dateUtils";
+import { NexaModal } from "../../../shared/ui/NexaModal";
 
 export default function DashboardPage() {
   const { isBroker, account } = useAccount();
@@ -262,10 +263,8 @@ export default function DashboardPage() {
 
       {/* Modal */}
       {modalAberto ? (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
-          onClick={() => setModalAberto(false)}>
-          <div style={{ background: "var(--color-carbon)", border: "1px solid var(--color-stone)", borderRadius: 16, padding: 32, width: "100%", maxWidth: 560, maxHeight: "80vh", overflowY: "auto" }}
-            onClick={(e) => e.stopPropagation()}>
+        <NexaModal onClose={() => setModalAberto(false)}>
+          <div style={{ background: "var(--color-carbon)", border: "1px solid var(--color-stone)", borderRadius: 16, padding: 32, width: "100%", maxWidth: 560, maxHeight: "80vh", overflowY: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
               <div>
                 <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--color-bone)", margin: 0 }}>Personalizar Dashboard</h2>
@@ -301,7 +300,7 @@ export default function DashboardPage() {
               </button>
             </div>
           </div>
-        </div>
+        </NexaModal>
       ) : null}
     </div>
   );
