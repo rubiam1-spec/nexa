@@ -66,7 +66,14 @@ antigos ficam nulos.
 ## DoD
 - tsc 0 · build verde · check:contracts · suíte. RLS em toda tabela nova; toda query
   por account_id. Zero regra em componente. Modais fecham e permanecem; toast sempre.
-- **Deploy + prova de bundle:** (rodapé abaixo).
+- **Deploy:** push ff `8da5a7f..940270d` → main → **`dpl_3QFEx8Dq6znY3NTMcaDZ92bquKdt` READY**
+  (production, sha `940270d`, `app.nexacomercial.com.br`).
+- **Prova de bundle** (`/assets/index-7lGKP9FV.js`): `Todas as campanhas` 1× (filtro
+  Leads), `Nova campanha` 1×, `Nova origem` 1× (Configurações → Leads).
+- **RLS confirmada** (pg_policies): lead_campaigns/lead_origins com SELECT (membros)
+  + ALL (owner/director/manager); webhook_events só SELECT (escrita = service role).
+  Rollback do schema = drop dos novos objetos (aditivo, sem perda). Rollback do app
+  = instant rollback p/ `dpl_88VCvJVS` (`ed8afee`).
 
 ### Checklist para o Rubiam
 - Configurações → Leads visível só p/ owner/director/manager; broker/consultant não vê
