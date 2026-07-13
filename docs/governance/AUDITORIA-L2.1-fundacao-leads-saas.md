@@ -76,6 +76,14 @@ entrega: `RECEIVE_LEAD_URL?key=<api_key>` (ou header x-api-key).
 - `receive-lead` **intocada** (L2.2). `source` guarda o slug da origem
   (compatível com o insert atual da receive-lead).
 
+**Deploy L2.1b:** ff `57eec92..74d9995` → main → **`dpl_FjXtsp788XMHAvQ1tNqudo9GhMnH`
+READY** (production, sha `74d9995`, `app.nexacomercial.com.br`). Prova de bundle
+(`index-yqLK_bRu.js`): `Landing própria` 1× (wizard), `Regenerar` 1×, `Configurar
+canais` 1× (aviso). Rollback = instant rollback p/ `dpl_3QFEx8Dq` (`940270d`).
+**Pendência menor:** telas de leitura (ContatosPage/LeadCard/linhagem) resolvem o
+rótulo de origem por mapa legado — origem custom mostra o slug cru até conciliação
+de labels (não bloqueante).
+
 ## DoD
 - tsc 0 · build verde · check:contracts · suíte. RLS em toda tabela nova; toda query
   por account_id. Zero regra em componente. Modais fecham e permanecem; toast sempre.
