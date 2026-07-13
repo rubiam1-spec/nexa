@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeLead, cleanPhone, isHoneypot } from "../../../supabase/functions/_shared/leadAdapters";
+import { normalizeLead, cleanPhone, isHoneypot } from "../../../supabase/functions/receive-lead/leadAdapters";
 
 describe("normalizeLead — google_lead_form (payload oficial)", () => {
   const google = {

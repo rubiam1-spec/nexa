@@ -66,9 +66,29 @@ END $function$;
 Hash da api_key **NÃO** entra agora (mudar a validação da artéria junto eleva risco).
 L2.3 = dual-read (plaintext + hash), migrar, remover plaintext.
 
-## PORTÃO — aguardando "Backup diário confirmado verde?" (SIM explícito)
-Só com SIM: (1) criar canal de TESTE Google via wizard (não tocar na Bomm);
-(2) [se aprovado] aplicar o patch do RPC; (3) deploy da função (rollback:
-redeployar `rollback-receive-lead-v7-pre-L2.2.md`); (4) E2E no canal de teste
-(google ok / duplicado / is_test / chave inválida); (5) **regressão Bomm** (landing
-real → Gabrielly, evento 'processed'); (6) desativar o canal de teste. Só então concluir.
+## ✅ EXECUTADO (2026-07-13, backup verde confirmado por Rubiam)
+
+- **Patch do RPC** `assign_next_lead_consultant` (`AND paused = false`) aplicado
+  (migration `l2_2_assign_next_lead_consultant_respect_paused`). Original salvo em
+  `rollback-receive-lead-v7-pre-L2.2.md`.
+- **Deploy** da função v6 (Supabase Edge **version 9**, ACTIVE, verify_jwt=false).
+  Rollback = redeployar o v7 do doc de rollback.
+- **Canal de TESTE** Google criado + **E2E** (curl):
+  - Google OK → client criado, origin `google_ads`, **campanha casou** (case-insensitive
+    `l22-camp-test`→`L22-CAMP-TEST`), evento `processed`.
+  - Duplicado (mesmo `lead_id`) → `dedupe:lead_id`, evento `duplicate`, sem client.
+  - `is_test` → sem client, evento `processed`(google_test).
+  - Chave inválida → **HTTP 401** (sem log).
+- **CORREÇÃO DA REGRESSÃO L1 (causa-raiz achada):** a tabela `notifications` **não
+  tem coluna `metadata`** — o insert de `new_lead` a incluía e falhava
+  silenciosamente (por isso 0 notificações em prod). Removido o `metadata`; após o
+  redeploy (v6.1), o lead OK inseriu **5 notificações `new_lead`** (concierge/owner/
+  director/manager) — regressão corrigida e verificada.
+- **Regressão Bomm** (controlada): curl no canal real "Landing Vivendas do Bosque"
+  (generic/landing_page/fixed) → client **atribuído a Gabrielly Truilho**
+  (`auto_fixed`), evento `processed`, origin `landing_page`. Path Bomm intacto na v6.
+- **Limpeza:** todos os artefatos de teste removidos (clients/eventos/notificações/
+  campanha/canal); Bomm restaurada a 12 recebidos; 0 `new_lead` residual.
+
+## Segurança da chave (registrado como L2.3)
+Hash da api_key **NÃO** entra agora. L2.3 = dual-read (plaintext + hash), migrar, remover plaintext.

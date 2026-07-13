@@ -1,5 +1,35 @@
 # Rollback — receive-lead v7 (pré-L2.2)
 
+## Rollback do RPC assign_next_lead_consultant (ORIGINAL pré-patch `paused`)
+Reverter = recriar exatamente esta função (sem `AND paused = false`):
+```sql
+CREATE OR REPLACE FUNCTION public.assign_next_lead_consultant(p_account_id uuid, p_development_id uuid)
+ RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE v_id uuid;
+BEGIN
+  SELECT consultant_id INTO v_id
+  FROM lead_distribution
+  WHERE account_id = p_account_id
+    AND active = true
+    AND (development_id = p_development_id OR development_id IS NULL)
+  ORDER BY (current_count::numeric / GREATEST(weight, 1)) ASC,
+           last_assigned_at ASC NULLS FIRST,
+           created_at ASC
+  LIMIT 1
+  FOR UPDATE SKIP LOCKED;
+  IF v_id IS NULL THEN RETURN NULL; END IF;
+  UPDATE lead_distribution
+    SET current_count = current_count + 1, last_assigned_at = now()
+  WHERE account_id = p_account_id AND consultant_id = v_id
+    AND (development_id = p_development_id OR development_id IS NULL);
+  RETURN v_id;
+END $function$;
+```
+
+---
+
+
 Versão **ACTIVE em produção antes da L2.2** (Supabase Edge, version 7).
 Rollback = redeployar este `index.ts` (via `deploy_edge_function` slug `receive-lead`).
 Base fiel do fluxo atual (sem bloco de notificação — o WIP local com notif NÃO estava deployado).

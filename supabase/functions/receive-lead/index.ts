@@ -1,5 +1,5 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { normalizeLead, isHoneypot, sourceDetailOf } from "../_shared/leadAdapters.ts";
+import { normalizeLead, isHoneypot, sourceDetailOf } from "./leadAdapters.ts";
 
 // receive-lead v6 (L2.2) — ingestão multicanal. Ordem: resolve canal → LOG BRUTO
 // (webhook_events) → adaptador por provider_adapter → dedupe (telefone/email +
@@ -179,6 +179,33 @@ Deno.serve(async (req) => {
 
       // ── 7. Fechar o log ──
       await closeEvent("processed", { client_id: newClient.id, error: fallbackNote });
+
+      // ── 8. Notificar concierge + gestores (in-app + e-mail) — regra L1 reincorporada.
+      // Lead novo esfria em minutos. BEST-EFFORT: Promise.allSettled; falha de
+      // notificação/e-mail NUNCA quebra a captura (o client já foi criado acima).
+      try {
+        const leadName = lead.name || "Lead sem nome";
+        const originLabel = sourceDetail ? `${channel.source} · ${sourceDetail}` : (channel.source as string);
+        const title = `Novo lead: ${leadName} · ${channel.source}`;
+        const emailBody = [`Nome: ${leadName}`, lead.phone ? `Telefone: ${lead.phone}` : null, `Origem: ${originLabel}`].filter(Boolean).join("<br>");
+        const { data: recipients } = await supabase.from("user_account_access").select("user_id").eq("account_id", accountId).in("role", ["concierge", "owner", "director", "manager"]);
+        const userIds = [...new Set((recipients ?? []).map((r) => r.user_id).filter(Boolean))] as string[];
+        if (userIds.length > 0) {
+          // NB: notifications NÃO tem coluna metadata — incluí-la fazia o insert
+          // falhar silenciosamente (causa-raiz da regressão de L1: 0 new_lead em prod).
+          await supabase.from("notifications").insert(userIds.map((uid) => ({
+            account_id: accountId, recipient_id: uid, sender_id: null,
+            type: "new_lead", title, message: emailBody.replace(/<br>/g, " · "),
+            action_url: "/leads", read: false,
+          })));
+          const emailUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-notification-email`;
+          const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+          await Promise.allSettled(userIds.map((uid) =>
+            fetch(emailUrl, { method: "POST", headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ recipient_id: uid, type: "new_lead", title, message: emailBody, action_url: "/leads" }) })));
+        }
+      } catch (notifyErr) {
+        console.warn("[receive-lead] notificação de novo lead falhou (ignorada; lead criado):", notifyErr);
+      }
 
       return json({ success: true, contact_id: newClient.id, is_new: true, assigned_to: assignedTo, assignment_type: assignmentType, campaign_id: campaignId });
     } catch (procErr) {
