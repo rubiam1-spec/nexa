@@ -1,23 +1,41 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { normalizeLead, isHoneypot, sourceDetailOf } from "../_shared/leadAdapters.ts";
+
+// receive-lead v6 (L2.2) — ingestão multicanal. Ordem: resolve canal → LOG BRUTO
+// (webhook_events) → adaptador por provider_adapter → dedupe (telefone/email +
+// lead_id) → origem/campanha → distribuição por distribution_mode → cria client →
+// fecha o log. NUNCA perde lead: qualquer falha pós-log vira status='failed' + 200
+// (payload salvo = reprocessável). 4xx só para chave inválida / payload ilegível.
+// Fluxo pós-criação idêntico ao v7 (interaction + increment_webhook_received).
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-api-key",
 };
 
+const rateBucket = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT = 10;
+const RATE_WINDOW_MS = 60_000;
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateBucket.get(ip);
+  if (!entry || now > entry.resetAt) { rateBucket.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS }); return false; }
+  entry.count++;
+  if (rateBucket.size > 5000) rateBucket.clear();
+  return entry.count > RATE_LIMIT;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-  // Facebook webhook verification (GET)
+  // Facebook webhook verification (GET) — preservado do v7.
   if (req.method === "GET") {
     const url = new URL(req.url);
     const mode = url.searchParams.get("hub.mode");
     const token = url.searchParams.get("hub.verify_token");
     const challenge = url.searchParams.get("hub.challenge");
     const VERIFY_TOKEN = Deno.env.get("FB_VERIFY_TOKEN") || "nexa-webhook-2026";
-    if (mode === "subscribe" && token === VERIFY_TOKEN) {
-      return new Response(challenge, { status: 200 });
-    }
+    if (mode === "subscribe" && token === VERIFY_TOKEN) return new Response(challenge, { status: 200 });
     return new Response("Forbidden", { status: 403 });
   }
 
@@ -25,224 +43,149 @@ Deno.serve(async (req) => {
     new Response(JSON.stringify(data), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   try {
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    if (isRateLimited(ip)) return json({ error: "Too many requests" }, 429);
 
-    // ── 1. Authenticate via x-api-key header or ?key= query param ──
-    const apiKey = req.headers.get("x-api-key") || new URL(req.url).searchParams.get("key");
-    if (!apiKey) {
-      return json({ error: "Missing x-api-key header or ?key= parameter" }, 401);
-    }
+    const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-    const { data: webhook, error: whErr } = await supabase
+    // Corpo lido UMA vez; payload ilegível → 4xx (nunca chega ao log).
+    const rawText = await req.text();
+    // deno-lint-ignore no-explicit-any
+    let body: Record<string, any>;
+    try { body = rawText ? JSON.parse(rawText) : {}; } catch { return json({ error: "Payload ilegível (JSON inválido)" }, 400); }
+
+    // ── 1. Resolver canal por api_key: header x-api-key, ?key=, ou body.google_key (Google) ──
+    const apiKey = req.headers.get("x-api-key") || new URL(req.url).searchParams.get("key") || (body?.google_key != null ? String(body.google_key) : null);
+    if (!apiKey) return json({ error: "Missing x-api-key header or ?key= parameter" }, 401);
+
+    const { data: channel, error: whErr } = await supabase
       .from("webhook_endpoints")
-      .select("id, account_id, name, source, is_active, default_temperature, default_assigned_to, default_development_id, field_mapping")
-      .eq("api_key", apiKey)
-      .maybeSingle();
+      .select("id, account_id, name, source, is_active, default_temperature, default_assigned_to, default_development_id, field_mapping, distribution_mode, provider_adapter, fallback_assigned_to, api_key")
+      .eq("api_key", apiKey).maybeSingle();
+    if (whErr || !channel) return json({ error: "Invalid API key" }, 401);
+    if (!channel.is_active) return json({ error: "Webhook endpoint is disabled" }, 403);
 
-    if (whErr || !webhook) {
-      return json({ error: "Invalid API key" }, 401);
-    }
-    if (!webhook.is_active) {
-      return json({ error: "Webhook endpoint is disabled" }, 403);
-    }
+    const accountId = channel.account_id as string;
 
-    const accountId = webhook.account_id as string;
-    const fieldMapping = (webhook.field_mapping || {}) as Record<string, string>;
-
-    // ── 2. Parse body ──
-    const body = await req.json();
-
-    // Apply field_mapping: rename keys from external names to NEXA names
-    const mapped: Record<string, string> = {};
-    for (const [extKey, nexaKey] of Object.entries(fieldMapping)) {
-      if (body[extKey] !== undefined) mapped[nexaKey] = String(body[extKey]);
-    }
-
-    // Extract lead data — check mapped first, then body directly
-    let name = mapped.name || body.name || body.nome || body.full_name || "";
-    let email = mapped.email || body.email || "";
-    let phone = mapped.phone || body.phone || body.telefone || body.whatsapp || body.phone_number || "";
-    const sourceDetail = mapped.source_detail || body.source_detail || body.campaign || body.campanha || body.form || "";
-    const observations = mapped.observations || body.observations || body.notes || body.observacoes || "";
-
-    // Facebook Lead Ads format
-    if (body.entry && body.entry[0]?.changes) {
-      const fbData = body.entry[0].changes[0]?.value;
-      const fields = fbData?.field_data || [];
-      const getField = (names: string[]) => {
-        for (const n of names) {
-          const f = fields.find((fd: { name: string; values: string[] }) => fd.name === n);
-          if (f?.values?.[0]) return f.values[0];
-        }
-        return "";
-      };
-      name = name || getField(["full_name", "nome", "name"]);
-      email = email || getField(["email"]);
-      phone = phone || getField(["phone_number", "telefone", "whatsapp"]);
-    }
-
-    // Clean phone
-    phone = phone.replace(/\D/g, "");
-
-    // ── 3. Validate ──
-    if (!name && !phone && !email) {
-      return json({ error: "Dados insuficientes: precisa de nome, telefone ou email" }, 400);
-    }
-
-    // ── 4. Deduplicate ──
-    let existingClient = null;
-    if (phone && phone.length >= 10) {
-      const { data } = await supabase.from("clients").select("id, name, status")
-        .eq("account_id", accountId).eq("phone", phone).is("deleted_at", null).limit(1).maybeSingle();
-      existingClient = data;
-    }
-    if (!existingClient && email) {
-      const { data } = await supabase.from("clients").select("id, name, status")
-        .eq("account_id", accountId).eq("email", email).is("deleted_at", null).limit(1).maybeSingle();
-      existingClient = data;
-    }
-
-    if (existingClient) {
-      // Update last_interaction_at + register interaction
-      await supabase.from("clients").update({ last_interaction_at: new Date().toISOString() }).eq("id", existingClient.id);
-      await supabase.from("contact_interactions").insert({
-        account_id: accountId, client_id: existingClient.id,
-        type: "system", title: `Lead recebido via ${webhook.source} (duplicado)`,
-        description: sourceDetail || null,
-        metadata: { webhook_id: webhook.id, source: webhook.source },
-      });
-      // Update webhook stats
-      await supabase.from("webhook_endpoints").update({
-        total_received: (webhook as Record<string, unknown>).total_received
-          ? ((webhook as Record<string, unknown>).total_received as number) + 1 : 1,
-        last_received_at: new Date().toISOString(),
-      }).eq("id", webhook.id);
-
-      return json({ success: true, contact_id: existingClient.id, is_new: false, message: "Contato já existe, interação registrada" });
-    }
-
-    // ── 5. Resolve assignee ──
-    // Round-robin com peso quando a conta tem lead_distribution_enabled=true e
-    // há participante ativo elegível para o empreendimento do webhook. Caso
-    // contrário, mantém o comportamento antigo (default_assigned_to / 'manual').
-    let assignedTo: string | null = webhook.default_assigned_to || null;
-    let consultantId: string | null = null;
-    let assignmentType: string | null = assignedTo ? "manual" : null;
-
-    const { data: settings } = await supabase
-      .from("account_settings")
-      .select("lead_distribution_enabled")
-      .eq("account_id", accountId)
-      .maybeSingle();
-
-    if (settings?.lead_distribution_enabled) {
-      const { data: picked, error: rrErr } = await supabase.rpc("assign_next_lead_consultant", {
-        p_account_id: accountId,
-        p_development_id: webhook.default_development_id ?? null,
-      });
-      if (!rrErr && picked) {
-        assignedTo = picked as string;
-        consultantId = picked as string;
-        assignmentType = "round_robin";
-      }
-    }
-
-    // ── 6. Create new contact ──
-    const { data: newClient, error: insertErr } = await supabase.from("clients").insert({
-      account_id: accountId,
-      name: name || "Lead sem nome",
-      email: email || null,
-      phone: phone || null,
-      status: "new",
-      temperature: webhook.default_temperature || "warm",
-      origin: webhook.source,
-      origin_detail: sourceDetail || webhook.name,
-      observations: observations || null,
-      assigned_to: assignedTo,
-      consultant_id: consultantId,
-      assignment_type: assignmentType,
-      assigned_at: assignedTo ? new Date().toISOString() : null,
-      development_id: webhook.default_development_id || null,
-    }).select("id").single();
-
-    if (insertErr) {
-      return json({ error: "Erro ao criar contato", detail: insertErr.message }, 500);
-    }
-
-    // Register interaction
-    await supabase.from("contact_interactions").insert({
-      account_id: accountId, client_id: newClient.id,
-      type: "system", title: `Lead recebido via ${webhook.source}`,
-      description: sourceDetail || null,
-      metadata: { webhook_id: webhook.id, source: webhook.source },
-    });
-
-    // Update webhook stats
-    await supabase.rpc("increment_webhook_received" as never, { webhook_id_param: webhook.id } as never).catch(() => {
-      // Fallback if rpc doesn't exist
-      supabase.from("webhook_endpoints").update({
-        total_received: ((webhook as Record<string, unknown>).total_received as number || 0) + 1,
-        last_received_at: new Date().toISOString(),
-      }).eq("id", webhook.id);
-    });
-
-    // ── 7. Notificar concierge + gestores (in-app + e-mail best-effort) ──
-    // Leads L1: lead novo esfria em minutos. Falha de notificação/e-mail NUNCA
-    // quebra a captura — o lead já foi criado acima; este bloco é best-effort.
+    // ── 2. LOG BRUTO PRIMEIRO (webhook_events) — antes de qualquer processamento ──
+    let eventId: string | null = null;
     try {
-      const leadName = name || "Lead sem nome";
-      const originLabel = sourceDetail ? `${webhook.source} · ${sourceDetail}` : webhook.source;
-      const title = `Novo lead: ${leadName} · ${webhook.source}`;
-      const emailBody = [
-        `Nome: ${leadName}`,
-        phone ? `Telefone: ${phone}` : null,
-        `Origem: ${originLabel}`,
-      ].filter(Boolean).join("<br>");
+      const { data: ev } = await supabase.from("webhook_events")
+        .insert({ account_id: accountId, endpoint_id: channel.id, raw_payload: body, status: "received" })
+        .select("id").single();
+      eventId = (ev?.id as string) ?? null;
+    } catch (_) { /* best-effort: segue mesmo sem eventId (nunca perder lead) */ }
 
-      const { data: recipients } = await supabase
-        .from("user_account_access")
-        .select("user_id")
-        .eq("account_id", accountId)
-        .in("role", ["concierge", "owner", "director", "manager"]);
-      const userIds = [...new Set((recipients ?? []).map((r) => r.user_id).filter(Boolean))] as string[];
+    const closeEvent = async (status: string, patch: Record<string, unknown> = {}) => {
+      if (eventId) await supabase.from("webhook_events").update({ status, ...patch }).eq("id", eventId);
+    };
 
-      if (userIds.length > 0) {
-        // (a) Notificação in-app para todos os perfis notificados.
-        await supabase.from("notifications").insert(
-          userIds.map((uid) => ({
-            account_id: accountId, recipient_id: uid, sender_id: null,
-            type: "new_lead", title, message: emailBody.replace(/<br>/g, " · "),
-            action_url: "/leads", read: false,
-            metadata: { client_id: newClient.id, source: webhook.source },
-          })),
-        );
+    try {
+      // Honeypot anti-bot: sucesso falso, não grava client.
+      if (isHoneypot(body)) { await closeEvent("processed", { error: "honeypot" }); return json({ success: true }); }
 
-        // (b) E-mail best-effort via send-notification-email (Resend
-        // noreply@nexacomercial.com.br). O type 'new_lead' cai no template
-        // genérico (título + corpo + botão → /leads). Só quem tem e-mail
-        // cadastrado recebe (a função resolve 404 e ignora os demais).
-        const emailUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-notification-email`;
-        const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-        await Promise.allSettled(
-          userIds.map((uid) =>
-            fetch(emailUrl, {
-              method: "POST",
-              headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
-              body: JSON.stringify({
-                recipient_id: uid, type: "new_lead", title, message: emailBody, action_url: "/leads",
-              }),
-            }),
-          ),
-        );
+      const provider = (channel.provider_adapter as string) || "generic";
+      const fieldMapping = (channel.field_mapping || {}) as Record<string, string>;
+      const lead = normalizeLead(provider, body, fieldMapping);
+
+      // ── 3. Validações específicas do Google ──
+      if (provider === "google_lead_form") {
+        if (lead.googleKey && lead.googleKey !== channel.api_key) {
+          await closeEvent("failed", { error: "google_key não confere com a api_key do canal" });
+          return json({ success: true, ignored: "google_key mismatch" });
+        }
+        if (lead.isTest) { // botão "enviar dados de teste" do Google: registra, NÃO cria client.
+          await closeEvent("processed", { error: "google_test" });
+          return json({ success: true, is_test: true });
+        }
       }
-    } catch (notifyErr) {
-      console.warn("[receive-lead] notificação de novo lead falhou (ignorada; lead criado):", notifyErr);
-    }
 
-    return json({ success: true, contact_id: newClient.id, is_new: true, assigned_to: assignedTo, assignment_type: assignmentType });
+      if (!lead.name && !lead.phone && !lead.email) {
+        await closeEvent("failed", { error: "Dados insuficientes: nome, telefone ou email" });
+        return json({ success: true, ignored: "insufficient_data" });
+      }
+
+      const sourceDetail = sourceDetailOf(body) || (channel.name as string);
+
+      // ── 4. Idempotência: lead_id do provedor (Google reenvia o mesmo) ──
+      if (lead.leadId) {
+        const { data: dup } = await supabase.from("webhook_events").select("id")
+          .eq("endpoint_id", channel.id).eq("status", "processed")
+          .eq("raw_payload->>lead_id", lead.leadId)
+          .neq("id", eventId ?? "00000000-0000-0000-0000-000000000000").limit(1).maybeSingle();
+        if (dup) { await closeEvent("duplicate", { error: "lead_id já processado neste canal" }); return json({ success: true, is_new: false, dedupe: "lead_id" }); }
+      }
+
+      // Dedupe por telefone/email (v7).
+      let existing: { id: string } | null = null;
+      if (lead.phone && lead.phone.length >= 10) {
+        const { data } = await supabase.from("clients").select("id").eq("account_id", accountId).eq("phone", lead.phone).is("deleted_at", null).limit(1).maybeSingle();
+        existing = data as { id: string } | null;
+      }
+      if (!existing && lead.email) {
+        const { data } = await supabase.from("clients").select("id").eq("account_id", accountId).eq("email", lead.email).is("deleted_at", null).limit(1).maybeSingle();
+        existing = data as { id: string } | null;
+      }
+      if (existing) {
+        await supabase.from("clients").update({ last_interaction_at: new Date().toISOString() }).eq("id", existing.id);
+        await supabase.from("contact_interactions").insert({ account_id: accountId, client_id: existing.id, type: "system", title: `Lead recebido via ${channel.source} (duplicado)`, description: sourceDetail || null, metadata: { webhook_id: channel.id, source: channel.source } });
+        await supabase.rpc("increment_webhook_received", { webhook_id_param: channel.id });
+        await closeEvent("duplicate", { client_id: existing.id });
+        return json({ success: true, contact_id: existing.id, is_new: false });
+      }
+
+      // ── 5. Origem (slug do canal) + campanha (match exato case-insensitive de utm_campaign_match) ──
+      const origin = channel.source as string;
+      let campaignId: string | null = null;
+      if (lead.utm.campaign) {
+        const { data: camp } = await supabase.from("lead_campaigns").select("id")
+          .eq("account_id", accountId).eq("active", true).ilike("utm_campaign_match", lead.utm.campaign).limit(1).maybeSingle();
+        campaignId = (camp?.id as string) ?? null;
+      }
+
+      // ── 6. Distribuição por distribution_mode do canal ──
+      const mode = (channel.distribution_mode as string) || "fixed";
+      let assignedTo: string | null = null, consultantId: string | null = null, assignmentType: string | null = null, fallbackNote: string | null = null;
+      if (mode === "fixed") {
+        assignedTo = (channel.default_assigned_to as string) || null;
+        assignmentType = assignedTo ? "auto_fixed" : null;
+      } else if (mode === "round_robin") {
+        const { data: settings } = await supabase.from("account_settings").select("lead_distribution_enabled").eq("account_id", accountId).maybeSingle();
+        let picked: string | null = null;
+        if (settings?.lead_distribution_enabled) {
+          const { data: p, error: rrErr } = await supabase.rpc("assign_next_lead_consultant", { p_account_id: accountId, p_development_id: channel.default_development_id ?? null });
+          if (!rrErr && p) picked = p as string;
+        }
+        if (picked) { assignedTo = picked; consultantId = picked; assignmentType = "auto_round_robin"; }
+        else { assignedTo = (channel.fallback_assigned_to as string) || null; assignmentType = assignedTo ? "auto_fallback" : null; fallbackNote = "fallback aplicado (roleta vazia/pausada/desligada)"; }
+      } // 'unassigned' → sem responsável.
+
+      // ── 6b. Criar contato ──
+      const { data: newClient, error: insertErr } = await supabase.from("clients").insert({
+        account_id: accountId, name: lead.name || "Lead sem nome", email: lead.email || null, phone: lead.phone || null,
+        status: "new", temperature: (channel.default_temperature as string) || "warm",
+        origin, origin_detail: sourceDetail, campaign_id: campaignId,
+        utm_source: lead.utm.source, utm_medium: lead.utm.medium, utm_campaign: lead.utm.campaign, utm_content: lead.utm.content, utm_term: lead.utm.term,
+        observations: lead.message || null,
+        assigned_to: assignedTo, consultant_id: consultantId, assignment_type: assignmentType,
+        assigned_at: assignedTo ? new Date().toISOString() : null,
+        development_id: channel.default_development_id || null,
+      }).select("id").single();
+      if (insertErr) { await closeEvent("failed", { error: `insert client: ${insertErr.message}` }); return json({ success: true, saved: true, note: "erro ao criar contato; payload salvo p/ reprocesso" }); }
+
+      // Pós-criação idêntico ao v7.
+      await supabase.from("contact_interactions").insert({ account_id: accountId, client_id: newClient.id, type: "system", title: `Lead recebido via ${channel.source}`, description: sourceDetail || null, metadata: { webhook_id: channel.id, source: channel.source, assignment_type: assignmentType } });
+      await supabase.rpc("increment_webhook_received", { webhook_id_param: channel.id });
+
+      // ── 7. Fechar o log ──
+      await closeEvent("processed", { client_id: newClient.id, error: fallbackNote });
+
+      return json({ success: true, contact_id: newClient.id, is_new: true, assigned_to: assignedTo, assignment_type: assignmentType, campaign_id: campaignId });
+    } catch (procErr) {
+      // Falha pós-log: NUNCA perder o lead → payload já salvo, marca failed, 200.
+      await closeEvent("failed", { error: procErr instanceof Error ? procErr.message : String(procErr) });
+      return json({ success: true, saved: true, note: "erro no processamento; payload salvo p/ reprocesso" });
+    }
   } catch (err) {
     return json({ error: "Erro interno", detail: err instanceof Error ? err.message : String(err) }, 500);
   }
