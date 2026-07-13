@@ -24,7 +24,10 @@ import {
   type BrokerageDirectoryEntry,
 } from "../../infra/repositories/clientsSupabaseRepository";
 import { createNegotiationFromClient } from "../../infra/repositories/negotiationsSupabaseRepository";
+import { getLeadCampaigns } from "../../infra/repositories/leadCampaignsSupabaseRepository";
 import { summarizePendingBrokers, type PendingBrokersSummary } from "./assignmentGrouping";
+
+export type LeadCampaignLite = { id: string; name: string };
 import { canViewAllLeads, canWorkLead, canAssignLeads, resolveConvertOwner } from "./leadRules";
 
 export type LeadView = {
@@ -49,6 +52,7 @@ export function useLeads() {
   const canAssign = canAssignLeads(role);
 
   const [rows, setRows] = useState<Client[]>([]);
+  const [campaigns, setCampaigns] = useState<LeadCampaignLite[]>([]);
   const [members, setMembers] = useState<AccountMember[]>([]);
   const [brokerageDirectory, setBrokerageDirectory] = useState<BrokerageDirectoryEntry[]>([]);
   const [pendingBrokers, setPendingBrokers] = useState<PendingBrokersSummary>({ brokeragesWithPending: 0, brokersWithoutAccess: 0 });
@@ -73,6 +77,16 @@ export function useLeads() {
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [accountId, seeAll, profileId, refreshKey]);
+
+  // Campanhas da conta (para o filtro/chip da tela de Leads). Leve; só id+nome.
+  useEffect(() => {
+    if (!accountId) return;
+    let active = true;
+    getLeadCampaigns(accountId)
+      .then((list) => { if (active) setCampaigns(list.map((c) => ({ id: c.id, name: c.name }))); })
+      .catch(() => { if (active) setCampaigns([]); });
+    return () => { active = false; };
+  }, [accountId, refreshKey]);
 
   // Membros atribuíveis (equipe + corretores com imobiliária + carga) — só para
   // quem pode atribuir. Contexto de carga em batch, sem N+1 (ver repositório).
@@ -169,7 +183,7 @@ export function useLeads() {
   }
 
   return {
-    leads, counts, members, brokerageDirectory, pendingBrokers, loading, error, refresh,
+    leads, counts, members, campaigns, brokerageDirectory, pendingBrokers, loading, error, refresh,
     role, profileId, accountId, developmentId, canAssign,
     actions: { assign, startService, qualify, discard, convert },
   };

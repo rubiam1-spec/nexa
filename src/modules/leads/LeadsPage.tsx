@@ -9,6 +9,7 @@ import {
   type LeadQualificationStatus as SType,
 } from "../../domain/status/leadQualification";
 import { AssignModal, DiscardModal } from "./LeadActionModals";
+import { NexaSelect } from "../../shared/ui/NexaSelect";
 import { useCelebration, CelebrationToasts } from "../../shared/components/Celebration";
 
 const MONO = "var(--font-mono)";
@@ -17,10 +18,12 @@ type Filter = "active" | SType;
 export default function LeadsPage() {
   const navigate = useNavigate();
   const [qp] = useSearchParams();
-  const { leads, counts, members, brokerageDirectory, pendingBrokers, loading, error, canAssign, actions } = useLeads();
+  const { leads, counts, members, campaigns, brokerageDirectory, pendingBrokers, loading, error, canAssign, actions } = useLeads();
   const { toasts, celebrate, celebrateError } = useCelebration();
 
   const [filter, setFilterState] = useState<Filter>("active");
+  const [campaignFilter, setCampaignFilter] = useState<string>(""); // "" = todas
+  const campaignName = useMemo(() => new Map(campaigns.map((c) => [c.id, c.name])), [campaigns]);
   // Busca focada quando aberto via atalho de Contatos (/leads?q=Nome).
   const [search, setSearch] = useState(qp.get("q") ?? "");
   const [assignTarget, setAssignTarget] = useState<LeadView | null>(null);
@@ -41,7 +44,8 @@ export default function LeadsPage() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const inChip = (l: LeadView) => (filter === "active" ? isLeadActive(l.qualification) : l.qualification === filter);
-    const base = leads.filter((l) => inChip(l) && (!q || matchesSearch(l, q)));
+    const inCampaign = (l: LeadView) => !campaignFilter || l.client.campaignId === campaignFilter;
+    const base = leads.filter((l) => inChip(l) && inCampaign(l) && (!q || matchesSearch(l, q)));
     // Não-atendidos no topo; dentro de cada grupo, mais novo primeiro.
     base.sort((a, b) => {
       const aa = a.semaphore.level === "attended" ? 1 : 0;
@@ -53,7 +57,7 @@ export default function LeadsPage() {
     const baseIds = new Set(base.map((l) => l.client.id));
     const kept = leads.filter((l) => recentNote[l.client.id] && !baseIds.has(l.client.id) && (!q || matchesSearch(l, q)));
     return [...kept, ...base];
-  }, [leads, filter, search, recentNote]);
+  }, [leads, filter, search, campaignFilter, recentNote]);
 
   const chips: { id: Filter; label: string; count: number }[] = [
     { id: "active", label: "Ativos", count: counts.all_active ?? 0 },
@@ -94,10 +98,21 @@ export default function LeadsPage() {
         </p>
       </div>
 
-      {/* Busca + chips */}
-      <div style={{ marginBottom: 12 }}>
+      {/* Busca + filtro de campanha + chips */}
+      <div style={{ marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nome, origem, campanha ou responsável..."
-          style={{ width: "100%", maxWidth: 420, background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 8, padding: "10px 14px", color: "var(--text-primary)", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+          style={{ flex: 1, minWidth: 220, maxWidth: 420, background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 8, padding: "10px 14px", color: "var(--text-primary)", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+        {campaigns.length > 0 && (
+          <div style={{ width: 220 }}>
+            <NexaSelect
+              ariaLabel="Filtrar por campanha"
+              value={campaignFilter}
+              onChange={(v) => setCampaignFilter(v)}
+              placeholder="Todas as campanhas"
+              options={[{ value: "", label: "Todas as campanhas" }, ...campaigns.map((c) => ({ value: c.id, label: c.name }))]}
+            />
+          </div>
+        )}
       </div>
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 16 }}>
         {chips.map((chip) => {
@@ -124,7 +139,7 @@ export default function LeadsPage() {
           {filtered.map((l) => {
             const c = l.client;
             return (
-              <LeadCard key={c.id} lead={l} canAssign={canAssign} busy={!!busy && busy.endsWith(c.id)} movedNote={recentNote[c.id]}
+              <LeadCard key={c.id} lead={l} canAssign={canAssign} busy={!!busy && busy.endsWith(c.id)} movedNote={recentNote[c.id]} campaignLabel={l.client.campaignId ? campaignName.get(l.client.campaignId) : undefined}
                 actions={{
                   onAssign: () => setAssignTarget(l),
                   onStart: () => run(`svc-${c.id}`, () => actions.startService(l), "Atendimento iniciado ✓", { id: c.id, note: "movido para Em atendimento" }),

@@ -23,11 +23,12 @@ export type LeadCardActions = {
   onDiscard: () => void;
 };
 
-export default function LeadCard({ lead, canAssign, busy, movedNote, actions }: {
+export default function LeadCard({ lead, canAssign, busy, movedNote, campaignLabel, actions }: {
   lead: LeadView;
   canAssign: boolean;
   busy: boolean;
   movedNote?: string;
+  campaignLabel?: string;
   actions: LeadCardActions;
 }) {
   const c = lead.client;
@@ -45,6 +46,7 @@ export default function LeadCard({ lead, canAssign, busy, movedNote, actions }: 
       </div>
       <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 3, flexWrap: "wrap" }}>
         <span style={{ fontFamily: MONO, fontSize: 9, fontWeight: 700, color: "#7DA7F4", background: "rgba(125,167,244,0.1)", padding: "2px 6px", borderRadius: 4, textTransform: "uppercase" }}>{originLabel}</span>
+        {campaignLabel ? <span title="Campanha" style={{ fontFamily: MONO, fontSize: 9, fontWeight: 700, color: "#4ADE80", background: "rgba(74,222,128,0.12)", padding: "2px 6px", borderRadius: 4, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{campaignLabel}</span> : null}
         {c.utmCampaign ? <span style={{ fontFamily: MONO, fontSize: 10, color: "var(--color-slate)" }}>{c.utmCampaign}</span> : null}
         {movedNote ? <span style={{ fontFamily: MONO, fontSize: 9, fontWeight: 700, color: "var(--color-sprout)", background: "rgba(74,222,128,0.12)", padding: "2px 6px", borderRadius: 4 }}>✓ {movedNote}</span> : null}
       </div>
