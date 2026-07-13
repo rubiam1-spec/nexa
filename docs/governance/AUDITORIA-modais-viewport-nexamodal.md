@@ -66,7 +66,11 @@ dedicado; hoje já cobrem a viewport por inset:0.
 
 - tsc 0 · build verde · check:contracts · suíte + testes do NexaModal (regressão de
   viewport/portal). Zero regra de negócio. WIP (22) intocado.
-- **Deploy + prova de bundle:** (rodapé abaixo).
+- **Deploy:** push ff `b9e4ab0..ed8afee` → main → **`dpl_88VCvJVSXGQRv2X78dRCdz7naPQH` READY**
+  (production, sha `ed8afee`, `app.nexacomercial.com.br`).
+- **Prova de bundle** (`/assets/index-KIjgA4nT.js`): `data-nexa-modal` 1× (backdrop
+  canônico; minificado `{ref:s,"data-nexa-modal":"backdrop",...}`), `aria-modal` 2×.
+  Rollback = instant rollback p/ `dpl_DBwCFHrz` (`aaee82a`).
 
 ### Checklist para o Rubiam
 - Abrir **Descartar** (e **Atribuir**) com a página **rolada** / a partir de um card
