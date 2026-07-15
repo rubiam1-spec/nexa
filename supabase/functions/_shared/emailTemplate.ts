@@ -8,11 +8,15 @@ const APP_URL = "https://app.nexacomercial.com.br";
 
 export type NexaCta = { label: string; url: string; primary?: boolean };
 export type NexaDataItem = { label: string; value: string; link?: string };
+export type NexaStat = { value: string; label: string; color?: string }; // trio do digest (E-mail 2)
+export type NexaListItem = { name: string; note?: string; link?: string };
 export interface NexaEmailData {
-  badge: { label: string; color: string }; // color = fundo do badge (texto sempre #12110F)
+  badge?: { label: string; color: string }; // color = fundo do badge (texto sempre #12110F); ausente no digest
   timestamp?: string;                        // ex: "HOJE · 13:21"
   title: string;                             // Georgia itálico
   meta?: string;                             // linha de contexto (texto simples, escapado)
+  stats?: NexaStat[];                        // até 3 números (E-mail 2 — "O pulso de hoje")
+  list?: { label: string; items: NexaListItem[] }; // "PRECISAM DE VOCÊ"
   dataGrid?: NexaDataItem[];                 // pares rótulo-mono / valor
   highlightBand?: { label: string; value: string; note?: string }; // faixa âmbar
   nextStep?: string;                         // texto do "PRÓXIMO PASSO"
@@ -55,9 +59,34 @@ function dataGridHtml(items: NexaDataItem[]): string {
   return `<tr><td style="padding:0 28px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #EEEBE4">${rows}</table></td></tr>`;
 }
 
+/** Trio de números do digest (E-mail 2). Bordas entre colunas, fiel ao protótipo. */
+function statsHtml(stats: NexaStat[]): string {
+  const cols = stats.slice(0, 3);
+  const w = Math.floor(100 / cols.length);
+  const cells = cols.map((st, i) =>
+    `<td width="${w}%" align="center" style="padding:18px 0${i > 0 ? ";border-left:1px solid #EEEBE4" : ""}">`
+    + `<div style="font-family:Georgia,serif;font-size:30px;color:${esc(st.color ?? "#12110F")}">${esc(st.value)}</div>`
+    + `<div style="font-family:'Courier New',monospace;font-size:10px;letter-spacing:1px;color:#8A867C">${esc(st.label)}</div></td>`
+  ).join("");
+  return `<tr><td style="padding:0 28px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #EEEBE4"><tr>${cells}</tr></table></td></tr>`;
+}
+
+/** Lista "PRECISAM DE VOCÊ" do digest (E-mail 2). */
+function listHtml(list: { label: string; items: NexaListItem[] }): string {
+  const lines = list.items.map((it) => {
+    const name = it.link ? `<a href="${esc(it.link)}" style="color:#12110F;text-decoration:none"><strong>${esc(it.name)}</strong></a>` : `<strong>${esc(it.name)}</strong>`;
+    return `• ${name}${it.note ? ` — ${esc(it.note)}` : ""}`;
+  }).join("<br>");
+  return `<tr><td style="padding:0 28px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #EEEBE4"><tr><td style="padding:16px 0">`
+    + `<div style="font-family:'Courier New',monospace;font-size:10px;letter-spacing:1.5px;color:#8A867C;padding-bottom:8px">${esc(list.label)}</div>`
+    + `<div style="font-size:14px;color:#12110F;line-height:1.7">${lines}</div></td></tr></table></td></tr>`;
+}
+
 export function renderNexaEmail(d: NexaEmailData): string {
-  const badge = `<span style="display:inline-block;font-family:'Courier New',monospace;font-size:11px;letter-spacing:1.5px;color:#12110F;background-color:${esc(d.badge.color)};border-radius:99px;padding:5px 12px;font-weight:bold">${esc(d.badge.label)}</span>`
-    + (d.timestamp ? `<span style="font-family:'Courier New',monospace;font-size:11px;letter-spacing:1px;color:#8A867C;padding-left:10px">${esc(d.timestamp)}</span>` : "");
+  const badge = d.badge
+    ? `<span style="display:inline-block;font-family:'Courier New',monospace;font-size:11px;letter-spacing:1.5px;color:#12110F;background-color:${esc(d.badge.color)};border-radius:99px;padding:5px 12px;font-weight:bold">${esc(d.badge.label)}</span>`
+      + (d.timestamp ? `<span style="font-family:'Courier New',monospace;font-size:11px;letter-spacing:1px;color:#8A867C;padding-left:10px">${esc(d.timestamp)}</span>` : "")
+    : "";
 
   const band = d.highlightBand
     ? `<tr><td style="padding:0 28px 18px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#FDF6E9;border:1px solid #F0DDB4;border-radius:10px"><tr><td style="padding:14px 18px">`
@@ -82,11 +111,13 @@ export function renderNexaEmail(d: NexaEmailData): string {
     + `<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%">`
     + `<tr><td align="left" style="padding:0 4px 22px"><img src="${LOGO_URL}" alt="NEXA" height="24" style="height:24px;width:auto;display:block"></td></tr>`
     + `<tr><td style="background-color:#FFFFFF;border:1px solid #E4E1DA;border-radius:12px;padding:0"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">`
-    + `<tr><td style="padding:22px 28px 0">${badge}</td></tr>`
-    + `<tr><td style="padding:16px 28px 4px"><div style="font-family:Georgia,'Times New Roman',serif;font-style:italic;font-size:28px;line-height:1.15;color:#12110F">${esc(d.title)}</div></td></tr>`
+    + (badge ? `<tr><td style="padding:22px 28px 0">${badge}</td></tr>` : "")
+    + `<tr><td style="padding:${badge ? "16px" : "24px"} 28px 4px"><div style="font-family:Georgia,'Times New Roman',serif;font-style:italic;font-size:28px;line-height:1.15;color:#12110F">${esc(d.title)}</div></td></tr>`
     + (d.meta ? `<tr><td style="padding:0 28px 18px"><div style="font-size:13.5px;color:#6E6A61">${esc(d.meta)}</div></td></tr>` : `<tr><td style="padding:0 0 6px"></td></tr>`)
     + band
+    + (d.stats && d.stats.length ? statsHtml(d.stats) : "")
     + (d.dataGrid && d.dataGrid.length ? dataGridHtml(d.dataGrid) : "")
+    + (d.list && d.list.items.length ? listHtml(d.list) : "")
     + next
     + (d.ctas && d.ctas.length ? ctasHtml(d.ctas) : `<tr><td style="padding:0 0 20px"></td></tr>`)
     + `</table></td></tr>`

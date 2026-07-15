@@ -198,10 +198,35 @@ Deno.serve(async (req) => {
             type: "new_lead", title, message: emailBody.replace(/<br>/g, " · "),
             action_url: "/leads", read: false,
           })));
+
+          // Enriquecimento do E-mail 1 (best-effort: nomes ausentes não bloqueiam).
+          const nameOf = async (table: string, id: string | null) => {
+            if (!id) return undefined;
+            const { data } = await supabase.from(table).select("name").eq("id", id).maybeSingle();
+            return (data?.name as string) || undefined;
+          };
+          const [accountName, developmentName, assigneeName, campaignName] = await Promise.all([
+            nameOf("accounts", accountId),
+            nameOf("developments", (channel.default_development_id as string) || null),
+            assignedTo ? (async () => {
+              const { data } = await supabase.from("profiles").select("full_name").eq("id", assignedTo).maybeSingle();
+              return (data?.full_name as string) || undefined;
+            })() : Promise.resolve(undefined),
+            campaignId ? (async () => {
+              const { data } = await supabase.from("lead_campaigns").select("name").eq("id", campaignId).maybeSingle();
+              return (data?.name as string) || undefined;
+            })() : Promise.resolve(undefined),
+          ]);
+          const metadata = {
+            lead_name: leadName, phone: lead.phone || undefined, email: lead.email || undefined,
+            origin_label: originLabel, source: channel.source, campaign_name: campaignName,
+            account_name: accountName, development_name: developmentName, assignee_name: assigneeName,
+          };
+
           const emailUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-notification-email`;
           const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
           await Promise.allSettled(userIds.map((uid) =>
-            fetch(emailUrl, { method: "POST", headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ recipient_id: uid, type: "new_lead", title, message: emailBody, action_url: "/leads" }) })));
+            fetch(emailUrl, { method: "POST", headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ recipient_id: uid, type: "new_lead", title, message: emailBody, action_url: "/leads", metadata }) })));
         }
       } catch (notifyErr) {
         console.warn("[receive-lead] notificação de novo lead falhou (ignorada; lead criado):", notifyErr);

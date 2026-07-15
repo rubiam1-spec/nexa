@@ -39,16 +39,29 @@ links absolutos.
 | convite de usuário | esqueleto | CONVITE | CTA único |
 | digest diário | **E-mail 2** | — | 3 números (novos / sem resposta >2h #C2410C / convertidos) + "Precisam de você" |
 
-## Estado da entrega (no portão de validação humana)
+## Estado da entrega
 
-- ✅ Cânone `renderNexaEmail` + 12 testes (verde).
+- ✅ Cânone `renderNexaEmail` + **15 testes** (verde) — inclui E-mail 2 (stats + lista).
 - ✅ Inventário + decisão da recuperação (HTML PT-BR pronto p/ o dashboard).
-- ⏸️ **Migração dos senders** (`send-notification-email` hub → cânone; `new_lead`
-  E-mail 1; família de reserva E-mail 3; convite), **digest por e-mail** (Parte 3) e
-  **Preferências** (Parte 4) — **aguardam o TESTE REAL DE RENDERIZAÇÃO**: disparar 1
-  exemplar de cada ao e-mail do Rubiam p/ validação no Gmail (desktop+celular) ANTES
-  de declarar concluído (DoD). **Parte 4 tem CHECKPOINT de DDL** (tabela/coluna de
-  preferências) — parar antes de aplicar.
+- ✅ **Marco 1 (código pronto):**
+  - `send-notification-email` → migrado ao cânone (todos os tipos; `new_lead`
+    E-mail 1 com wa.me + régua; família de reserva/venda E-mail 3 com faixa de
+    prazo + próximo passo; convite/demais no esqueleto). Aceita `to_email` p/ teste.
+  - `receive-lead` → `new_lead` agora envia **metadata estruturada** (nome, telefone,
+    e-mail, origem, campanha, conta, empreendimento, responsável) — best-effort.
+  - `daily-lead-digest` (Parte 3, **E-mail 2** "O pulso de hoje") → 1/destinatário/dia,
+    3 números (novos / sem resposta >2h #C2410C / convertidos) + "Precisam de você"
+    (máx. 5); envia SÓ se houver conteúdo; escopo conta (gestão) × pessoal (consultor/
+    corretor). Modo `to_email` p/ teste de renderização.
+  - Esqueleto estendido: `stats`, `list`, `badge` opcional (digest sem badge).
+- ⏸️ **Marco 2** deploy das edges (rollback anotado) + **TESTE REAL DE RENDERIZAÇÃO**
+  (4 exemplares → rubiamcorretor@gmail.com, validar Gmail desktop+celular ANTES do DoD).
+- ⏸️ **Marco 3/4** Preferências (Parte 4) — **CHECKPOINT de DDL** (dump-alvo + migration
+  aditiva; convite/recuperação IGNORAM preferências) → limpeza de artefatos.
+
+> **Dedup do digest** (1/destinatário/dia) e **agendamento** (pg_cron ~8h) serão
+> anexados no checkpoint de DDL (mesma migration das Preferências) para evitar DDL
+> avulso agora. Até lá, `daily-lead-digest` computa e envia sob invocação manual.
 
 ## Próximos passos (após aprovação de renderização + DDL)
 1. Migrar `send-notification-email` para `renderNexaEmail` (todos os tipos) + `new_lead`.

@@ -78,6 +78,41 @@ describe("renderNexaEmail — E-mail 3 (faixa de prazo + próximo passo)", () =>
   });
 });
 
+describe("renderNexaEmail — E-mail 2 (digest 'O pulso de hoje')", () => {
+  const email2 = renderNexaEmail({
+    title: "O pulso de hoje",
+    meta: "Vivendas do Bosque · sexta, 13 de julho",
+    stats: [
+      { value: "6", label: "LEADS NOVOS" },
+      { value: "2", label: "SEM RESPOSTA >2H", color: "#C2410C" },
+      { value: "1", label: "CONVERTIDO" },
+    ],
+    list: {
+      label: "PRECISAM DE VOCÊ",
+      items: [
+        { name: "Cabral de Oliveira", note: "WhatsApp, sem resposta há 2 dias", link: "https://app.nexacomercial.com.br/leads" },
+        { name: "Elza Gusteman", note: "sem responsável desde ontem" },
+      ],
+    },
+    ctas: [{ label: "Abrir o painel →", url: "https://app.nexacomercial.com.br/leads", primary: true }],
+    footer: { account: "Bomm Urbanizadora", development: "Vivendas do Bosque" },
+  });
+  it("sem badge (digest não tem faixa de evento)", () => {
+    expect(email2).not.toContain("border-radius:99px");
+  });
+  it("trio de números com o do meio em terracota", () => {
+    expect(email2).toContain("font-size:30px;color:#12110F\">6");
+    expect(email2).toContain("font-size:30px;color:#C2410C\">2");
+    expect(email2).toContain("LEADS NOVOS");
+    expect(email2).toContain("SEM RESPOSTA &gt;2H"); // '>' escapado por esc()
+  });
+  it("lista 'PRECISAM DE VOCÊ' com nomes em negrito e link", () => {
+    expect(email2).toContain("PRECISAM DE VOCÊ");
+    expect(email2).toContain("<strong>Cabral de Oliveira</strong>");
+    expect(email2).toContain("sem responsável desde ontem");
+  });
+});
+
 describe("helpers", () => {
   it("esc previne injeção de HTML", () => {
     expect(esc("<script>x</script>")).toBe("&lt;script&gt;x&lt;/script&gt;");
