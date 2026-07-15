@@ -1,0 +1,18 @@
+{
+  "rito": "dump-alvo antes da migration aditiva de Preferências (Cap E-mail Parte 4)",
+  "data": "2026-07-15",
+  "tabela": "public.central_preferences",
+  "observacao": "Migration é CREATE-only (lead_digest_log + cron) + escrita runtime de nova chave JSONB preferences.notifications (aditiva). Backup diário confirmado no portão L2.2; este dump é o cinto extra.",
+  "colunas": [
+    {"name": "id", "type": "uuid", "nullable": false, "default": "gen_random_uuid()"},
+    {"name": "profile_id", "type": "uuid", "nullable": false},
+    {"name": "account_id", "type": "uuid", "nullable": false},
+    {"name": "preferences", "type": "jsonb", "nullable": false, "default": "'{}'::jsonb"},
+    {"name": "created_at", "type": "timestamptz", "nullable": true, "default": "now()"},
+    {"name": "updated_at", "type": "timestamptz", "nullable": true, "default": "now()"}
+  ],
+  "rows": [
+    {"id":"d0a589da-7d33-4a9c-96ab-6cd4ec679683","profile_id":"5c4bc290-d7dc-4d70-81ed-9eb592463be1","account_id":"16d4b82f-880f-4818-bb07-93c3b606f982","preferences":{"modules":{"kpis":true,"chart":true,"stock":true,"agenda":true,"alerts":true,"funnel":true,"contacts":true,"birthdays":true,"weekly_plan":true,"negotiations":true,"external_team":true,"internal_team":true,"quick_actions":true,"daily_briefing":true}},"created_at":"2026-04-14T10:45:10.404678+00:00","updated_at":"2026-04-14T10:45:27.803+00:00"},
+    {"id":"545036d7-b3d8-4e00-a666-2ff6c775122b","profile_id":"36325d23-6ddd-4ca4-9643-aaae114cd65c","account_id":"16d4b82f-880f-4818-bb07-93c3b606f982","preferences":{"modules":{"kpis":false,"chart":false,"stock":true,"agenda":true,"alerts":false,"funnel":false,"contacts":false,"birthdays":false,"weekly_plan":true,"negotiations":false,"external_team":false,"internal_team":false,"quick_actions":true,"daily_briefing":false,"intelligence_alerts":false}},"created_at":"2026-05-27T16:53:46.802086+00:00","updated_at":"2026-05-27T16:53:54.973+00:00"}
+  ]
+}

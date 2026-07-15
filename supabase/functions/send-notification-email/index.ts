@@ -133,6 +133,16 @@ serve(async (req) => {
     }
     if (!email) return new Response(JSON.stringify({ error: "Recipient email not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
+    // Preferências do usuário: e-mails imediatos podem ser desligados. Ausência de
+    // linha = ligado (default ON). Convite é transacional e IGNORA preferências;
+    // o envio direto de teste (to_email) também não consulta preferências.
+    if (recipient_id && !to_email && type !== "user_invite") {
+      const { data: pref } = await supabase.from("notification_preferences").select("immediate_emails").eq("profile_id", recipient_id).maybeSingle();
+      if (pref && pref.immediate_emails === false) {
+        return new Response(JSON.stringify({ success: true, skipped: "immediate_emails desligado pelo usuário" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+    }
+
     const appUrl = "https://app.nexacomercial.com.br";
     const fullUrl = action_url ? `${appUrl}${action_url}` : appUrl;
     const m = (metadata || {}) as Record<string, unknown>;

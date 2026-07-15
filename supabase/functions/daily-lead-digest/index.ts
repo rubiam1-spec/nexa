@@ -68,6 +68,7 @@ serve(async (req) => {
     const now = Date.now();
     const dayAgo = new Date(now - 24 * 3600000).toISOString();
     const twoHAgo = new Date(now - 2 * 3600000).toISOString();
+    const today = new Date(now).toISOString().slice(0, 10); // data UTC (casa com lead_digest_log.digest_date)
 
     let accountIds = body.account_id ? [String(body.account_id)] : [];
     if (accountIds.length === 0) {
@@ -94,6 +95,13 @@ serve(async (req) => {
 
       let sent = 0;
       for (const [uid, scope] of scopeByUser) {
+        // Preferência: digest pode ser desligado pelo usuário (default ON).
+        const { data: pref } = await supabase.from("notification_preferences").select("daily_digest").eq("profile_id", uid).maybeSingle();
+        if (pref && pref.daily_digest === false) continue;
+        // Dedup 1/dia: se já enviou hoje, pula (idempotente a reinvocações).
+        const { data: already } = await supabase.from("lead_digest_log").select("recipient_id").eq("recipient_id", uid).eq("digest_date", today).maybeSingle();
+        if (already) continue;
+
         const cnt = async (build: (q: any) => any) => {
           let q = supabase.from("clients").select("*", { count: "exact", head: true }).eq("account_id", accId);
           q = scope === "personal" ? q.eq("assigned_to", uid) : q;
@@ -134,7 +142,11 @@ serve(async (req) => {
           footer: { account: accountName },
         });
         const subject = nexaSubject(`Seu dia: ${novos} ${novos === 1 ? "lead novo" : "leads novos"}${semResposta > 0 ? `, ${semResposta} sem resposta há mais de 2h` : ""}`);
-        if (await sendResend(resendKey, email, subject, html)) sent++;
+        if (await sendResend(resendKey, email, subject, html)) {
+          sent++;
+          // Marca como enviado hoje (best-effort: falha aqui não reenvia no mesmo run).
+          await supabase.from("lead_digest_log").insert({ recipient_id: uid, account_id: accId });
+        }
       }
       results.push({ account_id: accId, sent });
     }

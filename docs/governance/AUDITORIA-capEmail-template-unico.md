@@ -54,14 +54,25 @@ links absolutos.
     (máx. 5); envia SÓ se houver conteúdo; escopo conta (gestão) × pessoal (consultor/
     corretor). Modo `to_email` p/ teste de renderização.
   - Esqueleto estendido: `stats`, `list`, `badge` opcional (digest sem badge).
-- ⏸️ **Marco 2** deploy das edges (rollback anotado) + **TESTE REAL DE RENDERIZAÇÃO**
-  (4 exemplares → rubiamcorretor@gmail.com, validar Gmail desktop+celular ANTES do DoD).
-- ⏸️ **Marco 3/4** Preferências (Parte 4) — **CHECKPOINT de DDL** (dump-alvo + migration
-  aditiva; convite/recuperação IGNORAM preferências) → limpeza de artefatos.
+- ✅ **Marco 2** deploy + TESTE REAL — edges no ar (send-notification-email v22,
+  daily-lead-digest v1, receive-lead v10); 4 exemplares enviados a
+  rubiamcorretor@gmail.com e **APROVADOS pelo Rubiam** (2026-07-15).
+- ✅ **Marco 3/4 — Preferências (Parte 4) + infra do digest** (DDL aditivo aplicado
+  após dump-alvo de central_preferences):
+  - `notification_preferences(profile_id PK, immediate_emails, daily_digest, updated_at)`
+    — por usuário, defaults ON, RLS "own row" (3 policies). Tabela dedicada (evita o
+    clobber do JSONB de `central_preferences`).
+  - `lead_digest_log(recipient_id, digest_date PK)` — dedup 1/destinatário/dia (RLS on).
+  - `cron.schedule('daily-lead-digest-morning', '0 11 * * *')` ≈ 08h BRT.
+  - Senders respeitam prefs: hub pula imediato se `immediate_emails=false` (convite
+    IGNORA); digest pula se `daily_digest=false` + dedup via lead_digest_log.
+    Redeploys: send-notification-email **v23**, daily-lead-digest **v2**.
+  - UI: **Config → Notificações** (2 toggles por usuário; reusa `Tog`).
+- ⏳ **Marco 5 — limpeza:** hard-delete de `email-render-test` (neutralizado em v2:
+  verify_jwt=true + 410 + sem token; falta o delete final — sem tool MCP de delete).
 
-> **Dedup do digest** (1/destinatário/dia) e **agendamento** (pg_cron ~8h) serão
-> anexados no checkpoint de DDL (mesma migration das Preferências) para evitar DDL
-> avulso agora. Até lá, `daily-lead-digest` computa e envia sob invocação manual.
+> Convite/recuperação de senha IGNORAM preferências (transacionais). Recuperação
+> segue no dashboard (HTML PT-BR pronto p/ colar).
 
 ## Próximos passos (após aprovação de renderização + DDL)
 1. Migrar `send-notification-email` para `renderNexaEmail` (todos os tipos) + `new_lead`.

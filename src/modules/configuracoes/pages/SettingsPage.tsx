@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { canPerformAction, PermissionAction } from "../../../app/authorization/permissions";
 import { useAccount } from "../../../app/contexts/AccountContext";
+import { useAuth } from "../../../app/contexts/AuthContext";
 import { usePermissions } from "../../../shared/hooks/usePermissions";
 import { useDevelopment } from "../../../app/contexts/DevelopmentContext";
 import { getUserRoleLabel } from "../../../shared/types/role";
@@ -23,12 +24,13 @@ import type { LeadCampaign, LeadCampaignInput } from "../../../infra/repositorie
 import { useLeadChannels } from "../hooks/useLeadChannels";
 import { RECEIVE_LEAD_URL, PROVIDER_ADAPTERS, DISTRIBUTION_MODES, providerLabel, providerInstructions, type LeadChannel, type LeadChannelInput } from "../../../infra/repositories/webhookChannelsSupabaseRepository";
 
-type Aba = "marca" | "empreendimento" | "documentos" | "operacao" | "materiais" | "leads" | "cadencia" | "checklist" | "permissoes";
+type Aba = "marca" | "empreendimento" | "documentos" | "operacao" | "materiais" | "leads" | "cadencia" | "checklist" | "notificacoes" | "permissoes";
 
 const INPUT: React.CSSProperties = { width: "100%", boxSizing: "border-box", background: "var(--color-ink)", border: "1px solid var(--color-stone)", borderRadius: 8, padding: "10px 14px", color: "var(--color-bone)", fontSize: 14 };
 
 export default function SettingsPage() {
   const actx = useAccount();
+  const { authenticatedProfile } = useAuth();
   const dctx = useDevelopment();
   const screen = useScreen();
   const isMobile = !screen.isDesktop;
@@ -62,6 +64,29 @@ export default function SettingsPage() {
     const { error } = await supabase.from("cadence_settings").upsert({ account_id: actx.account.accountId, development_id: dctx.development.developmentId, ...cadence, updated_at: new Date().toISOString() }, { onConflict: "account_id,development_id" });
     setCadenceSaving(false);
     setMsg(error ? `Erro: ${error.message}` : "Cadência salva ✓");
+    setTimeout(() => setMsg(null), 3000);
+  }
+
+  // Preferências de notificação (por usuário — não por conta). Defaults ON.
+  // Convite e recuperação de senha IGNORAM estas preferências (transacionais).
+  const notifProfileId = authenticatedProfile?.id ?? null;
+  const [notif, setNotif] = useState({ immediate_emails: true, daily_digest: true });
+  const [notifLoaded, setNotifLoaded] = useState(false);
+  const [notifSaving, setNotifSaving] = useState(false);
+  useEffect(() => {
+    if (!supabase || !notifProfileId || notifLoaded) return;
+    supabase.from("notification_preferences").select("immediate_emails, daily_digest").eq("profile_id", notifProfileId).maybeSingle().then(({ data }) => {
+      if (data) setNotif({ immediate_emails: data.immediate_emails !== false, daily_digest: data.daily_digest !== false });
+      setNotifLoaded(true);
+    });
+  }, [notifProfileId, notifLoaded]);
+  async function saveNotif(next: { immediate_emails: boolean; daily_digest: boolean }) {
+    if (!supabase || !notifProfileId) return;
+    setNotif(next); // otimista
+    setNotifSaving(true);
+    const { error } = await supabase.from("notification_preferences").upsert({ profile_id: notifProfileId, ...next, updated_at: new Date().toISOString() }, { onConflict: "profile_id" });
+    setNotifSaving(false);
+    setMsg(error ? `Erro: ${error.message}` : "Preferências salvas ✓");
     setTimeout(() => setMsg(null), 3000);
   }
 
@@ -224,6 +249,7 @@ export default function SettingsPage() {
     { key: "leads", label: "Leads", icon: "L" },
     { key: "cadencia", label: "Cadência", icon: "⏱" },
     { key: "checklist", label: "Checklist Docs", icon: "📋" },
+    { key: "notificacoes", label: "Notificações", icon: "🔔" },
     ...(isAdminRole ? [{ key: "permissoes" as Aba, label: "Permissões", icon: "P" }] : []),
   ];
 
@@ -676,6 +702,30 @@ export default function SettingsPage() {
               developmentName={dctx.development?.developmentName ?? null}
               canEdit={canUpd}
             />
+          ) : null}
+
+          {/* ═══ NOTIFICAÇÕES ═══ */}
+          {aba === "notificacoes" ? (
+            <div>
+              <PageTitle title="Notificações" sub="Suas preferências de e-mail. Valem apenas para você." />
+              <Card>
+                <Sec title="E-mails do NEXA" sub="Convites e recuperação de senha são sempre enviados (não dependem destas opções)." />
+                <Tog
+                  ativo={notif.immediate_emails}
+                  onChange={(v) => saveNotif({ ...notif, immediate_emails: v })}
+                  label="E-mails imediatos"
+                  sub="Novo lead, reserva, proposta, venda e demais avisos do fluxo, no momento em que acontecem."
+                  disabled={notifSaving || !notifProfileId}
+                />
+                <Tog
+                  ativo={notif.daily_digest}
+                  onChange={(v) => saveNotif({ ...notif, daily_digest: v })}
+                  label="Resumo diário"
+                  sub="Um e-mail por dia pela manhã: leads novos, sem resposta e convertidos — só quando houver o que mostrar."
+                  disabled={notifSaving || !notifProfileId}
+                />
+              </Card>
+            </div>
           ) : null}
 
           {/* ═══ PERMISSÕES ═══ */}
