@@ -7,5 +7,6 @@ export * from "./permuta";
 export * from "./columnMapping";
 export * from "./brokers";
 export * from "./units";
+export * from "./clients";
 export * from "./parseSheet";
 export * from "./buildStaging";

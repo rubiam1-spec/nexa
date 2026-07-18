@@ -1,5 +1,5 @@
 // Casamento de unidade por (quadra, lote). Uma negociação = uma unidade.
-import type { UnitCandidate } from "./types";
+import type { RankedOption, UnitCandidate } from "./types";
 
 export type QuadraLote = {
   quadra: string | null;
@@ -55,4 +55,32 @@ export function matchUnit(
     units.find((u) => stripZeros(u.quadra ?? "") === q && stripZeros(u.lote ?? "") === l) ?? null;
   const sold = !!unit && SOLD_STATUSES.has((unit.status ?? "").toUpperCase());
   return { unit, sold };
+}
+
+// Opções ranqueadas para o combobox de unidade: proximidade por quadra (mesma quadra)
+// e por número de lote. Sugestão no topo quando há quadra igual.
+export function rankUnitOptions(
+  quadra: string | null,
+  lote: string | null,
+  units: UnitCandidate[],
+): RankedOption[] {
+  const q = quadra ? stripZeros(quadra) : null;
+  const l = lote ? Number(stripZeros(lote)) : null;
+  return units
+    .map((u) => {
+      const uq = stripZeros(u.quadra ?? "");
+      const ul = Number(stripZeros(u.lote ?? ""));
+      let score = 0;
+      if (q && uq === q) score += 0.6;
+      if (l != null && Number.isFinite(ul)) score += Math.max(0, 0.4 - Math.min(0.4, Math.abs(ul - l) * 0.05));
+      return { u, score };
+    })
+    .sort((x, y) => y.score - x.score)
+    .map(({ u, score }) => ({
+      id: u.id,
+      label: `Q${u.quadra} · L${u.lote}`,
+      secondary: u.status ? u.status : undefined,
+      group: score >= 0.6 ? "Sugestão" : "Unidades",
+      confidence: score >= 0.6 ? Math.min(1, score) : undefined,
+    }));
 }

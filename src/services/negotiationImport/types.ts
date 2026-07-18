@@ -77,13 +77,24 @@ export const ROW_FLAG_LABELS: Record<RowFlag, string> = {
   status_revisar: "Status a revisar",
 };
 
-export type BrokerCandidate = { id: string; name: string };
+export type BrokerCandidate = { id: string; name: string; brokerageName?: string | null };
 
 export type UnitCandidate = {
   id: string;
   quadra: string;
   lote: string;
   status: string;
+};
+
+export type ClientCandidate = { id: string; name: string };
+
+// Opção pronta para um combobox de busca (UI). Confiança/grupo vêm do service.
+export type RankedOption = {
+  id: string;
+  label: string;
+  secondary?: string;
+  group?: string;
+  confidence?: number; // 0..1
 };
 
 // Decisão do usuário sobre um corretor distinto (confirmação, nunca automático no commit).
@@ -107,6 +118,8 @@ export type StagingRow = {
   quadra: string | null;
   lote: string | null;
   unitId: string | null;
+  clientId: string | null; // vínculo explícito a contato existente (gated)
+  clientLinkSuggested: boolean; // há provável duplicata de cliente
   status: NegotiationStatus;
   statusClass: StatusClass;
   temperature: string | null;
@@ -121,6 +134,7 @@ export type StagingRow = {
 
 // Linha enxuta enviada à RPC commit_negotiation_import.
 export type CommitRow = {
+  client_id: string | null; // se presente, a RPC vincula a este contato
   client_name: string | null;
   client_phone: string | null;
   client_cpf: string | null;

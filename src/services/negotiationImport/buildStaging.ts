@@ -3,6 +3,7 @@
 import type {
   BrokerCandidate,
   BrokerDecision,
+  ClientCandidate,
   ColumnMapping,
   CommitRow,
   NegotiationStatus,
@@ -17,6 +18,7 @@ import { mapStatus } from "./statusMapping";
 import { correctYear, dominantYear, parseDateCell, toIsoDate } from "./dates";
 import { detectPermuta } from "./permuta";
 import { matchUnit, parseQuadraLote } from "./units";
+import { hasProbableClientMatch } from "./clients";
 import { normalizeName } from "./text";
 
 export type BuildStagingInput = {
@@ -24,6 +26,7 @@ export type BuildStagingInput = {
   mapping: ColumnMapping;
   existingBrokers: BrokerCandidate[];
   units: UnitCandidate[];
+  clients?: ClientCandidate[];
   statusOverrides?: Record<string, NegotiationStatus>; // rawStatus(upper) -> override
   brokerDecisions?: Record<string, BrokerDecision>; // normalizedRaw -> decisão
 };
@@ -68,7 +71,7 @@ export function getBrokerRawNames(parsed: ParsedSheet, mapping: ColumnMapping): 
 }
 
 export function buildStaging(input: BuildStagingInput): StagingRow[] {
-  const { parsed, mapping, units, statusOverrides = {}, brokerDecisions = {} } = input;
+  const { parsed, mapping, units, clients = [], statusOverrides = {}, brokerDecisions = {} } = input;
 
   // pré-passada: datas brutas para descobrir o ano dominante
   const parsedDates = parsed.rows.map((row) => {
@@ -133,11 +136,16 @@ export function buildStaging(input: BuildStagingInput): StagingRow[] {
     const resolvedBrokerageName = decision?.brokerageName ?? brokerageName;
     if (!brokerName) flags.push("sem_corretor");
 
+    // cliente: vínculo a contato existente só é oferecido se houver provável duplicata
+    const clientLinkSuggested = clients.length > 0 && hasProbableClientMatch(clientName, clients);
+
     return {
       index: i + 1,
       clientName,
       clientPhone,
       clientCpf,
+      clientId: null,
+      clientLinkSuggested,
       brokerNameRaw,
       brokerName,
       brokerId,
@@ -165,6 +173,7 @@ export function toCommitRows(rows: StagingRow[]): CommitRow[] {
   return rows
     .filter((r) => r.approved)
     .map((r) => ({
+      client_id: r.clientId,
       client_name: r.clientName,
       client_phone: r.clientPhone,
       client_cpf: r.clientCpf,

@@ -1,6 +1,6 @@
 // Wizard de importação de negociações (Camada 1, sem IA).
 // Modal via createPortal. Toda regra/normalização vem do serviço; aqui só UI/estado.
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
@@ -13,17 +13,36 @@ import {
   getDistinctStatuses,
   listSheets,
   parseSheet,
+  rankBrokerOptions,
+  rankClientOptions,
+  rankUnitOptions,
   toCommitRows,
   STATUS_LABELS,
   ROW_FLAG_LABELS,
   type BrokerDecision,
+  type BrokerMatch,
   type ColumnMapping,
   type NegotiationStatus,
   type NexaField,
   type ParsedSheet,
   type StagingRow,
 } from "../../../services/negotiationImport";
-import type { CommitImportResult } from "../../../infra/repositories/negotiationImportsSupabaseRepository";
+import ImportCombobox, { type ComboOption } from "./ImportCombobox";
+import type { CommitImportResult, UndoImportResult } from "../../../infra/repositories/negotiationImportsSupabaseRepository";
+
+// Sentinelas de "criar novo" usadas pelos comboboxes.
+const NEW_BROKER = "__new_broker__";
+const NEW_CLIENT = "__new_client__";
+// Campos NEXA que só aceitam UM header de origem (quadra_lote e observacao aceitam vários).
+const SINGLE_DEST_FIELDS = new Set<NexaField>([
+  "cliente",
+  "corretor",
+  "imobiliaria",
+  "status",
+  "data",
+  "telefone",
+  "cpf",
+]);
 
 // ----- Tokens v7 -----
 const T = {
@@ -91,13 +110,21 @@ const selectStyle: React.CSSProperties = {
   background: T.layer1,
   border: `1px solid ${T.borderStrong}`,
   borderRadius: 8,
-  padding: "8px 10px",
+  // padding-right generoso: o chevron nativo não pode encostar no texto
+  padding: "8px 30px 8px 12px",
   color: T.bone,
   fontSize: 13,
   fontFamily: T.ui,
   outline: "none",
   width: "100%",
   boxSizing: "border-box",
+  appearance: "none",
+  WebkitAppearance: "none",
+  MozAppearance: "none",
+  backgroundImage:
+    "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%239C9686' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>\")",
+  backgroundRepeat: "no-repeat",
+  backgroundPosition: "right 12px center",
 };
 const sectionLabel: React.CSSProperties = {
   fontFamily: T.mono,
@@ -147,6 +174,64 @@ function Tag({ text, color }: { text: string; color: string }) {
   );
 }
 
+// Chip do estado fechado de um combobox (Vinculado / Criar novo / unidade).
+function PickChip({ tone, children }: { tone: "blue" | "sprout"; children: React.ReactNode }) {
+  const color = tone === "blue" ? T.blue : T.sprout;
+  const bg = tone === "blue" ? "rgba(96,165,250,0.12)" : T.sproutMuted;
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        maxWidth: "100%",
+        fontFamily: T.mono,
+        fontSize: 11,
+        color,
+        background: bg,
+        border: `1px solid ${T.border}`,
+        borderRadius: 6,
+        padding: "2px 8px",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        verticalAlign: "middle",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+// Botão SECUNDÁRIO de ação em massa (etapa de corretores).
+// Fonte de UI (Outfit), tom sprout suave — não compete com o primário "Continuar".
+const bulkBtn: React.CSSProperties = {
+  fontFamily: T.ui,
+  fontSize: 13,
+  padding: "9px 14px",
+  borderRadius: 8,
+  background: T.sproutMuted,
+  color: T.sprout,
+  border: "1px solid rgba(74,222,128,0.3)",
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+};
+function BulkButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        ...bulkBtn,
+        background: hover ? "rgba(74,222,128,0.2)" : T.sproutMuted,
+        borderColor: hover ? "rgba(74,222,128,0.45)" : "rgba(74,222,128,0.3)",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
 type Props = {
   open: boolean;
   onClose: () => void;
@@ -182,10 +267,14 @@ export default function NegotiationImportWizard({
   const [rows, setRows] = useState<StagingRow[]>([]);
   const [dupStrategy, setDupStrategy] = useState<"skip" | "update" | "create">("skip");
   const [onlyReview, setOnlyReview] = useState(false);
+  const [showResolvedBrokers, setShowResolvedBrokers] = useState(false);
+  const [confirmedBrokers, setConfirmedBrokers] = useState<Record<string, boolean>>({});
+  const [mapWarning, setMapWarning] = useState<string | null>(null);
+  const [confirmClose, setConfirmClose] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [committed, setCommitted] = useState<CommitImportResult | null>(null);
-  const [undoArchived, setUndoArchived] = useState<number | null>(null);
+  const [undoResult, setUndoResult] = useState<UndoImportResult | null>(null);
 
   const reset = useCallback(() => {
     bufferRef.current = null;
@@ -200,15 +289,37 @@ export default function NegotiationImportWizard({
     setRows([]);
     setDupStrategy("skip");
     setOnlyReview(false);
+    setShowResolvedBrokers(false);
+    setConfirmedBrokers({});
     setParseError(null);
     setCommitted(null);
-    setUndoArchived(null);
+    setUndoResult(null);
   }, []);
 
-  const close = useCallback(() => {
+  const doClose = useCallback(() => {
     reset();
+    setConfirmClose(false);
     onClose();
   }, [reset, onClose]);
+
+  // Tarefa longa: nunca descartar sem confirmação. Só fecha direto se não há
+  // trabalho (sem arquivo) ou já foi commitado.
+  const requestClose = useCallback(() => {
+    if (committed || !parsed) doClose();
+    else setConfirmClose(true);
+  }, [committed, parsed, doClose]);
+
+  // Esc segue o mesmo caminho do X — mas deixa o combobox tratar o seu próprio Esc.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (document.querySelector('[role="listbox"]')) return; // dropdown aberto trata o Esc
+      requestClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, requestClose]);
 
   // ---------- Etapa 1: parsing ----------
   const runParse = useCallback(
@@ -221,6 +332,15 @@ export default function NegotiationImportWizard({
           return;
         }
         const auto = autoMapColumns(p.headers);
+        // impede destino duplicado já no auto-detect (campos single → 2º vira ignorar)
+        const usedSingle = new Set<NexaField>();
+        for (const h of p.headers) {
+          const f = auto[h];
+          if (f !== "ignorar" && SINGLE_DEST_FIELDS.has(f)) {
+            if (usedSingle.has(f)) auto[h] = "ignorar";
+            else usedSingle.add(f);
+          }
+        }
         bufferRef.current = buf;
         setSheetNames(names);
         setParsed(p);
@@ -265,6 +385,221 @@ export default function NegotiationImportWizard({
     [parsed, mapping, imp.brokers],
   );
 
+  // imobiliárias distintas → chips de filtro do combobox de corretor
+  const brokerageFilters = useMemo(() => {
+    const set = new Set<string>();
+    for (const b of imp.brokers) if (b.brokerageName) set.add(b.brokerageName);
+    return [...set].sort().map((n) => ({ label: n, value: n }));
+  }, [imp.brokers]);
+
+  // três grupos honestos:
+  // auto = vínculo automático (exato/quase) → único colapsável
+  // confirm = sugestão fuzzy a confirmar (visível) | new = sem candidato, criar (visível)
+  const autoBrokers = useMemo(
+    () => brokerMatches.filter((m) => m.suggestion === "existing"),
+    [brokerMatches],
+  );
+  const confirmBrokers = useMemo(
+    () => brokerMatches.filter((m) => m.suggestion === "fuzzy"),
+    [brokerMatches],
+  );
+  const newBrokers = useMemo(
+    () => brokerMatches.filter((m) => m.suggestion === "new"),
+    [brokerMatches],
+  );
+  const brokerSummary = useMemo(
+    () => ({ auto: autoBrokers.length, aConfirmar: confirmBrokers.length, novos: newBrokers.length }),
+    [autoBrokers, confirmBrokers, newBrokers],
+  );
+  // pendência: fuzzy/new ainda não confirmados explicitamente pelo usuário
+  const pendingBrokers = useMemo(
+    () => [...confirmBrokers, ...newBrokers].filter((m) => !confirmedBrokers[m.normalized]).length,
+    [confirmBrokers, newBrokers, confirmedBrokers],
+  );
+  const confirmBrokerKey = useCallback(
+    (normalized: string) => setConfirmedBrokers((c) => ({ ...c, [normalized]: true })),
+    [],
+  );
+  // bulk: só aceita cegamente alta confiança. fuzzy fraco (< minConfidence) e que não
+  // seja "novo" continua exigindo um toque individual.
+  const HIGH_CONF = 0.7;
+  const confirmAllBrokers = useCallback((list: BrokerMatch[], minConfidence = 0) => {
+    setConfirmedBrokers((c) => {
+      const next = { ...c };
+      for (const m of list) {
+        if (m.suggestion === "new" || m.confidence >= minConfidence) next[m.normalized] = true;
+      }
+      return next;
+    });
+  }, []);
+  // contagens dos botões em massa: só o que o clique vai efetivamente vincular/criar.
+  // "Aceitar sugestões" toca apenas os fuzzy ≥ HIGH_CONF ainda pendentes.
+  const acceptSuggestionCount = useMemo(
+    () =>
+      confirmBrokers.filter((m) => m.confidence >= HIGH_CONF && !confirmedBrokers[m.normalized])
+        .length,
+    [confirmBrokers, confirmedBrokers],
+  );
+  // "Criar novos" toca os sem candidato ainda pendentes.
+  const createNewCount = useMemo(
+    () => newBrokers.filter((m) => !confirmedBrokers[m.normalized]).length,
+    [newBrokers, confirmedBrokers],
+  );
+
+  // ---------- helpers de combobox (options vêm do service) ----------
+  const brokerOptions = useCallback(
+    (raw: string): ComboOption[] => [
+      ...rankBrokerOptions(raw, imp.brokers),
+      { id: NEW_BROKER, label: `Criar novo: ${raw}`, isCreateNew: true },
+    ],
+    [imp.brokers],
+  );
+  const setBrokerDecision = useCallback(
+    (normalized: string, raw: string, id: string) => {
+      const b = imp.brokers.find((x) => x.id === id);
+      setBrokerDecisions((s) => ({
+        ...s,
+        [normalized]:
+          id === NEW_BROKER || !b
+            ? { brokerId: null, brokerName: raw }
+            : { brokerId: b.id, brokerName: b.name, brokerageName: b.brokerageName ?? null },
+      }));
+      // escolher no combobox conta como confirmação explícita
+      confirmBrokerKey(normalized);
+    },
+    [imp.brokers, confirmBrokerKey],
+  );
+
+  const unitOptions = useCallback(
+    (row: StagingRow): ComboOption[] => rankUnitOptions(row.quadra, row.lote, imp.units),
+    [imp.units],
+  );
+  const setRowUnit = useCallback((index: number, unitId: string) => {
+    setRows((all) => all.map((x) => (x.index === index ? { ...x, unitId } : x)));
+  }, []);
+
+  const clientOptions = useCallback(
+    (row: StagingRow): ComboOption[] => [
+      ...rankClientOptions(row.clientName, imp.clients),
+      { id: NEW_CLIENT, label: `Criar novo: ${row.clientName ?? "contato"}`, isCreateNew: true },
+    ],
+    [imp.clients],
+  );
+  const setRowClient = useCallback((index: number, id: string) => {
+    setRows((all) =>
+      all.map((x) => (x.index === index ? { ...x, clientId: id === NEW_CLIENT ? null : id } : x)),
+    );
+  }, []);
+
+  // mapeamento: impede dois headers no mesmo destino (campos single)
+  const setFieldMapping = useCallback(
+    (header: string, field: NexaField) => {
+      if (field !== "ignorar" && SINGLE_DEST_FIELDS.has(field)) {
+        const conflict = Object.entries(mapping).find(([h2, f2]) => h2 !== header && f2 === field);
+        setMapWarning(
+          conflict ? `Campo já usado em "${conflict[0]}" — mantido em "${header}".` : null,
+        );
+      } else {
+        setMapWarning(null);
+      }
+      setMapping((m) => {
+        const next = { ...m, [header]: field };
+        if (field !== "ignorar" && SINGLE_DEST_FIELDS.has(field)) {
+          for (const h2 of Object.keys(next)) {
+            if (h2 !== header && next[h2] === field) next[h2] = "ignorar";
+          }
+        }
+        return next;
+      });
+    },
+    [mapping],
+  );
+
+  const unitLabel = useCallback(
+    (id: string | null) => {
+      const u = imp.units.find((x) => x.id === id);
+      return u ? `Q${u.quadra} · L${u.lote}` : "Unidade";
+    },
+    [imp.units],
+  );
+
+  // linha de resolução de corretor. needsConfirm: fuzzy/new exigem confirmação explícita.
+  const renderBrokerRow = (m: BrokerMatch, needsConfirm = false) => {
+    const dec = brokerDecisions[m.normalized];
+    const linked = dec?.brokerId ?? null;
+    const confirmed = !!confirmedBrokers[m.normalized];
+    return (
+      <div
+        key={m.normalized}
+        style={{
+          display: "grid",
+          gridTemplateColumns: isMobile ? "1fr" : needsConfirm ? "1fr 240px 116px" : "1fr 260px",
+          gap: 10,
+          alignItems: "center",
+          background: CARD_BG,
+          border: `1px solid ${needsConfirm && !confirmed ? "rgba(251,191,36,0.25)" : T.border}`,
+          borderRadius: 10,
+          padding: "10px 12px",
+        }}
+      >
+        <div style={{ color: T.bone, fontSize: 13, minWidth: 0 }}>
+          <span style={{ fontWeight: 600 }}>{m.raw}</span>
+          <span style={{ color: T.fog, fontSize: 11, marginLeft: 8 }}>×{m.count}</span>
+          {m.suggestion === "fuzzy" && m.existingName && (
+            <span style={{ marginLeft: 8 }}>
+              <Tag text={`~${Math.round(m.confidence * 100)}% ${m.existingName}`} color={T.yellow} />
+            </span>
+          )}
+          {m.suggestion === "new" && (
+            <span style={{ marginLeft: 8 }}>
+              <Tag text="sem correspondência" color={T.fog} />
+            </span>
+          )}
+          {m.mergeWith.length > 0 && (
+            <span style={{ marginLeft: 8 }}>
+              <Tag text={`fundir com ${m.mergeWith.join(", ")}`} color={T.blue} />
+            </span>
+          )}
+        </div>
+        <ImportCombobox
+          options={brokerOptions(m.raw)}
+          value={linked ?? NEW_BROKER}
+          onChange={(id) => setBrokerDecision(m.normalized, m.raw, id)}
+          placeholder="Buscar corretor ou imobiliária…"
+          filters={brokerageFilters}
+          closedLabel={
+            linked ? (
+              <PickChip tone="blue">Vinculado: {dec?.brokerName}</PickChip>
+            ) : (
+              <PickChip tone="sprout">Criar novo: {dec?.brokerName ?? m.raw}</PickChip>
+            )
+          }
+          ariaLabel={`Resolver corretor ${m.raw}`}
+        />
+        {needsConfirm && (
+          <button
+            type="button"
+            onClick={() => confirmBrokerKey(m.normalized)}
+            disabled={confirmed}
+            style={{
+              height: 38,
+              borderRadius: 8,
+              fontSize: 12,
+              fontWeight: 700,
+              fontFamily: T.ui,
+              cursor: confirmed ? "default" : "pointer",
+              color: confirmed ? T.sprout : T.ink,
+              background: confirmed ? "transparent" : T.sprout,
+              border: confirmed ? `1px solid ${T.borderStrong}` : "none",
+            }}
+          >
+            {confirmed ? "✓ Confirmado" : "Confirmar"}
+          </button>
+        )}
+      </div>
+    );
+  };
+
   // inicializa decisões de corretor a partir dos matches (uma vez por conjunto)
   const initBrokerDecisions = useCallback(() => {
     setBrokerDecisions((prev) => {
@@ -282,23 +617,41 @@ export default function NegotiationImportWizard({
 
   const recomputeRows = useCallback(() => {
     if (!parsed) return;
-    setRows(
-      buildStaging({
-        parsed,
-        mapping,
-        existingBrokers: imp.brokers,
-        units: imp.units,
-        statusOverrides,
-        brokerDecisions,
-      }),
-    );
-  }, [parsed, mapping, imp.brokers, imp.units, statusOverrides, brokerDecisions]);
+    const fresh = buildStaging({
+      parsed,
+      mapping,
+      existingBrokers: imp.brokers,
+      units: imp.units,
+      clients: imp.clients,
+      statusOverrides,
+      brokerDecisions,
+    });
+    // preserva edições manuais feitas na revisão ao ir-e-voltar entre passos
+    setRows((prev) => {
+      if (prev.length === 0) return fresh;
+      const byIndex = new Map(prev.map((r) => [r.index, r]));
+      return fresh.map((f) => {
+        const old = byIndex.get(f.index);
+        return old
+          ? {
+              ...f,
+              unitId: old.unitId ?? f.unitId,
+              clientId: old.clientId,
+              status: old.status,
+              statusClass: old.statusClass,
+              approved: old.approved,
+            }
+          : f;
+      });
+    });
+  }, [parsed, mapping, imp.brokers, imp.units, imp.clients, statusOverrides, brokerDecisions]);
 
-  // ---------- navegação entre etapas ----------
+  // ---------- navegação entre etapas (6 passos) ----------
+  // 1 upload · 2 mapeamento · 3 status · 4 corretores · 5 revisão · 6 confirmar
   const goTo = useCallback(
     (next: number) => {
-      if (next === 3) initBrokerDecisions();
-      if (next === 4) recomputeRows();
+      if (next === 4) initBrokerDecisions();
+      if (next === 5) recomputeRows();
       setStep(next);
     },
     [initBrokerDecisions, recomputeRows],
@@ -362,9 +715,9 @@ export default function NegotiationImportWizard({
 
   const doUndo = useCallback(async () => {
     if (!committed?.batchId) return;
-    const archived = await imp.runUndo(committed.batchId);
-    if (archived !== null) {
-      setUndoArchived(archived);
+    const result = await imp.runUndo(committed.batchId);
+    if (result !== null) {
+      setUndoResult(result);
       onImported?.();
     }
   }, [committed, imp, onImported]);
@@ -383,21 +736,25 @@ export default function NegotiationImportWizard({
 
   if (!open) return null;
 
-  const STEPS = ["Upload", "Mapeamento", "De-para", "Revisão", "Confirmar"];
+  const STEPS = ["Upload", "Mapeamento", "Status", "Corretores", "Revisão", "Confirmar"];
 
   const panelStyle: React.CSSProperties = isMobile
-    ? { position: "fixed", inset: 0, zIndex: 9001, display: "flex", flexDirection: "column", background: T.ink }
-    : {
-        position: "fixed",
-        top: "50%",
-        left: "50%",
-        transform: "translate(-50%,-50%)",
-        zIndex: 9001,
-        width: "min(960px, 95vw)",
-        maxHeight: "92vh",
+    ? {
+        width: "100vw",
+        height: "100dvh",
+        maxHeight: "none",
         display: "flex",
         flexDirection: "column",
-        background: T.ink,
+        background: CARD_BG,
+        borderRadius: 0,
+        overflow: "hidden",
+      }
+    : {
+        width: "min(1040px, 92vw)",
+        maxHeight: "88vh",
+        display: "flex",
+        flexDirection: "column",
+        background: CARD_BG,
         border: `1px solid ${T.borderStrong}`,
         borderRadius: 16,
         overflow: "hidden",
@@ -405,12 +762,25 @@ export default function NegotiationImportWizard({
       };
 
   return createPortal(
-    <div style={{ position: "fixed", inset: 0, zIndex: 9000, fontFamily: T.ui }}>
-      <div onClick={close} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)" }} />
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 9000,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: isMobile ? 0 : 24,
+        background: "rgba(0,0,0,0.6)",
+        fontFamily: T.ui,
+      }}
+    >
+      {/* Tarefa longa: clicar fora NÃO fecha (evita descartar trabalho por engano). */}
       <div style={panelStyle}>
         {/* Header */}
         <div
           style={{
+            flexShrink: 0,
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -424,11 +794,11 @@ export default function NegotiationImportWizard({
               Importar negociações
             </div>
             <div style={{ fontFamily: T.mono, fontSize: 10, color: T.fog, letterSpacing: "0.08em", marginTop: 2 }}>
-              {developmentName ? developmentName.toUpperCase() : "EMPREENDIMENTO ATIVO"} · ETAPA {step}/5 · {STEPS[step - 1].toUpperCase()}
+              {developmentName ? developmentName.toUpperCase() : "EMPREENDIMENTO ATIVO"} · ETAPA {step}/{STEPS.length} · {STEPS[step - 1].toUpperCase()}
             </div>
           </div>
           <button
-            onClick={close}
+            onClick={requestClose}
             style={{ background: "transparent", border: "none", color: T.fog, fontSize: 24, cursor: "pointer", lineHeight: 1, padding: 4 }}
             aria-label="Fechar"
           >
@@ -437,7 +807,7 @@ export default function NegotiationImportWizard({
         </div>
 
         {/* Stepper */}
-        <div style={{ display: "flex", gap: 4, padding: "10px 20px 0" }}>
+        <div style={{ flexShrink: 0, display: "flex", gap: 4, padding: "10px 20px 0" }}>
           {STEPS.map((_, i) => (
             <div
               key={i}
@@ -452,8 +822,8 @@ export default function NegotiationImportWizard({
           ))}
         </div>
 
-        {/* Body */}
-        <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
+        {/* Body — a rolagem fica aqui, não na página */}
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 20 }}>
           {imp.errorMessage && (
             <div
               style={{
@@ -553,9 +923,29 @@ export default function NegotiationImportWizard({
           {step === 2 && parsed && (
             <div>
               <div style={sectionLabel}>MAPEAMENTO DE COLUNAS</div>
+              {mapWarning && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    fontSize: 12,
+                    color: T.yellow,
+                    background: "rgba(251,191,36,0.1)",
+                    border: "1px solid rgba(251,191,36,0.3)",
+                    borderRadius: 8,
+                    padding: "8px 12px",
+                  }}
+                >
+                  {mapWarning}
+                </div>
+              )}
               <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
                 {parsed.headers.map((h) => {
-                  const isAuto = autoFields[h] && autoFields[h] !== "ignorar" && autoFields[h] === mapping[h];
+                  const field = mapping[h] ?? "ignorar";
+                  const ignored = field === "ignorar";
+                  const isAuto = !ignored && autoFields[h] === field;
+                  // "ignorar" é neutro (intencional); só auto/manual nos campos usados
+                  const tagText = ignored ? "ignorar" : isAuto ? "auto" : "manual";
+                  const tagColor = ignored ? T.fog : isAuto ? T.sprout : T.blue;
                   return (
                     <div
                       key={h}
@@ -568,19 +958,17 @@ export default function NegotiationImportWizard({
                         border: `1px solid ${T.border}`,
                         borderRadius: 10,
                         padding: "10px 12px",
+                        opacity: ignored ? 0.7 : 1,
                       }}
                     >
                       <div style={{ color: T.bone, fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis" }}>
                         {h}
                       </div>
-                      <Tag
-                        text={mapping[h] === "ignorar" ? "ignorar" : isAuto ? "auto" : "manual"}
-                        color={mapping[h] === "ignorar" ? T.fog : isAuto ? T.sprout : T.yellow}
-                      />
+                      <Tag text={tagText} color={tagColor} />
                       <select
                         style={selectStyle}
-                        value={mapping[h] ?? "ignorar"}
-                        onChange={(e) => setMapping((m) => ({ ...m, [h]: e.target.value as NexaField }))}
+                        value={field}
+                        onChange={(e) => setFieldMapping(h, e.target.value as NexaField)}
                       >
                         {NEXA_FIELDS.map((f) => (
                           <option key={f.key} value={f.key}>
@@ -595,12 +983,14 @@ export default function NegotiationImportWizard({
             </div>
           )}
 
-          {/* ====== ETAPA 3 ====== */}
+          {/* ====== ETAPA 3 — STATUS ====== */}
           {step === 3 && parsed && (
-            <div style={{ display: "grid", gap: 22 }}>
-              <div>
-                <div style={sectionLabel}>DE-PARA DE STATUS</div>
-                <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+            <div>
+              <div style={sectionLabel}>DE-PARA DE STATUS</div>
+              <div style={{ marginTop: 6, fontFamily: T.mono, fontSize: 11, color: T.dust }}>
+                {distinctStatuses.length} valores distintos
+              </div>
+              <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
                   {distinctStatuses.map((d) => {
                     const current = statusOverrides[d.raw.toUpperCase()] ?? d.status;
                     return (
@@ -643,101 +1033,128 @@ export default function NegotiationImportWizard({
                 <div style={{ marginTop: 8, fontSize: 12, color: T.terracotta }}>
                   Permutas entram marcadas (Vendida) e ficam FORA do VGV monetário.
                 </div>
-              </div>
-
-              <div>
-                <div style={sectionLabel}>CORRETORES — FUSÕES A CONFIRMAR</div>
-                <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-                  {brokerMatches.map((m) => {
-                    const dec = brokerDecisions[m.normalized] ?? { brokerId: m.existingId, brokerName: m.existingName ?? m.raw };
-                    return (
-                      <div
-                        key={m.normalized}
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: isMobile ? "1fr" : "1fr 220px",
-                          gap: 10,
-                          alignItems: "center",
-                          background: CARD_BG,
-                          border: `1px solid ${T.border}`,
-                          borderRadius: 10,
-                          padding: "10px 12px",
-                        }}
-                      >
-                        <div style={{ color: T.bone, fontSize: 13 }}>
-                          <span style={{ fontWeight: 600 }}>{m.raw}</span>
-                          <span style={{ color: T.fog, fontSize: 11, marginLeft: 8 }}>×{m.count}</span>
-                          {m.suggestion === "fuzzy" && (
-                            <span style={{ marginLeft: 8 }}>
-                              <Tag text={`~${Math.round(m.confidence * 100)}% ${m.existingName ?? ""}`} color={T.yellow} />
-                            </span>
-                          )}
-                          {m.mergeWith.length > 0 && (
-                            <span style={{ marginLeft: 8 }}>
-                              <Tag text={`fundir com ${m.mergeWith.join(", ")}`} color={T.blue} />
-                            </span>
-                          )}
-                        </div>
-                        <select
-                          style={selectStyle}
-                          value={dec.brokerId ?? "__new__"}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setBrokerDecisions((s) => ({
-                              ...s,
-                              [m.normalized]:
-                                val === "__new__"
-                                  ? { brokerId: null, brokerName: m.raw }
-                                  : {
-                                      brokerId: val,
-                                      brokerName: imp.brokers.find((b) => b.id === val)?.name ?? m.raw,
-                                    },
-                            }));
-                          }}
-                        >
-                          <option value="__new__">Criar novo: {m.raw}</option>
-                          {imp.brokers.map((b) => (
-                            <option key={b.id} value={b.id}>
-                              Vincular: {b.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    );
-                  })}
-                  {brokerMatches.length === 0 && (
-                    <div style={{ color: T.fog, fontSize: 13 }}>Nenhum corretor identificado nas linhas.</div>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <div style={sectionLabel}>DUPLICATAS</div>
-                <select
-                  style={{ ...selectStyle, marginTop: 8, maxWidth: 320 }}
-                  value={dupStrategy}
-                  onChange={(e) => setDupStrategy(e.target.value as "skip" | "update" | "create")}
-                >
-                  <option value="skip">Ignorar duplicatas (recomendado)</option>
-                  <option value="update">Atualizar status da existente</option>
-                  <option value="create">Criar mesmo assim</option>
-                </select>
-              </div>
             </div>
           )}
 
-          {/* ====== ETAPA 4 ====== */}
-          {step === 4 && (
+          {/* ====== ETAPA 4 — CORRETORES ====== */}
+          {step === 4 && parsed && (
+            <div>
+                <div style={sectionLabel}>CORRETORES</div>
+                <div style={{ marginTop: 6, fontFamily: T.mono, fontSize: 11, color: T.dust }}>
+                  <span style={{ color: T.sprout }}>{brokerSummary.auto} vinculados automaticamente</span> ·{" "}
+                  <span style={{ color: brokerSummary.aConfirmar ? T.yellow : T.fog }}>
+                    {brokerSummary.aConfirmar} a confirmar
+                  </span>{" "}
+                  ·{" "}
+                  <span style={{ color: brokerSummary.novos ? T.blue : T.fog }}>
+                    {brokerSummary.novos} novos a criar
+                  </span>
+                </div>
+
+                {brokerMatches.length === 0 && (
+                  <div style={{ marginTop: 10, color: T.fog, fontSize: 13 }}>
+                    Nenhum corretor identificado nas linhas.
+                  </div>
+                )}
+
+                {/* A confirmar (visível) */}
+                {confirmBrokers.length > 0 && (
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                      <div style={{ fontFamily: T.mono, fontSize: 10, color: T.yellow, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+                        A confirmar · {confirmBrokers.length}
+                      </div>
+                      {acceptSuggestionCount > 0 && (
+                        <BulkButton onClick={() => confirmAllBrokers(confirmBrokers, HIGH_CONF)}>
+                          Aceitar sugestões ({acceptSuggestionCount})
+                        </BulkButton>
+                      )}
+                    </div>
+                    {acceptSuggestionCount > 0 && (
+                      <div style={{ marginTop: 4, fontSize: 12, color: T.fog }}>
+                        Vincula as correspondências mais prováveis; as duvidosas você confirma uma a uma.
+                      </div>
+                    )}
+                    <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
+                      {confirmBrokers.map((m) => renderBrokerRow(m, true))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Novos a criar (sempre visível) */}
+                {newBrokers.length > 0 && (
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                      <div style={{ fontFamily: T.mono, fontSize: 10, color: T.blue, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+                        Novos a criar · {newBrokers.length}
+                      </div>
+                      {createNewCount > 0 && (
+                        <BulkButton onClick={() => confirmAllBrokers(newBrokers)}>
+                          Criar novos ({createNewCount})
+                        </BulkButton>
+                      )}
+                    </div>
+                    <div style={{ marginTop: 4, fontSize: 12, color: T.fog }}>
+                      Sem correspondência entre os {imp.brokers.length} corretores da conta. Busque para
+                      vincular a um existente ou confirme para criar.
+                    </div>
+                    <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
+                      {newBrokers.map((m) => renderBrokerRow(m, true))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Vinculados automaticamente (único colapsável) */}
+                {autoBrokers.length > 0 && (
+                  <div style={{ marginTop: 14 }}>
+                    <button onClick={() => setShowResolvedBrokers((p) => !p)} style={linkBtn}>
+                      {showResolvedBrokers ? "Ocultar" : "Ver"} vinculados automaticamente ({autoBrokers.length})
+                    </button>
+                    {showResolvedBrokers && (
+                      <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
+                        {autoBrokers.map((m) => renderBrokerRow(m, false))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+          )}
+
+          {/* ====== ETAPA 5 — REVISÃO ====== */}
+          {step === 5 && (
             <div>
               <div style={{ display: "flex", gap: 24, marginBottom: 14, flexWrap: "wrap" }}>
                 <KPI value={approved.length} label="PRONTAS" color={T.sprout} />
                 <KPI value={counts.revisar} label="A REVISAR" color={T.yellow} />
                 <KPI value={counts.erros} label="SEM CLIENTE" color={T.red} />
               </div>
-              <label style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, color: T.dust, fontSize: 13 }}>
-                <input type="checkbox" checked={onlyReview} onChange={(e) => setOnlyReview(e.target.checked)} />
-                Mostrar apenas linhas a revisar
-              </label>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 16,
+                  alignItems: "center",
+                  marginBottom: 12,
+                  flexWrap: "wrap",
+                  justifyContent: "space-between",
+                }}
+              >
+                <label style={{ display: "flex", gap: 8, alignItems: "center", color: T.dust, fontSize: 13 }}>
+                  <input type="checkbox" checked={onlyReview} onChange={(e) => setOnlyReview(e.target.checked)} />
+                  Mostrar apenas linhas a revisar
+                </label>
+                <label style={{ display: "flex", gap: 8, alignItems: "center", color: T.dust, fontSize: 12 }}>
+                  Duplicatas:
+                  <select
+                    style={{ ...selectStyle, width: "auto", minWidth: 200, padding: "6px 30px 6px 10px" }}
+                    value={dupStrategy}
+                    onChange={(e) => setDupStrategy(e.target.value as "skip" | "update" | "create")}
+                  >
+                    <option value="skip">Ignorar duplicatas (recomendado)</option>
+                    <option value="update">Atualizar status da existente</option>
+                    <option value="create">Criar mesmo assim</option>
+                  </select>
+                </label>
+              </div>
               <div style={{ overflowX: "auto", border: `1px solid ${T.border}`, borderRadius: 10 }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <thead>
@@ -767,14 +1184,63 @@ export default function NegotiationImportWizard({
                       .map((r) => (
                         <tr key={r.index} style={{ borderTop: `1px solid ${T.border}` }}>
                           <td style={{ padding: "8px 10px", fontFamily: T.mono, color: T.fog }}>{r.index}</td>
-                          <td style={{ padding: "8px 10px", color: T.bone }}>{r.clientName ?? <span style={{ color: T.red }}>—</span>}</td>
+                          <td style={{ padding: "8px 10px", color: T.bone, minWidth: r.clientLinkSuggested ? 210 : undefined }}>
+                            {r.clientName ? (
+                              r.clientLinkSuggested ? (
+                                <div style={{ display: "grid", gap: 4 }}>
+                                  <span>{r.clientName}</span>
+                                  <ImportCombobox
+                                    options={clientOptions(r)}
+                                    value={r.clientId ?? NEW_CLIENT}
+                                    onChange={(id) => setRowClient(r.index, id)}
+                                    placeholder="Vincular a contato…"
+                                    closedLabel={
+                                      r.clientId ? (
+                                        <PickChip tone="blue">Vinculado</PickChip>
+                                      ) : (
+                                        <PickChip tone="sprout">Criar novo</PickChip>
+                                      )
+                                    }
+                                    ariaLabel={`Vincular cliente linha ${r.index}`}
+                                  />
+                                </div>
+                              ) : (
+                                r.clientName
+                              )
+                            ) : (
+                              <span style={{ color: T.red }}>—</span>
+                            )}
+                          </td>
                           <td style={{ padding: "8px 10px", color: T.dust }}>{r.brokerName ?? "—"}</td>
-                          <td style={{ padding: "8px 10px", fontFamily: T.mono, color: r.unitId ? T.sprout : T.fog }}>
-                            {r.quadra && r.lote ? `Q${r.quadra}/L${r.lote}` : "—"}
+                          <td style={{ padding: "8px 10px" }}>
+                            {r.flags.includes("unidade_nao_encontrada") || r.flags.includes("multiplos_lotes") ? (
+                              <div style={{ minWidth: 190 }}>
+                                <ImportCombobox
+                                  options={unitOptions(r)}
+                                  value={r.unitId}
+                                  onChange={(id) => setRowUnit(r.index, id)}
+                                  placeholder="Buscar quadra/lote…"
+                                  closedLabel={
+                                    r.unitId ? (
+                                      <PickChip tone="sprout">{unitLabel(r.unitId)}</PickChip>
+                                    ) : (
+                                      <span style={{ color: T.yellow, fontFamily: T.mono, fontSize: 11 }}>
+                                        {r.quadra && r.lote ? `Q${r.quadra}/L${r.lote} ?` : "escolher"}
+                                      </span>
+                                    )
+                                  }
+                                  ariaLabel={`Escolher unidade linha ${r.index}`}
+                                />
+                              </div>
+                            ) : (
+                              <span style={{ fontFamily: T.mono, color: r.unitId ? T.sprout : T.fog }}>
+                                {r.quadra && r.lote ? `Q${r.quadra}/L${r.lote}` : "—"}
+                              </span>
+                            )}
                           </td>
                           <td style={{ padding: "8px 10px" }}>
                             <select
-                              style={{ ...selectStyle, padding: "4px 6px", fontSize: 11 }}
+                              style={{ ...selectStyle, padding: "4px 22px 4px 8px", fontSize: 11, minHeight: 30, backgroundPosition: "right 8px center" }}
                               value={r.status}
                               onChange={(e) =>
                                 setRows((all) =>
@@ -828,8 +1294,8 @@ export default function NegotiationImportWizard({
             </div>
           )}
 
-          {/* ====== ETAPA 5 ====== */}
-          {step === 5 && !committed && (
+          {/* ====== ETAPA 6 — CONFIRMAR ====== */}
+          {step === 6 && !committed && (
             <div
               style={{
                 background: CARD_BG,
@@ -868,8 +1334,8 @@ export default function NegotiationImportWizard({
             </div>
           )}
 
-          {/* ====== ETAPA 5 — sucesso ====== */}
-          {step === 5 && committed && (
+          {/* ====== ETAPA 6 — sucesso ====== */}
+          {step === 6 && committed && (
             <div style={{ textAlign: "center", padding: "20px 0" }}>
               <div style={{ fontSize: 40, marginBottom: 8 }}>✓</div>
               <div style={{ fontSize: 20, color: T.chalk, fontFamily: "var(--font-serif, 'Instrument Serif', serif)", fontStyle: "italic" }}>
@@ -881,18 +1347,21 @@ export default function NegotiationImportWizard({
                 <KPI value={committed.duplicates} label="DUPLICATAS" color={T.yellow} />
                 <KPI value={committed.errorsCount} label="ERROS" color={committed.errorsCount ? T.red : T.fog} />
               </div>
-              {undoArchived !== null && (
+              {undoResult !== null && (
                 <div style={{ marginTop: 14, color: T.terracotta, fontSize: 13 }}>
-                  Importação desfeita — {undoArchived} negociações arquivadas.
+                  Importação desfeita — {undoResult.deleted} negociações removidas.
+                  {" "}
+                  {undoResult.clientsKept} contatos e {undoResult.brokersKept} corretores preservados.
                 </div>
               )}
             </div>
           )}
         </div>
 
-        {/* Footer */}
+        {/* Footer — sempre visível na base do painel */}
         <div
           style={{
+            flexShrink: 0,
             display: "flex",
             justifyContent: "space-between",
             gap: 10,
@@ -903,17 +1372,38 @@ export default function NegotiationImportWizard({
         >
           {!committed ? (
             <>
-              <button onClick={step === 1 ? close : () => goTo(step - 1)} style={btnGhost}>
+              <button onClick={step === 1 ? requestClose : () => goTo(step - 1)} style={btnGhost}>
                 {step === 1 ? "Cancelar" : "Voltar"}
               </button>
-              {step < 5 ? (
-                <button
-                  onClick={() => goTo(step + 1)}
-                  disabled={step === 1 && !parsed}
-                  style={{ ...btnPrimary, opacity: step === 1 && !parsed ? 0.5 : 1 }}
-                >
-                  Continuar
-                </button>
+              {step < 6 ? (
+                (() => {
+                  const blocked = (step === 1 && !parsed) || (step === 4 && pendingBrokers > 0);
+                  return (
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      {step === 4 && pendingBrokers > 0 && (
+                        <span style={{ fontSize: 12, color: T.yellow }}>
+                          {pendingBrokers} corretor(es) a confirmar
+                        </span>
+                      )}
+                      {step === 4 && pendingBrokers === 0 && newBrokers.length > 0 && (
+                        <span style={{ fontSize: 12, color: T.fog }}>
+                          {newBrokers.length} novo(s) corretor(es) serão criados
+                        </span>
+                      )}
+                      <button
+                        onClick={() => goTo(step + 1)}
+                        disabled={blocked}
+                        style={{
+                          ...btnPrimary,
+                          opacity: blocked ? 0.5 : 1,
+                          cursor: blocked ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        Continuar
+                      </button>
+                    </div>
+                  );
+                })()
               ) : (
                 <button onClick={doCommit} disabled={imp.isCommitting || approved.length === 0} style={btnPrimary}>
                   {imp.isCommitting ? "Importando…" : `Importar ${approved.length} negociações`}
@@ -922,16 +1412,16 @@ export default function NegotiationImportWizard({
             </>
           ) : (
             <>
-              <button onClick={doUndo} disabled={imp.isUndoing || undoArchived !== null} style={btnGhost}>
+              <button onClick={doUndo} disabled={imp.isUndoing || undoResult !== null} style={btnGhost}>
                 {imp.isUndoing ? "Desfazendo…" : "Desfazer importação"}
               </button>
               <div style={{ display: "flex", gap: 10 }}>
-                <button onClick={close} style={btnGhost}>
+                <button onClick={doClose} style={btnGhost}>
                   Fechar
                 </button>
                 <button
                   onClick={() => {
-                    close();
+                    doClose();
                     navigate("/pipeline");
                   }}
                   style={btnPrimary}
@@ -943,6 +1433,47 @@ export default function NegotiationImportWizard({
           )}
         </div>
       </div>
+
+      {/* Confirmação de descarte — só some o trabalho após o usuário confirmar */}
+      {confirmClose && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9200,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 24,
+            background: "rgba(0,0,0,0.6)",
+          }}
+        >
+          <div
+            style={{
+              width: "min(420px, 92vw)",
+              background: CARD_BG,
+              border: `1px solid ${T.borderStrong}`,
+              borderRadius: 14,
+              padding: 22,
+            }}
+          >
+            <div style={{ fontFamily: "var(--font-serif, 'Instrument Serif', serif)", fontStyle: "italic", fontSize: 19, color: T.chalk }}>
+              Descartar importação?
+            </div>
+            <div style={{ marginTop: 8, fontSize: 13, color: T.dust }}>
+              Você vai perder o mapeamento e as resoluções feitas.
+            </div>
+            <div style={{ marginTop: 18, display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button onClick={() => setConfirmClose(false)} style={btnGhost}>
+                Continuar editando
+              </button>
+              <button onClick={doClose} style={{ ...btnPrimary, background: T.red, color: T.chalk }}>
+                Descartar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>,
     document.body,
   );

@@ -4,16 +4,23 @@ import { useCallback, useState } from "react";
 import {
   commitImport,
   loadBrokers,
+  loadClients,
   loadUnits,
   undoImport,
   type CommitImportInput,
   type CommitImportResult,
+  type UndoImportResult,
 } from "../../../infra/repositories/negotiationImportsSupabaseRepository";
-import type { BrokerCandidate, UnitCandidate } from "../../../services/negotiationImport";
+import type {
+  BrokerCandidate,
+  ClientCandidate,
+  UnitCandidate,
+} from "../../../services/negotiationImport";
 
 type UseNegotiationImportResult = {
   brokers: BrokerCandidate[];
   units: UnitCandidate[];
+  clients: ClientCandidate[];
   isLoadingRef: boolean;
   isCommitting: boolean;
   isUndoing: boolean;
@@ -21,7 +28,7 @@ type UseNegotiationImportResult = {
   lastResult: CommitImportResult | null;
   loadReference: () => Promise<boolean>;
   runCommit: (input: CommitImportInput) => Promise<CommitImportResult | null>;
-  runUndo: (batchId: string) => Promise<number | null>;
+  runUndo: (batchId: string) => Promise<UndoImportResult | null>;
   clearError: () => void;
 };
 
@@ -31,6 +38,7 @@ export function useNegotiationImport(
 ): UseNegotiationImportResult {
   const [brokers, setBrokers] = useState<BrokerCandidate[]>([]);
   const [units, setUnits] = useState<UnitCandidate[]>([]);
+  const [clients, setClients] = useState<ClientCandidate[]>([]);
   const [isLoadingRef, setIsLoadingRef] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
   const [isUndoing, setIsUndoing] = useState(false);
@@ -45,9 +53,14 @@ export function useNegotiationImport(
     setIsLoadingRef(true);
     setErrorMessage(null);
     try {
-      const [b, u] = await Promise.all([loadBrokers(accountId), loadUnits(accountId, developmentId)]);
+      const [b, u, c] = await Promise.all([
+        loadBrokers(accountId),
+        loadUnits(accountId, developmentId),
+        loadClients(accountId),
+      ]);
       setBrokers(b);
       setUnits(u);
+      setClients(c);
       return true;
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Falha ao carregar dados de apoio.");
@@ -75,12 +88,11 @@ export function useNegotiationImport(
     [],
   );
 
-  const runUndo = useCallback(async (batchId: string): Promise<number | null> => {
+  const runUndo = useCallback(async (batchId: string): Promise<UndoImportResult | null> => {
     setIsUndoing(true);
     setErrorMessage(null);
     try {
-      const { archived } = await undoImport(batchId);
-      return archived;
+      return await undoImport(batchId);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Falha ao desfazer importação.");
       return null;
@@ -92,6 +104,7 @@ export function useNegotiationImport(
   return {
     brokers,
     units,
+    clients,
     isLoadingRef,
     isCommitting,
     isUndoing,

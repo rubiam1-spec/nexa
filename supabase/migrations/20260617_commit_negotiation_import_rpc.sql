@@ -3,6 +3,13 @@
 -- Triggers de negotiation_parties (primary_buyer / spouse) criam parties no INSERT;
 -- por isso NÃO inserimos parties manualmente. negotiation_history não tem trigger no
 -- INSERT, então é inserido explicitamente com action='imported'.
+--
+-- Ajuste 2026-07-18 (aplicado em produção via MCP, ver 20260718_fix_negotiation_import_undo_and_seed.sql):
+--   • seed de clientes do importador → status 'active' + qualification_status 'converted'
+--     + converted_at backdatado (contato histórico nunca entra na fila de leads);
+--   • owner_profile_id da negociação importada → NULL (importado não tem "dono").
+--   • A função undo abaixo é a versão ORIGINAL (soft/CANCELLED) e foi SUPERSEDIDA
+--     pela 20260718 (hard-delete com trava de downstream). Mantida aqui como histórico.
 
 CREATE OR REPLACE FUNCTION public.commit_negotiation_import(p_payload jsonb)
 RETURNS jsonb
@@ -83,8 +90,9 @@ BEGIN
         v_status := 'OPEN';
       END IF;
 
-      v_client := NULL;
-      IF v_cpf IS NOT NULL THEN
+      -- vínculo explícito a contato existente tem prioridade; senão find-or-create
+      v_client := NULLIF(rec->>'client_id','')::uuid;
+      IF v_client IS NULL AND v_cpf IS NOT NULL THEN
         SELECT id INTO v_client FROM clients
         WHERE account_id = v_account AND cpf = v_cpf LIMIT 1;
       END IF;
@@ -93,8 +101,16 @@ BEGIN
         WHERE account_id = v_account AND lower(name) = lower(v_name) LIMIT 1;
       END IF;
       IF v_client IS NULL AND v_name IS NOT NULL THEN
-        INSERT INTO clients (account_id, name, phone, cpf, development_id, created_by, origin, status)
-        VALUES (v_account, v_name, v_phone, v_cpf, v_dev, v_actor, 'import', 'lead')
+        -- Cliente histórico: já convertido por definição (tem negociação).
+        -- Nunca entra na fila de qualificação de leads.
+        INSERT INTO clients (
+          account_id, name, phone, cpf, development_id, created_by,
+          origin, status, qualification_status, converted_at
+        )
+        VALUES (
+          v_account, v_name, v_phone, v_cpf, v_dev, v_actor,
+          'import', 'active', 'converted', COALESCE(v_created, now())
+        )
         RETURNING id INTO v_client;
       END IF;
 
@@ -139,7 +155,7 @@ BEGIN
           status, temperature, created_at, updated_at, owner_profile_id, import_batch_id
         ) VALUES (
           v_account, v_dev, v_client, v_broker, v_unit,
-          v_status, v_temp, COALESCE(v_created, now()), now(), v_actor, v_batch
+          v_status, v_temp, COALESCE(v_created, now()), now(), NULL, v_batch
         ) RETURNING id INTO v_neg;
 
         INSERT INTO negotiation_history (negotiation_id, from_status, to_status, action, performed_by, created_at)
