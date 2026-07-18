@@ -3,6 +3,17 @@ import type { UserRole } from "../../shared/types/auth";
 import { normalizeUserRole } from "../../shared/types/role";
 import { getSupabaseClientOrThrow, unwrapSupabaseListResult } from "./baseRepository";
 import { supabase } from "../supabase/supabaseClient";
+import { invokeWithError } from "../../services/edgeFunctions/invokeWithError";
+
+// Traduz mensagens conhecidas da invite-user para PT-BR amigável. Casos não mapeados
+// exibem a mensagem real do backend (já legível). Regra de tradução fica no serviço,
+// nunca na UI.
+function mapInviteError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes("unable to validate email address")) return "E-mail inválido — confira o endereço.";
+  if (m.includes("already been registered")) return "Este e-mail já tem acesso.";
+  return message;
+}
 
 type UserAccountAccessRow = {
   role: UserRole | null;
@@ -32,17 +43,19 @@ export async function inviteUser(input: {
   const { error: refreshError } = await supabase.auth.refreshSession();
   if (refreshError) throw new Error("Sessão expirada. Faça login novamente.");
 
-  const { data, error } = await supabase.functions.invoke("invite-user", {
-    body: {
-      email: input.email.trim().toLowerCase(),
-      name: input.fullName.trim(),
-      role: input.role,
-      account_id: input.accountId,
+  const { data, errorMessage } = await invokeWithError<{ userId?: string; link?: string }>(
+    "invite-user",
+    {
+      body: {
+        email: input.email.trim().toLowerCase(),
+        name: input.fullName.trim(),
+        role: input.role,
+        account_id: input.accountId,
+      },
     },
-  });
+  );
 
-  if (error) throw new Error(error.message || "Falha ao enviar convite.");
-  if (data?.error) throw new Error(data.error);
+  if (errorMessage) throw new Error(mapInviteError(errorMessage));
 
   return {
     user: {

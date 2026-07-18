@@ -16,6 +16,7 @@ import {
 import type { AccountUser } from "../../../shared/types/accountUser";
 import { NexaSelect } from "../../../shared/ui/NexaSelect";
 import { NexaModal } from "../../../shared/ui/NexaModal";
+import { validateEmail } from "../../../shared/utils/masks";
 
 const roleOptions: Array<{ value: UserRole; label: string; desc: string }> = [
   { value: "director", label: "Diretor", desc: "Acesso total, configurações estruturais" },
@@ -73,6 +74,7 @@ export default function UsersPage() {
   // Invite form
   const [showForm, setShowForm] = useState(false);
   const [email, setEmail] = useState("");
+  const [emailError, setEmailError] = useState<string | null>(null);
   const [fullName, setFullName] = useState("");
   const [role, setRole] = useState<UserRole>("commercial_consultant");
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -101,7 +103,15 @@ export default function UsersPage() {
   async function handleInvite() {
     if (!email.trim() || !fullName.trim()) return;
     setSuccessMessage(null); setErrMsg(null);
-    const result = await inviteUser({ email: email.trim(), fullName: fullName.trim(), role });
+    // Validação pré-envio: e-mail normalizado (trim + lowercase) e formato válido.
+    // Inválido → erro inline no campo, sem disparar request ao backend.
+    const cleanEmail = email.trim().toLowerCase();
+    if (!validateEmail(cleanEmail)) {
+      setEmailError("E-mail inválido — confira o endereço.");
+      return;
+    }
+    setEmailError(null);
+    const result = await inviteUser({ email: cleanEmail, fullName: fullName.trim(), role });
     if (result) {
       setSuccessMessage(`Convite enviado para ${result.user.email}.`);
       setLinkAcesso(result.link ?? null);
@@ -211,7 +221,7 @@ export default function UsersPage() {
           </div>
         </div>
         {perms.canManageUsers ? (
-          <button type="button" onClick={() => { setShowForm((p) => !p); setSuccessMessage(null); setLinkAcesso(null); setCopiado(false); setErrMsg(null); }} style={showForm ? btnS : btnP}>
+          <button type="button" onClick={() => { setShowForm((p) => !p); setSuccessMessage(null); setLinkAcesso(null); setCopiado(false); setErrMsg(null); setEmailError(null); }} style={showForm ? btnS : btnP}>
             {showForm ? "Cancelar" : "Convidar usuário"}
           </button>
         ) : null}
@@ -246,7 +256,7 @@ export default function UsersPage() {
           <div className="nexa-label" style={{ marginBottom: 16 }}>Convidar novo usuário</div>
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 12, maxWidth: 700 }}>
             <label><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Nome completo *</span><input ref={fullNameRef} type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Nome do usuário" /></label>
-            <label><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>E-mail *</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@exemplo.com" /></label>
+            <label><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>E-mail *</span><input type="email" value={email} onChange={(e) => { setEmail(e.target.value); if (emailError) setEmailError(null); }} placeholder="email@exemplo.com" aria-invalid={emailError ? true : undefined} style={emailError ? { borderColor: "#F87171" } : undefined} />{emailError ? <span style={{ display: "block", marginTop: 6, fontSize: 12, color: "#F87171" }}>{emailError}</span> : null}</label>
             <label><span className="nexa-label" style={{ display: "block", marginBottom: 6 }}>Perfil</span><NexaSelect value={role} onChange={(v) => setRole(v as UserRole)} ariaLabel="Perfil" options={roleOptions.map((opt) => ({ value: opt.value, label: `${opt.label} — ${opt.desc}` }))} /></label>
           </div>
           <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
