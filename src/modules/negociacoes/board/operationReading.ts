@@ -1,9 +1,11 @@
 // Fase B do Funil (Bloco 2) — "Leitura da operação": frase diagnóstica gerada por
 // REGRA DETERMINÍSTICA (sem IA nesta fase). PURA e testável.
 //
-// ESTA É A FUTURA CASA DO MOTOR DE INTELIGÊNCIA: hoje é uma regra fixa (pior
-// transição + item mais antigo travado); amanhã a mesma interface pode ser
-// alimentada por um motor de scoring/insight. Manter o contrato de saída estável.
+// NÃO RENDERIZADA NA UI a partir do Funil v3 (decisão de produto — removida da
+// tela). O módulo é MANTIDO de propósito: é a futura casa do motor de
+// inteligência (hoje regra fixa: pior transição + item mais antigo travado;
+// amanhã a mesma interface pode ser alimentada por scoring/insight). O contrato
+// de saída permanece estável e coberto por testes.
 import type { KanbanCard } from "../hooks/useKanbanData";
 import { columnOfStatusRaw, stageMeta, type BoardStage } from "./stageColumn";
 import { semaphoreOf, isAssumed } from "./semaphore";

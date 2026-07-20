@@ -24,14 +24,14 @@ export function Sparkline({ data, color = VIZ.blue, width = 66, height = 18 }: {
 const GRID = [0.25, 0.5, 0.75, 1];
 
 /** Barras verticais categóricas, com grid sutil, rótulos e valores opcionais. */
-export function BarSeries({ data, height = 200, showValues = true, onHover, onLeave, onSelect }: {
-  data: VizDatum[]; height?: number; showValues?: boolean;
+export function BarSeries({ data, height = 200, showValues = true, max: maxProp, onHover, onLeave, onSelect }: {
+  data: VizDatum[]; height?: number; showValues?: boolean; max?: number;
   onHover?: HoverFn<VizDatum>; onLeave?: () => void; onSelect?: (d: VizDatum, i: number) => void;
 }) {
   const W = 860, padTop = 16, padBottom = 34, padX = 8;
   const n = Math.max(1, data.length);
   const plotH = height - padTop - padBottom;
-  const max = Math.max(1, ...data.map((d) => d.value));
+  const max = Math.max(1, maxProp ?? Math.max(...data.map((d) => d.value), 0));
   const slot = (W - padX * 2) / n;
   const barW = Math.min(28, slot * 0.6);
   return (
@@ -56,14 +56,14 @@ export function BarSeries({ data, height = 200, showValues = true, onHover, onLe
 }
 
 /** Linha sobreposta a barras (ex.: criadas=barra, vendas=linha) — mesma escala. */
-export function LineOverlay({ data, color = VIZ.positiveSolid, height = 200, showValues = true, valueOf }: {
-  data: VizDatum[]; color?: string; height?: number; showValues?: boolean; valueOf?: (d: VizDatum) => number;
+export function LineOverlay({ data, color = VIZ.positiveSolid, height = 200, showValues = true, getValue, max: maxProp }: {
+  data: VizDatum[]; color?: string; height?: number; showValues?: boolean; getValue?: (d: VizDatum) => number; max?: number;
 }) {
   const W = 860, padTop = 16, padBottom = 34, padX = 8;
   const n = Math.max(1, data.length);
   const plotH = height - padTop - padBottom;
-  const get = valueOf ?? ((d: VizDatum) => d.value);
-  const max = Math.max(1, ...data.map(get));
+  const get = getValue ?? ((d: VizDatum) => d.value);
+  const max = Math.max(1, maxProp ?? Math.max(...data.map(get), 0));
   const slot = (W - padX * 2) / n;
   const cx = (i: number) => padX + slot * i + slot / 2;
   const cy = (v: number) => padTop + (plotH - (v / max) * plotH);

@@ -193,7 +193,7 @@ export function computeFunnelMetrics(
 
 const MESES_PT = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 
-export type MonthlyPoint = { key: string; label: string; criadas: number; vendas: number; vgvVendas: number; overflow?: boolean };
+export type MonthlyPoint = { key: string; label: string; criadas: number; vendas: number; vendasComValor: number; vgvVendas: number; overflow?: boolean };
 
 // Índice de mês absoluto (ano*12 + mês) e rótulo "mmm/yy".
 function ymIndex(iso: string | null | undefined): number | null {
@@ -232,11 +232,11 @@ export function computeMonthlyEvolution(negotiations: KanbanCard[], nowMs: numbe
   const buckets = new Map<number, MonthlyPoint>();
   const pts: MonthlyPoint[] = [];
   if (hasOverflow) {
-    const ov: MonthlyPoint = { key: `overflow`, label: `antes de ${ymLabel(startYm)}`, criadas: 0, vendas: 0, vgvVendas: 0, overflow: true };
+    const ov: MonthlyPoint = { key: `overflow`, label: `antes de ${ymLabel(startYm)}`, criadas: 0, vendas: 0, vendasComValor: 0, vgvVendas: 0, overflow: true };
     pts.push(ov);
   }
   for (let ym = startYm; ym <= nowYm; ym++) {
-    const p: MonthlyPoint = { key: `${Math.floor(ym / 12)}-${String((ym % 12) + 1).padStart(2, "0")}`, label: ymLabel(ym), criadas: 0, vendas: 0, vgvVendas: 0 };
+    const p: MonthlyPoint = { key: `${Math.floor(ym / 12)}-${String((ym % 12) + 1).padStart(2, "0")}`, label: ymLabel(ym), criadas: 0, vendas: 0, vendasComValor: 0, vgvVendas: 0 };
     buckets.set(ym, p);
     pts.push(p);
   }
@@ -250,7 +250,7 @@ export function computeMonthlyEvolution(negotiations: KanbanCard[], nowMs: numbe
   for (const c of negotiations) {
     put(ymIndex(c.createdAt), (p) => { p.criadas += 1; });
     if (columnOfStatusRaw(c.status) === "venda") {
-      put(ymIndex(wonRefIso(c)), (p) => { p.vendas += 1; p.vgvVendas += c.valor ?? 0; });
+      put(ymIndex(wonRefIso(c)), (p) => { p.vendas += 1; p.vgvVendas += c.valor ?? 0; if (c.valor != null) p.vendasComValor += 1; });
     }
   }
   return pts;
