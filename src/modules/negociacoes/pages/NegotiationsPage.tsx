@@ -11,6 +11,7 @@ import { semaphoreOf, type SemaphoreLevel } from "../board/semaphore";
 import { NegotiationStatus, type NegotiationStatus as NegotiationStatusType } from "../../../domain/status/negotiation";
 import { RESERVATION_TERMINAL_DB_VALUES } from "../../../domain/status/reservation";
 import NegotiationImportWizard from "../components/NegotiationImportWizard";
+import ImportHistoryPanel from "../components/ImportHistoryPanel";
 import { EmptyState } from "../../../shared/components/EmptyState";
 import { SearchableSelect } from "../../../shared/components/SearchableSelect";
 import { NexaSelect } from "../../../shared/ui/NexaSelect";
@@ -101,6 +102,7 @@ export default function NegotiationsPage() {
 
   const [showForm, setShowForm] = useState(!!preselectedUnitId);
   const [showImport, setShowImport] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [selectedUnitId, setSelectedUnitId] = useState(preselectedUnitId ?? "");
   const [selectedClientId, setSelectedClientId] = useState("");
   const [selectedBrokerId, setSelectedBrokerId] = useState("");
@@ -227,7 +229,17 @@ export default function NegotiationsPage() {
             })()}
           </div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {canImport && (
+            <button
+              type="button"
+              onClick={() => setShowHistory(true)}
+              title="Histórico de importações"
+              style={{ background: "transparent", border: "none", color: "var(--color-fog)", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "0 6px", height: 36, textDecoration: "underline", textUnderlineOffset: 3 }}
+            >
+              Histórico de importações
+            </button>
+          )}
           {canImport && (
             <button type="button" onClick={() => setShowImport(true)} style={btnSecondary}>
               Importar negociações
@@ -247,6 +259,16 @@ export default function NegotiationsPage() {
           developmentId={development?.developmentId ?? null}
           developmentName={development?.developmentName ?? null}
           onImported={refetchClients}
+        />
+      )}
+
+      {canImport && (
+        <ImportHistoryPanel
+          open={showHistory}
+          onClose={() => setShowHistory(false)}
+          accountId={account?.accountId ?? null}
+          developmentId={development?.developmentId ?? null}
+          onChanged={refetchClients}
         />
       )}
 

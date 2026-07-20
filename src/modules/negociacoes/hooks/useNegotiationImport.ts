@@ -3,12 +3,14 @@
 import { useCallback, useState } from "react";
 import {
   commitImport,
+  listImports,
   loadBrokers,
   loadClients,
   loadUnits,
   undoImport,
   type CommitImportInput,
   type CommitImportResult,
+  type ImportBatchSummary,
   type UndoImportResult,
 } from "../../../infra/repositories/negotiationImportsSupabaseRepository";
 import type {
@@ -26,9 +28,12 @@ type UseNegotiationImportResult = {
   isUndoing: boolean;
   errorMessage: string | null;
   lastResult: CommitImportResult | null;
+  imports: ImportBatchSummary[];
+  isLoadingImports: boolean;
   loadReference: () => Promise<boolean>;
   runCommit: (input: CommitImportInput) => Promise<CommitImportResult | null>;
   runUndo: (batchId: string) => Promise<UndoImportResult | null>;
+  loadImports: () => Promise<void>;
   clearError: () => void;
 };
 
@@ -44,6 +49,8 @@ export function useNegotiationImport(
   const [isUndoing, setIsUndoing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<CommitImportResult | null>(null);
+  const [imports, setImports] = useState<ImportBatchSummary[]>([]);
+  const [isLoadingImports, setIsLoadingImports] = useState(false);
 
   const loadReference = useCallback(async (): Promise<boolean> => {
     if (!accountId || !developmentId) {
@@ -88,6 +95,22 @@ export function useNegotiationImport(
     [],
   );
 
+  const loadImports = useCallback(async (): Promise<void> => {
+    if (!accountId) {
+      setImports([]);
+      return;
+    }
+    setIsLoadingImports(true);
+    setErrorMessage(null);
+    try {
+      setImports(await listImports(accountId));
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Falha ao carregar histórico de importações.");
+    } finally {
+      setIsLoadingImports(false);
+    }
+  }, [accountId]);
+
   const runUndo = useCallback(async (batchId: string): Promise<UndoImportResult | null> => {
     setIsUndoing(true);
     setErrorMessage(null);
@@ -110,9 +133,12 @@ export function useNegotiationImport(
     isUndoing,
     errorMessage,
     lastResult,
+    imports,
+    isLoadingImports,
     loadReference,
     runCommit,
     runUndo,
+    loadImports,
     clearError: () => setErrorMessage(null),
   };
 }

@@ -126,6 +126,49 @@ function mapUndoError(message: string): string {
   return `Falha ao desfazer importação: ${message}`;
 }
 
+// Resumo de um lote de importação para o histórico permanente (UI).
+export type ImportBatchSummary = {
+  batchId: string;
+  fileName: string;
+  sheetName: string | null;
+  status: string; // 'committed' | 'undone' | 'reviewing'
+  totalRows: number;
+  imported: number;
+  skipped: number;
+  duplicates: number;
+  errors: number;
+  createdAt: string | null; // committed_at quando houver, senão created_at
+};
+
+// Lista os lotes de importação da conta (mais recentes primeiro). A RLS
+// (neg_imports_select) já restringe ao account_id do usuário autenticado.
+export async function listImports(accountId: string): Promise<ImportBatchSummary[]> {
+  const supabase = getSupabaseClientOrThrow("negotiation imports repository");
+  const { data, error } = await supabase
+    .from("negotiation_imports")
+    .select(
+      "id, file_name, sheet_name, status, total_rows, imported_count, skipped_count, duplicate_count, error_count, committed_at, created_at",
+    )
+    .eq("account_id", accountId)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(`Falha ao carregar histórico de importações: ${error.message}`);
+  return (data ?? []).map((r) => {
+    const row = r as Record<string, unknown>;
+    return {
+      batchId: String(row.id),
+      fileName: String(row.file_name ?? "(sem nome)"),
+      sheetName: row.sheet_name ? String(row.sheet_name) : null,
+      status: String(row.status ?? ""),
+      totalRows: Number(row.total_rows ?? 0),
+      imported: Number(row.imported_count ?? 0),
+      skipped: Number(row.skipped_count ?? 0),
+      duplicates: Number(row.duplicate_count ?? 0),
+      errors: Number(row.error_count ?? 0),
+      createdAt: (row.committed_at as string) ?? (row.created_at as string) ?? null,
+    };
+  });
+}
+
 export async function undoImport(batchId: string): Promise<UndoImportResult> {
   const supabase = getSupabaseClientOrThrow("negotiation imports repository");
   const { data, error } = await supabase.rpc("undo_negotiation_import", { p_batch_id: batchId });
