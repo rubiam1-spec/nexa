@@ -35,6 +35,8 @@ export type BoardModel = {
   /** Abertas = em_negociacao + proposta + reserva (exclui venda/perdido). */
   openCount: number;
   openVGV: number;
+  /** Cobertura do VGV aberto: quantas abertas têm valor (unidade). Sem unidade não soma. */
+  openWithValue: number;
   wonCount: number;
   wonVGV: number;
   lostCount: number;
@@ -97,6 +99,8 @@ export function buildBoard(cards: KanbanCard[], nowMs: number = Date.now(), lead
 
   const openCount = OPEN_STAGES.reduce((s, k) => s + countByStage[k], 0);
   const openVGV = OPEN_STAGES.reduce((s, k) => s + vgvByStage[k], 0);
+  // Cobertura honesta: negociações sem unidade têm valor null e não somam ao VGV.
+  const openWithValue = OPEN_STAGES.reduce((s, k) => s + byStage[k].filter((c) => c.valor != null).length, 0);
 
   const leadSnapshot = computeLeadSnapshot(leadRows);
 
@@ -108,6 +112,7 @@ export function buildBoard(cards: KanbanCard[], nowMs: number = Date.now(), lead
     vgvByStage,
     openCount,
     openVGV,
+    openWithValue,
     wonCount: countByStage.venda,
     wonVGV: vgvByStage.venda,
     lostCount: countByStage.perdido,

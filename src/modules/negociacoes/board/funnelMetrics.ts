@@ -46,6 +46,8 @@ export type FunnelMetrics = {
   entradas: number;
   conversaoGeral: number | null;
   openVGV: number;
+  /** Cobertura do VGV aberto da coorte: com valor (unidade) de total aberto. */
+  openCoverage: { withValue: number; total: number };
   cicloMedioDias: number | null;
   vendido: { count: number; vgv: number };
   transitions: FunnelTransition[];
@@ -116,7 +118,9 @@ export function computeFunnelMetrics(
   const vendaCards = cohort.filter((c) => stageOf(c) === "venda");
   const vendido = { count: vendaCards.length, vgv: vendaCards.reduce((s, c) => s + (c.valor ?? 0), 0) };
 
-  const openVGV = cohort.filter((c) => OPEN_STAGES.includes(stageOf(c))).reduce((s, c) => s + (c.valor ?? 0), 0);
+  const openCards = cohort.filter((c) => OPEN_STAGES.includes(stageOf(c)));
+  const openVGV = openCards.reduce((s, c) => s + (c.valor ?? 0), 0);
+  const openCoverage = { withValue: openCards.filter((c) => c.valor != null).length, total: openCards.length };
 
   // Tabela por estágio (distribuição atual da coorte).
   const stageStats: FunnelStageStat[] = FUNNEL_FLOW.map((stage) => {
@@ -131,7 +135,7 @@ export function computeFunnelMetrics(
       const s = semaphoreOf({
         nextActionAt: c.nextActionAt, followUpAt: c.followUpAt, lastActivityAt: c.lastActivityAt,
         updatedAt: c.updatedAt, stageChangedAt: c.stageChangedAt, reservaExpiresAt: c.reservaExpiresAt,
-        reservaAtiva: !!c.reservaStatus,
+        reservaAtiva: !!c.reservaStatus, status: c.status, ownerProfileId: c.ownerProfileId,
       }, thresholdDays, nowMs);
       if (s.level === "red") atencao += 1;
     }
@@ -155,6 +159,7 @@ export function computeFunnelMetrics(
     entradas,
     conversaoGeral,
     openVGV,
+    openCoverage,
     cicloMedioDias,
     vendido,
     transitions,

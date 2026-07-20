@@ -46,6 +46,14 @@ export default function NegociacoesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
 
+  // URL → visão: permite deep-link/salto entre visões (ex.: Kanban "+N" → Lista
+  // filtrada por estágio). Sem loop: só sincroniza quando difere.
+  useEffect(() => {
+    const fromUrl = searchParams.get("view");
+    if (isView(fromUrl) && fromUrl !== view) setView(fromUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   return (
     <div>
       {/* Alternador de visão */}

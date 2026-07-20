@@ -10,6 +10,8 @@ export interface KanbanCard {
   updatedAt: string;
   clienteNome: string | null;
   clienteId: string | null;
+  ownerProfileId?: string | null;
+  importBatchId?: string | null;
   quadra: string | null;
   lote: string | null;
   valor: number | null;
@@ -50,7 +52,7 @@ export function useKanbanData(accountId: string | null, developmentId: string | 
 
     let query = supabase!
       .from("negotiations")
-      .select("id, status, created_at, updated_at, unit_id, client_id, broker_id, lost_reason, score, stage_changed_at, next_action_at, last_activity_at, follow_up_at, third_party_property_id, clients ( name ), units ( quadra, lote, valor, status ), brokers ( name ), proposals ( id, status, created_at ), reservations ( id, status, expires_at ), reservation_requests ( id, status ), third_party_property:third_party_properties ( id, titulo, tipo )")
+      .select("id, status, created_at, updated_at, unit_id, client_id, broker_id, owner_profile_id, import_batch_id, lost_reason, score, stage_changed_at, next_action_at, last_activity_at, follow_up_at, third_party_property_id, clients ( name ), units ( quadra, lote, valor, status ), brokers ( name ), proposals ( id, status, created_at ), reservations ( id, status, expires_at ), reservation_requests ( id, status ), third_party_property:third_party_properties ( id, titulo, tipo )")
       .eq("account_id", accountId).or(`development_id.eq.${developmentId},development_id.is.null`);
     if (filters?.brokerId) query = query.eq("broker_id", filters.brokerId);
     if (filters?.ownerProfileId) query = query.eq("owner_profile_id", filters.ownerProfileId);
@@ -74,6 +76,8 @@ export function useKanbanData(accountId: string | null, developmentId: string | 
             updatedAt: n.updated_at as string,
             clienteNome: (client as Record<string, unknown>)?.name as string | null ?? null,
             clienteId: n.client_id as string | null,
+            ownerProfileId: n.owner_profile_id as string | null ?? null,
+            importBatchId: n.import_batch_id as string | null ?? null,
             quadra: (unit as Record<string, unknown>)?.quadra as string | null ?? null,
             lote: (unit as Record<string, unknown>)?.lote as string | null ?? null,
             valor: (unit as Record<string, unknown>)?.valor as number | null ?? null,
@@ -111,7 +115,7 @@ export function useKanbanData(accountId: string | null, developmentId: string | 
             const cl = Array.isArray(s.clients) ? s.clients[0] : s.clients;
             const un = Array.isArray(s.units) ? s.units[0] : s.units;
             const br = Array.isArray(s.brokers) ? s.brokers[0] : s.brokers;
-            return { id: s.id as string, status: "SIMULATION", createdAt: s.created_at as string, updatedAt: (s.updated_at ?? s.created_at) as string, clienteNome: (cl as Record<string, unknown>)?.name as string | null ?? null, clienteId: s.client_id as string | null, quadra: (un as Record<string, unknown>)?.quadra as string | null ?? null, lote: (un as Record<string, unknown>)?.lote as string | null ?? null, valor: (s.valor_total as number) ?? (un as Record<string, unknown>)?.valor as number | null ?? null, unitId: s.unit_id as string | null, unitStatus: null, corretorNome: (br as Record<string, unknown>)?.name as string | null ?? null, corretorId: s.broker_id as string | null, propostaId: null, propostaStatus: null, reservaExpiresAt: null, reservaStatus: null, reservaRequestId: null, reservaRequestStatus: null, isSimulacao: true, thirdPartyPropertyId: s.third_party_property_id as string | null ?? null, thirdPartyPropertyTitulo: s.property_name as string | null ?? null };
+            return { id: s.id as string, status: "SIMULATION", createdAt: s.created_at as string, updatedAt: (s.updated_at ?? s.created_at) as string, clienteNome: (cl as Record<string, unknown>)?.name as string | null ?? null, clienteId: s.client_id as string | null, ownerProfileId: null, importBatchId: null, quadra: (un as Record<string, unknown>)?.quadra as string | null ?? null, lote: (un as Record<string, unknown>)?.lote as string | null ?? null, valor: (s.valor_total as number) ?? (un as Record<string, unknown>)?.valor as number | null ?? null, unitId: s.unit_id as string | null, unitStatus: null, corretorNome: (br as Record<string, unknown>)?.name as string | null ?? null, corretorId: s.broker_id as string | null, propostaId: null, propostaStatus: null, reservaExpiresAt: null, reservaStatus: null, reservaRequestId: null, reservaRequestStatus: null, isSimulacao: true, thirdPartyPropertyId: s.third_party_property_id as string | null ?? null, thirdPartyPropertyTitulo: s.property_name as string | null ?? null };
           });
         } catch { /* simulation table might not exist yet */ }
         setCards([...mapped, ...simCards]); setLoading(false);

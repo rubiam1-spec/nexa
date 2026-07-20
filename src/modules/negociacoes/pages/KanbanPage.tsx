@@ -29,7 +29,8 @@ import { NexaModal } from "../../../shared/ui/NexaModal";
 
 const MONO = "var(--font-mono)";
 const MAX_CARDS_PER_COL = 6;
-const SEMA_COLOR: Record<SemaphoreLevel, string> = { green: "#4ADE80", amber: "#E8B45A", red: "#F87171" };
+const SEMA_COLOR: Record<SemaphoreLevel, string> = { green: "#4ADE80", amber: "#E8B45A", red: "#F87171", neutral: "#706B5F" };
+const DENSE_THRESHOLD = 30;
 
 function fmtV(v: number) { return v >= 1e6 ? `R$ ${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `R$ ${(v / 1e3).toFixed(0)}k` : `R$ ${v}`; }
 function fmtBRL(v: number | null) { return v ? v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }) : "—"; }
@@ -161,6 +162,7 @@ export default function KanbanPage() {
     nextActionAt: c.nextActionAt, followUpAt: c.followUpAt, lastActivityAt: c.lastActivityAt,
     updatedAt: c.updatedAt, stageChangedAt: c.stageChangedAt, reservaExpiresAt: c.reservaExpiresAt,
     reservaAtiva: !!c.reservaStatus && !RESERVATION_TERMINAL_DB_VALUES.includes(c.reservaStatus),
+    status: c.status, ownerProfileId: c.ownerProfileId,
   }, thresholdDays, nowMs), [thresholdDays, nowMs]);
 
   if (loading) return <div className="nexa-page-enter" style={{ padding: 24 }}><div className="nexa-skeleton" style={{ height: 24, width: 180, marginBottom: 20, borderRadius: 8 }} /><div style={{ display: "flex", gap: 12 }}>{[1,2,3,4,5].map(i => <div key={i} style={{ flex: 1 }}><div className="nexa-skeleton" style={{ height: 12, width: 80, marginBottom: 8, borderRadius: 4 }} /><div className="nexa-skeleton nexa-skeleton-card" /><div className="nexa-skeleton nexa-skeleton-card" /></div>)}</div></div>;
@@ -174,7 +176,7 @@ export default function KanbanPage() {
         <div>
           <h1 style={{ fontFamily: "var(--font-display)", fontStyle: "italic", fontSize: 28, fontWeight: 400, color: "var(--color-bone)", margin: 0, lineHeight: 1.1 }}>Negociações</h1>
           <p style={{ fontSize: 10.5, color: "var(--color-slate)", margin: "6px 0 0", fontFamily: MONO, letterSpacing: "0.05em" }}>
-            {board.openCount} {board.openCount === 1 ? "aberta" : "abertas"} · {fmtV(board.openVGV)} no funil · {board.wonCount} {board.wonCount === 1 ? "venda" : "vendas"}
+            {board.openCount} {board.openCount === 1 ? "aberta" : "abertas"} · {fmtV(board.openVGV)} em aberto (total){board.openVGV > 0 ? ` · ${board.openWithValue} de ${board.openCount} com valor` : ""} · {board.wonCount} {board.wonCount === 1 ? "venda" : "vendas"}
           </p>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -258,14 +260,17 @@ export default function KanbanPage() {
             {STAGES.map((est) => {
               const cs = board.byStage[est.id];
               const vgv = board.vgvByStage[est.id];
+              // Modo denso: colunas grandes (>30) não expandem inline — o rodapé
+              // "+N" salta para a Lista já filtrada naquele estágio.
+              const isDense = cs.length > DENSE_THRESHOLD;
               const isExpanded = expandedCols.has(est.id);
-              const visible = isExpanded ? cs : cs.slice(0, MAX_CARDS_PER_COL);
+              const visible = !isDense && isExpanded ? cs : cs.slice(0, MAX_CARDS_PER_COL);
               const hidden = cs.length - visible.length;
               return (
                 <div key={est.id} style={{ flex: 1, minWidth: 168, display: "flex", flexDirection: "column" }}>
                   <div style={{ padding: "12px 14px", background: "var(--surface-raised)", borderRadius: "10px 10px 0 0", border: "1px solid var(--border-default)", borderBottom: "none" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-                      <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--color-dust)" }}>{est.label}</span>
+                      <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--color-dust)" }}>{est.label}{isDense ? <span style={{ fontFamily: MONO, fontSize: 8.5, fontWeight: 600, color: "var(--color-slate)", marginLeft: 6 }}>· denso</span> : null}</span>
                       <span style={{ fontFamily: MONO, fontSize: 9, color: "var(--color-clay)", background: "var(--border-default)", padding: "1px 6px", borderRadius: 6 }}>{cs.length}</span>
                     </div>
                     {vgv > 0 ? <div style={{ fontFamily: MONO, fontSize: 9, color: "var(--color-clay)" }}>{fmtV(vgv)}</div> : null}
@@ -276,7 +281,9 @@ export default function KanbanPage() {
                       ? <div style={{ textAlign: "center", padding: "20px 10px", border: "1px dashed var(--border-default)", borderRadius: 10, color: "var(--color-clay)", fontSize: 12, fontStyle: "italic" }}>Sem {est.label.toLowerCase()}</div>
                       : visible.map((c) => renderCard(c, est.id))}
                     {hidden > 0 && (
-                      <button type="button" onClick={() => setExpandedCols((s) => { const n = new Set(s); n.add(est.id); return n; })} style={{ fontFamily: MONO, fontSize: 9, color: "var(--color-slate)", textAlign: "center", padding: 8, background: "none", border: "1px dashed var(--border-default)", borderRadius: 8, cursor: "pointer" }}>+{hidden} {est.label.toLowerCase()}</button>
+                      isDense
+                        ? <button type="button" onClick={() => navigate(`/negociacoes?view=lista&stage=${est.id}`)} style={{ fontFamily: MONO, fontSize: 9, color: "var(--color-sprout)", textAlign: "center", padding: 8, background: "none", border: "1px dashed var(--border-default)", borderRadius: 8, cursor: "pointer" }}>+{hidden} · ver na Lista →</button>
+                        : <button type="button" onClick={() => setExpandedCols((s) => { const n = new Set(s); n.add(est.id); return n; })} style={{ fontFamily: MONO, fontSize: 9, color: "var(--color-slate)", textAlign: "center", padding: 8, background: "none", border: "1px dashed var(--border-default)", borderRadius: 8, cursor: "pointer" }}>+{hidden} {est.label.toLowerCase()}</button>
                     )}
                   </div>
                 </div>
@@ -412,9 +419,12 @@ export default function KanbanPage() {
           {c.unitId && myQueueMap[c.unitId] ? <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "#7DA7F420", color: "#7DA7F4", fontWeight: 600 }}>Fila #{myQueueMap[c.unitId]}</span> : null}
           <span style={{ marginLeft: "auto", fontFamily: MONO, fontSize: 12, fontWeight: 700, color: stage === "venda" ? "#34D399" : "var(--color-bone)" }}>{fmtBRL(c.valor)}</span>
         </div>
-        {/* Linha 2: cliente */}
-        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--color-bone)", marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {c.clienteNome || <span style={{ color: "var(--color-clay)", fontStyle: "italic", fontWeight: 400 }}>Sem cliente</span>}
+        {/* Linha 2: cliente (+ badge Importada quando veio de lote de importação) */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, minWidth: 0 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-bone)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {c.clienteNome || <span style={{ color: "var(--color-clay)", fontStyle: "italic", fontWeight: 400 }}>Sem cliente</span>}
+          </span>
+          {c.importBatchId ? <span style={{ flexShrink: 0, fontFamily: MONO, fontSize: 8, fontWeight: 700, color: "#7DA7F4", background: "rgba(125,167,244,0.12)", borderRadius: 4, padding: "1px 4px", letterSpacing: "0.03em", textTransform: "uppercase" }}>Importada</span> : null}
         </div>
         {/* Linha 3: semáforo (ou motivo, se perdido) */}
         {stage === "perdido" && c.lostReason ? (

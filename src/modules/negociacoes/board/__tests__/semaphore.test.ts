@@ -57,4 +57,34 @@ describe("semaphoreOf — situação do card (Fase B)", () => {
     expect(s.level).toBe("amber");
     expect(s.label).toBe("Sem próxima ação");
   });
+
+  // Etapa 0c — coerência de estado (só quando `status` é informado).
+  describe("coerência por status (c)", () => {
+    it("WON/LOST/CANCELLED nunca são alerta → neutral", () => {
+      expect(semaphoreOf({ status: "WON", lastActivityAt: "2026-05-01T00:00:00Z" }, T, NOW))
+        .toEqual({ level: "neutral", label: "Concluída" });
+      expect(semaphoreOf({ status: "LOST" }, T, NOW).level).toBe("neutral");
+      expect(semaphoreOf({ status: "CANCELLED" }, T, NOW).level).toBe("neutral");
+    });
+
+    it("'Sem próxima ação' vale em status vivo COM dono", () => {
+      const s = semaphoreOf({ status: "IN_PROGRESS", ownerProfileId: "u1" }, T, NOW);
+      expect(s).toEqual({ level: "amber", label: "Sem próxima ação" });
+    });
+
+    it("'Sem próxima ação' vale em status vivo COM atividade (mesmo sem dono)", () => {
+      const s = semaphoreOf({ status: "OPEN", lastActivityAt: "2026-07-06T00:00:00Z" }, T, NOW);
+      expect(s.level).toBe("amber");
+    });
+
+    it("status vivo SEM dono e SEM atividade não nag → neutral", () => {
+      const s = semaphoreOf({ status: "OPEN" }, T, NOW);
+      expect(s.level).toBe("neutral");
+      expect(s.label).toBe("—");
+    });
+
+    it("chamada legada (sem status) mantém âmbar 'Sem próxima ação'", () => {
+      expect(semaphoreOf({}, T, NOW)).toEqual({ level: "amber", label: "Sem próxima ação" });
+    });
+  });
 });

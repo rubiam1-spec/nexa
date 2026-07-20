@@ -4,7 +4,13 @@
 // Usa apenas o que já existe (next_action_at/follow_up_at, last_activity_at,
 // stage_changed_at, expires_at da reserva). NÃO inventa dado: sem base de tempo,
 // degrada para âmbar "sem próxima ação".
-export type SemaphoreLevel = "green" | "amber" | "red";
+//
+// Coerência de estado (Etapa 0c) — quando o chamador informa `status`:
+//   • WON/LOST/CANCELLED nunca são alerta → "neutral" (encerrada, sem atenção);
+//   • o alerta "Sem próxima ação" só vale em status VIVO E com dono
+//     (owner_profile_id) OU atividade registrada — senão "neutral" (não nag).
+// Chamadas SEM `status` mantêm o comportamento legado (retrocompatível).
+export type SemaphoreLevel = "green" | "amber" | "red" | "neutral";
 
 export type SemaphoreInput = {
   nextActionAt?: string | null;
@@ -15,9 +21,16 @@ export type SemaphoreInput = {
   reservaExpiresAt?: string | null;
   /** Reserva ativa (não terminal) — só então o prazo vale como vermelho. */
   reservaAtiva?: boolean;
+  /** Status da negociação — ativa as regras de coerência (c) quando presente. */
+  status?: string | null;
+  /** Dono interno — parte do gate do alerta "sem próxima ação". */
+  ownerProfileId?: string | null;
 };
 
 export type Semaphore = { level: SemaphoreLevel; label: string };
+
+const TERMINAL = new Set(["WON", "LOST", "CANCELLED"]);
+const TERMINAL_LABEL: Record<string, string> = { WON: "Concluída", LOST: "Perdida", CANCELLED: "Cancelada" };
 
 function ms(iso: string | null | undefined): number | null {
   if (!iso) return null;
@@ -42,6 +55,14 @@ export function semaphoreOf(
 ): Semaphore {
   const day = 86_400_000;
 
+  const statusUp = (input.status ?? "").trim().toUpperCase();
+  const statusAware = statusUp !== "";
+
+  // 0. Coerência (c): status terminal nunca é alerta — encerrado, sem atenção.
+  if (statusAware && TERMINAL.has(statusUp)) {
+    return { level: "neutral", label: TERMINAL_LABEL[statusUp] };
+  }
+
   // 1. Prazo de reserva vencido (só se a reserva está ativa).
   if (input.reservaAtiva) {
     const exp = ms(input.reservaExpiresAt);
@@ -65,6 +86,14 @@ export function semaphoreOf(
     if (idleDays >= thresholdDays) {
       return { level: "red", label: `Parada há ${idleDays}d` };
     }
+  }
+
+  // 4. Alerta "Sem próxima ação": com contexto de status, só nag quando VIVO e
+  //    com dono OU atividade; caso contrário, neutro (não polui o board).
+  if (statusAware) {
+    const hasOwner = !!input.ownerProfileId;
+    const hasActivity = !!input.lastActivityAt;
+    if (!hasOwner && !hasActivity) return { level: "neutral", label: "—" };
   }
   return { level: "amber", label: "Sem próxima ação" };
 }

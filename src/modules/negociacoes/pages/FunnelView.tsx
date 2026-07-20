@@ -45,7 +45,7 @@ export function FunnelView({ board, thresholdDays, onOpenNegotiation }: {
   const pctStr = (v: number | null) => v == null ? "—" : `${Math.round(v * 100)}%`;
   const kpis = [
     { label: "Conversão geral", value: pctStr(metrics.conversaoGeral), hint: `${metrics.reached.venda} de ${metrics.entradas} entradas`, tip: metrics.entradas === 0 ? "Sem entradas no período" : undefined },
-    { label: "VGV no funil (abertas)", value: fmtV(metrics.openVGV), hint: "em negociação + proposta + reserva" },
+    { label: "VGV criado no período", value: fmtV(metrics.openVGV), hint: `abertas · ${metrics.openCoverage.withValue} de ${metrics.openCoverage.total} com valor` },
     { label: "Ciclo médio", value: daysStr(metrics.cicloMedioDias), hint: "criação → venda", tip: metrics.cicloMedioDias == null ? "Sem vendas no período para medir" : undefined },
     { label: "Vendido no período", value: `${metrics.vendido.count}`, hint: fmtV(metrics.vendido.vgv) },
   ];
@@ -105,6 +105,9 @@ export function FunnelView({ board, thresholdDays, onOpenNegotiation }: {
 
       {/* Tabela por estágio — jornada no topo (Leads, Em atendimento), depois negociação */}
       <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ padding: "10px 16px 0", fontFamily: MONO, fontSize: 9, letterSpacing: "0.06em", color: "var(--color-clay)" }}>
+          Corte: coorte de negociações criadas no período (fluxo, não estoque) · valores somam só quem tem unidade.
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "1.4fr 0.6fr 1fr 1fr 0.8fr", padding: "10px 16px", borderBottom: "1px solid var(--border-default)", fontFamily: MONO, fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--color-slate)" }}>
           <span>Estágio</span><span style={{ textAlign: "right" }}>Qtd</span><span style={{ textAlign: "right" }}>Valor</span><span style={{ textAlign: "right" }}>T. médio</span><span style={{ textAlign: "right" }}>Atenção</span>
         </div>

@@ -23,7 +23,7 @@ import { useScreen } from "../../../shared/hooks/useIsMobile";
 
 // Rótulos/cores de estágio vêm da fonte única (board/stageColumn) — sem vocabulário
 // local. "Todas" + 5 estágios canônicos, cada chip com contador da fonte única.
-const SEMA_COLOR: Record<SemaphoreLevel, string> = { green: "#4ADE80", amber: "#E8B45A", red: "#F87171" };
+const SEMA_COLOR: Record<SemaphoreLevel, string> = { green: "#4ADE80", amber: "#E8B45A", red: "#F87171", neutral: "#706B5F" };
 
 function boardUnitLabel(c: KanbanCard): string {
   if (c.thirdPartyPropertyId) return c.thirdPartyPropertyTitulo || "Imóvel";
@@ -118,8 +118,13 @@ export default function NegotiationsPage() {
 
   // Table filters (director/manager only)
   const [filterBroker, setFilterBroker] = useState("all");
-  const [selectedStage, setSelectedStage] = useState<BoardStage | "all">("all");
+  // Estágio inicial pode vir da URL (salto do Kanban "+N" → Lista filtrada).
+  const [selectedStage, setSelectedStage] = useState<BoardStage | "all">(() => {
+    const sp = searchParams.get("stage");
+    return STAGES.some((s) => s.id === sp) ? (sp as BoardStage) : "all";
+  });
   const [sortBy, setSortBy] = useState<"date" | "valor">("date");
+  const [origin, setOrigin] = useState<"all" | "import" | "manual">("all");
   const canFilter = getPermissions(account?.role ?? null).canViewFullDashboard;
 
   // Fonte ÚNICA da Lista (mesma do Kanban/Funil): números idênticos por construção.
@@ -222,8 +227,9 @@ export default function NegotiationsPage() {
           <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-fog)", marginTop: 4, letterSpacing: "0.05em" }}>
             {(() => {
               // Números canônicos da fonte única — idênticos ao Kanban/Funil.
+              // Estoque (total em aberto agora), não coorte — rótulo distinto do Funil.
               let s = `${board.openCount} ${board.openCount === 1 ? "aberta" : "abertas"}`;
-              if (board.openVGV > 0) s += ` · ${formatCurrency(board.openVGV)} no funil`;
+              if (board.openVGV > 0) s += ` · ${formatCurrency(board.openVGV)} em aberto (total) · ${board.openWithValue} de ${board.openCount} com valor`;
               if (board.wonCount > 0) s += ` · ${board.wonCount} ${board.wonCount === 1 ? "venda" : "vendas"}`;
               return s;
             })()}
@@ -380,6 +386,19 @@ export default function NegotiationsPage() {
             })}
           </div>
 
+          <div style={{ width: 190 }}>
+            <NexaSelect
+              value={origin}
+              onChange={(v) => { setOrigin(v as "all" | "import" | "manual"); setPage(0); }}
+              options={[
+                { value: "all", label: "Todas as origens" },
+                { value: "import", label: "Importadas" },
+                { value: "manual", label: "Manuais" },
+              ]}
+              ariaLabel="Filtrar por origem"
+            />
+          </div>
+
           <div style={{ width: 200 }}>
             <NexaSelect
               value={sortBy}
@@ -401,10 +420,14 @@ export default function NegotiationsPage() {
         let filtered = selectedStage === "all"
           ? board.negotiations
           : board.negotiations.filter((c) => columnOfStatus(coerceStatus(c.status)) === selectedStage);
+        // Origem: importadas (import_batch_id != null) vs manuais.
+        if (origin === "import") filtered = filtered.filter((c) => c.importBatchId != null);
+        else if (origin === "manual") filtered = filtered.filter((c) => c.importBatchId == null);
+        // Ordenação "por data" = created_at da negociação (não updated_at).
         filtered = [...filtered].sort((a, b) =>
           sortBy === "valor"
             ? (b.valor ?? 0) - (a.valor ?? 0)
-            : new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+            : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
         );
         const PAGE_SIZE = 25;
         const pageCount = Math.ceil(filtered.length / PAGE_SIZE);
@@ -420,8 +443,9 @@ export default function NegotiationsPage() {
                 nextActionAt: c.nextActionAt, followUpAt: c.followUpAt, lastActivityAt: c.lastActivityAt,
                 updatedAt: c.updatedAt, stageChangedAt: c.stageChangedAt, reservaExpiresAt: c.reservaExpiresAt,
                 reservaAtiva: !!c.reservaStatus && !RESERVATION_TERMINAL_DB_VALUES.includes(c.reservaStatus),
+                status: c.status, ownerProfileId: c.ownerProfileId,
               }, thresholdDays, nowMs);
-              const upd = Math.max(0, Math.floor((nowMs - new Date(c.updatedAt).getTime()) / 86400000));
+              const criadaDias = Math.max(0, Math.floor((nowMs - new Date(c.createdAt).getTime()) / 86400000));
               return (
                 <div key={c.id} onClick={() => navigateToSimulador(`/negociacoes/${c.id}`)}
                   style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", cursor: "pointer",
@@ -433,8 +457,11 @@ export default function NegotiationsPage() {
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
                     <span style={{ width: 8, height: 8, borderRadius: "50%", background: boardUnitDot(c.unitStatus), flexShrink: 0 }} />
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {c.clienteNome ?? <span style={{ color: "#706B5F", fontStyle: "italic" }}>Sem cliente</span>}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {c.clienteNome ?? <span style={{ color: "#706B5F", fontStyle: "italic" }}>Sem cliente</span>}
+                        </span>
+                        {c.importBatchId ? <span style={{ flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 8.5, fontWeight: 700, color: "#7DA7F4", background: "rgba(125,167,244,0.12)", borderRadius: 4, padding: "1px 5px", letterSpacing: "0.04em", textTransform: "uppercase" }}>Importada</span> : null}
                       </div>
                       <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{boardUnitLabel(c)}</div>
                     </div>
@@ -450,8 +477,8 @@ export default function NegotiationsPage() {
                     <span style={{ width: 6, height: 6, borderRadius: "50%", background: SEMA_COLOR[s.level], flexShrink: 0 }} />
                     <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: SEMA_COLOR[s.level], whiteSpace: "nowrap" }}>{s.label}</span>
                   </div>
-                  {/* Atualizada */}
-                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)", minWidth: 54, textAlign: "right" }}>{upd === 0 ? "hoje" : `há ${upd}d`}</div>
+                  {/* Criada (created_at da negociação) */}
+                  <div title="Criada" style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)", minWidth: 54, textAlign: "right" }}>{criadaDias === 0 ? "hoje" : `há ${criadaDias}d`}</div>
                 </div>
               );
             })}
