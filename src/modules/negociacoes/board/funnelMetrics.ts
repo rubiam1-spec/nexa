@@ -170,6 +170,97 @@ export function computeFunnelMetrics(
   };
 }
 
+// ── Funil v2 (leitura de gestão) — agregações PURAS sobre o dataset da página ──
+// Nenhuma query nova: tudo deriva de board.negotiations (histórico completo da
+// conta/empreendimento) e da coorte do período.
+
+const MESES_PT = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+
+function monthKey(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+export type MonthlyPoint = { key: string; label: string; criadas: number; vendas: number; vgvVendas: number };
+
+/**
+ * Evolução mês a mês (INDEPENDENTE do filtro curto): criadas por created_at e
+ * vendas pela data de fechamento (stage_changed_at do estágio venda, senão updated_at).
+ */
+export function computeMonthlyEvolution(negotiations: KanbanCard[], nowMs: number, months = 12): MonthlyPoint[] {
+  const now = new Date(nowMs);
+  const buckets = new Map<string, MonthlyPoint>();
+  const pts: MonthlyPoint[] = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+    const p: MonthlyPoint = { key, label: `${MESES_PT[d.getUTCMonth()]}/${String(d.getUTCFullYear()).slice(2)}`, criadas: 0, vendas: 0, vgvVendas: 0 };
+    buckets.set(key, p);
+    pts.push(p);
+  }
+  for (const c of negotiations) {
+    const ck = monthKey(c.createdAt);
+    if (ck && buckets.has(ck)) buckets.get(ck)!.criadas += 1;
+    if (columnOfStatusRaw(c.status) === "venda") {
+      const wk = monthKey(c.stageChangedAt ?? c.updatedAt);
+      if (wk && buckets.has(wk)) {
+        const b = buckets.get(wk)!;
+        b.vendas += 1;
+        b.vgvVendas += c.valor ?? 0;
+      }
+    }
+  }
+  return pts;
+}
+
+export type BrokerRankRow = { name: string; criadas: number; vendas: number; vgv: number; conv: number | null };
+
+/** Ranking de corretores da COORTE do período: top N por vendas, depois VGV. */
+export function computeBrokerRanking(cohort: KanbanCard[], topN = 5): BrokerRankRow[] {
+  const map = new Map<string, BrokerRankRow>();
+  for (const c of cohort) {
+    const name = c.corretorNome ?? "Sem corretor";
+    if (!map.has(name)) map.set(name, { name, criadas: 0, vendas: 0, vgv: 0, conv: null });
+    const r = map.get(name)!;
+    r.criadas += 1;
+    if (columnOfStatusRaw(c.status) === "venda") {
+      r.vendas += 1;
+      r.vgv += c.valor ?? 0;
+    }
+  }
+  return [...map.values()]
+    .map((r) => ({ ...r, conv: r.criadas > 0 ? r.vendas / r.criadas : null }))
+    .sort((a, b) => b.vendas - a.vendas || b.vgv - a.vgv || b.criadas - a.criadas)
+    .slice(0, topN);
+}
+
+/** Séries por sub-bucket do período (para sparklines): criadas e vendas. */
+export function periodSeries(cohort: KanbanCard[], startMs: number, nowMs: number, buckets = 6): { criadas: number[]; vendas: number[] } {
+  const span = Math.max(1, nowMs - startMs);
+  const size = span / buckets;
+  const criadas = new Array(buckets).fill(0);
+  const vendas = new Array(buckets).fill(0);
+  const idxOf = (t: number) => Math.min(buckets - 1, Math.max(0, Math.floor((t - startMs) / size)));
+  for (const c of cohort) {
+    const ct = new Date(c.createdAt).getTime();
+    if (Number.isFinite(ct) && ct >= startMs && ct <= nowMs) criadas[idxOf(ct)] += 1;
+    if (columnOfStatusRaw(c.status) === "venda") {
+      const wonRef = c.stageChangedAt ?? c.updatedAt;
+      const wt = wonRef ? new Date(wonRef).getTime() : NaN;
+      if (Number.isFinite(wt) && wt >= startMs && wt <= nowMs) vendas[idxOf(wt)] += 1;
+    }
+  }
+  return { criadas, vendas };
+}
+
+/** Delta relativo curr vs prev. null = sem base (período anterior vazio). */
+export function pctDelta(curr: number, prev: number): number | null {
+  if (prev === 0) return curr === 0 ? 0 : null;
+  return (curr - prev) / prev;
+}
+
 // L1.8 — JORNADA PONTA-A-PONTA (Leads → Em atendimento → Em negociação → Proposta →
 // Reserva → Venda), com % entre CADA par. HONESTIDADE fluxo × estoque: Leads e
 // Em atendimento são a COORTE DE LEADS do período (por clients.created_at); os

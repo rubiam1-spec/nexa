@@ -71,13 +71,18 @@ export default function NegociacoesPage() {
 
       {view === "kanban" ? <KanbanPage /> : null}
       {view === "lista" ? <NegotiationsListPage /> : null}
-      {view === "funil" ? <FunilTab onOpenNegotiation={(id) => navigate(`/negociacoes/${id}`)} /> : null}
+      {view === "funil" ? (
+        <FunilTab
+          onOpenNegotiation={(id) => navigate(`/negociacoes/${id}`)}
+          onOpenStage={(stage) => navigate(`/negociacoes?view=lista&stage=${stage}`)}
+        />
+      ) : null}
     </div>
   );
 }
 
 // Aba Funil — busca a MESMA fonte (board) e delega toda a lógica às funções puras.
-function FunilTab({ onOpenNegotiation }: { onOpenNegotiation: (id: string) => void }) {
+function FunilTab({ onOpenNegotiation, onOpenStage }: { onOpenNegotiation: (id: string) => void; onOpenStage: (stage: import("../board/stageColumn").BoardStage) => void }) {
   const { account } = useAccount();
   const { development } = useDevelopment();
   const { board, loading, error, thresholdDays } = useNegotiationsBoard({
@@ -95,7 +100,7 @@ function FunilTab({ onOpenNegotiation }: { onOpenNegotiation: (id: string) => vo
       </div>
       {loading ? <div style={{ padding: 24, color: "var(--color-slate)", fontFamily: MONO, fontSize: 12 }}>Carregando…</div>
         : error ? <div style={{ padding: 24, color: "#F87171", fontSize: 14 }}>Erro: {error}</div>
-        : <FunnelView board={board} thresholdDays={thresholdDays} onOpenNegotiation={onOpenNegotiation} />}
+        : <FunnelView board={board} thresholdDays={thresholdDays} onOpenNegotiation={onOpenNegotiation} onOpenStage={onOpenStage} />}
     </div>
   );
 }
