@@ -15,6 +15,9 @@ import {
 } from "../repositories/relatorioIndividualSupabaseRepository";
 import { gerarPdfRelatorioIndividual } from "../utils/gerarPdfRelatorio";
 import { NexaSelect } from "../../../shared/ui/NexaSelect";
+import { usePermissions } from "../../../shared/hooks/usePermissions";
+import { allowedScopes, type ReportScope } from "../domain/reportRegistry";
+import ScopeToggle from "./ScopeToggle";
 
 const T = {
   ink: "var(--surface-base)",
@@ -88,13 +91,25 @@ interface Props {
 }
 
 export default function RelatorioIndividual({ fromDate, toDate, fromISO, toISO, periodoLabel, filter, back, isMobile }: Props) {
-  const { account, isConsultant } = useAccount();
+  const { account } = useAccount();
   const { development } = useDevelopment();
   const { authenticatedProfile } = useAuth();
+  const { can } = usePermissions();
 
   const accountId = account?.accountId ?? null;
   const developmentId = development?.developmentId ?? null;
   const selfId = authenticatedProfile?.id ?? null;
+
+  // Escopos permitidos vêm do registry (não do role hardcoded). Consultora só
+  // tem 'self'; gestão tem ['self','team']. 'self' trava no próprio profile.
+  const allowed = useMemo(() => allowedScopes("individual", can), [can]);
+  const canTeam = allowed.includes("team");
+  const [scope, setScope] = useState<ReportScope>(canTeam ? "team" : "self");
+  // Sincroniza o default quando o role resolve de forma assíncrona; preserva a
+  // escolha do usuário enquanto ela continuar válida.
+  useEffect(() => {
+    setScope((prev) => (allowed.includes(prev) ? prev : canTeam ? "team" : "self"));
+  }, [allowed, canTeam]);
 
   const [members, setMembers] = useState<MembroElegivel[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
@@ -102,14 +117,12 @@ export default function RelatorioIndividual({ fromDate, toDate, fromISO, toISO, 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [pdfing, setPdfing] = useState(false);
 
-  // Consultor: trava no próprio profile, sem buscar lista.
-  // Demais: carrega elegíveis (conta ativa) e default = o próprio, se na lista.
+  // Sem escopo de equipe (consultora): não busca lista — o modo é sempre 'self'.
+  // Com escopo de equipe: carrega elegíveis (conta ativa) e default = o próprio,
+  // se na lista. Query inalterada.
   useEffect(() => {
     let cancelled = false;
-    if (isConsultant) {
-      setSelectedId(selfId);
-      return;
-    }
+    if (!canTeam) return;
     if (!accountId) return;
     setMembersLoading(true);
     setMembersError(false);
@@ -133,17 +146,20 @@ export default function RelatorioIndividual({ fromDate, toDate, fromISO, toISO, 
     return () => {
       cancelled = true;
     };
-  }, [isConsultant, accountId, selfId]);
+  }, [canTeam, accountId, selfId]);
+
+  // profile efetivo: 'self' trava no próprio; 'team' usa o membro selecionado.
+  const profileId = scope === "self" ? selfId : selectedId;
 
   const membroNome = useMemo(() => {
-    if (isConsultant) return authenticatedProfile?.fullName ?? "—";
+    if (scope === "self") return authenticatedProfile?.fullName ?? "—";
     return members.find((m) => m.id === selectedId)?.name ?? "—";
-  }, [isConsultant, authenticatedProfile, members, selectedId]);
+  }, [scope, authenticatedProfile, members, selectedId]);
 
   const { data, loading, error } = useRelatorioIndividual({
     accountId,
     developmentId,
-    profileId: selectedId,
+    profileId,
     membroNome,
     empreendimentoNome: development?.developmentName ?? "",
     periodoLabel,
@@ -151,7 +167,7 @@ export default function RelatorioIndividual({ fromDate, toDate, fromISO, toISO, 
     toDate,
     fromISO,
     toISO,
-    enabled: Boolean(selectedId),
+    enabled: Boolean(profileId),
   });
 
   async function handlePdf() {
@@ -173,8 +189,8 @@ export default function RelatorioIndividual({ fromDate, toDate, fromISO, toISO, 
   }
 
   const cols = isMobile ? 2 : 4;
-  const selectedRole = isConsultant
-    ? "commercial_consultant"
+  const selectedRole = scope === "self"
+    ? account?.role ?? null
     : members.find((m) => m.id === selectedId)?.role ?? null;
 
   return (
@@ -188,6 +204,7 @@ export default function RelatorioIndividual({ fromDate, toDate, fromISO, toISO, 
           </p>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <ScopeToggle scopes={allowed} value={scope} onChange={setScope} />
           {filter}
           <button type="button" disabled={pdfing || !data} onClick={handlePdf} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: T.sprout, color: T.ink, fontSize: 13, fontWeight: 600, cursor: pdfing || !data ? "not-allowed" : "pointer", opacity: pdfing || !data ? 0.6 : 1, minHeight: 44 }}>
             {pdfing ? "Gerando..." : "Gerar PDF"}
@@ -195,8 +212,8 @@ export default function RelatorioIndividual({ fromDate, toDate, fromISO, toISO, 
         </div>
       </div>
 
-      {/* Seletor de membro — apenas para quem vê a equipe */}
-      {!isConsultant && (
+      {/* Seletor de membro — apenas no escopo de equipe */}
+      {scope === "team" && (
         <div style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <label htmlFor="ri-membro" style={{ fontFamily: MONO, fontSize: 9, color: T.fog, letterSpacing: "0.12em", textTransform: "uppercase" }}>Membro</label>
           {membersError ? (

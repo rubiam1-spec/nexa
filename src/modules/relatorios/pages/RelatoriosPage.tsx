@@ -6,6 +6,7 @@ import { usePermissions } from "../../../shared/hooks/usePermissions";
 import { supabase } from "../../../infra/supabase/supabaseClient";
 import { gerarPdfVendas, gerarPdfEquipe, gerarPdfEstoque } from "../utils/gerarPdfRelatorio";
 import RelatorioIndividual from "../components/RelatorioIndividual";
+import { visibleReports, type ReportId } from "../domain/reportRegistry";
 import { IcRelatorios, IcClientes, IcCorretores, IcImobiliarias, IcEstoque, IcMedal } from "../../../shared/components/icons/NexaIcons";
 import { NEXA_LOGO_HEADER, NEXA_LOGO_FOOTER } from "../../../shared/utils/pdfLogos";
 import { formatDateBRT, formatTimeBRT } from "../../../shared/utils/dateUtils";
@@ -187,19 +188,20 @@ export default function RelatoriosPage() {
 
   // ── MENU ──
   if (active === "menu") {
-    // Relatórios de EQUIPE exigem can_view_team_ranking (manager/director/owner).
-    // O Relatório Individual fica disponível para qualquer um com can_view_reports
-    // (consultor vê só a si — o recorte por pessoa é travado no próprio componente).
-    const cards = [
-      { id: "individual" as const, teamOnly: false, icon: <IcClientes size={22} color={T.sprout} />, title: "Relatório Individual", desc: "Atividades e negócios por pessoa" },
-      { id: "vendas" as const, teamOnly: true, icon: <IcRelatorios size={22} color={T.sprout} />, title: "Relatório de Vendas", desc: "VGV, funil e conversão por período" },
-      { id: "equipeInterna" as const, teamOnly: true, icon: <IcClientes size={22} color={T.blue} />, title: "Equipe Interna", desc: "Consultoras, atividades e gestão" },
-      { id: "corretores" as const, teamOnly: true, icon: <IcCorretores size={22} color={T.purple} />, title: "Corretores", desc: "Ranking, vendas e simulações" },
-      { id: "imobiliarias" as const, teamOnly: true, icon: <IcImobiliarias size={22} color={T.amber} />, title: "Imobiliárias", desc: "Volume por imobiliária parceira" },
-      { id: "estoque" as const, teamOnly: true, icon: <IcEstoque size={22} color={T.fog} />, title: "Estoque de Unidades", desc: "Mapa de calor e quadras" },
-      { id: "negociacoes" as const, teamOnly: true, icon: <IcRelatorios size={22} color="#F97316" />, title: "Negociações", desc: "Funil, conversão, gargalos e paradas" },
-      { id: "contatos" as const, teamOnly: true, icon: <IcClientes size={22} color="#F59E0B" />, title: "Contatos", desc: "Funil, origens, temperatura e performance" },
-    ].filter((c) => !c.teamOnly || can("can_view_team_ranking"));
+    // Visibilidade dos cards vem 100% do registry (matriz role × escopo).
+    // Nenhuma condição de role vive aqui — só o mapeamento visual do ícone,
+    // que preserva exatamente o card de hoje.
+    const CARD_ICONS: Record<ReportId, React.ReactNode> = {
+      individual: <IcClientes size={22} color={T.sprout} />,
+      vendas: <IcRelatorios size={22} color={T.sprout} />,
+      equipeInterna: <IcClientes size={22} color={T.blue} />,
+      corretores: <IcCorretores size={22} color={T.purple} />,
+      imobiliarias: <IcImobiliarias size={22} color={T.amber} />,
+      estoque: <IcEstoque size={22} color={T.fog} />,
+      negociacoes: <IcRelatorios size={22} color="#F97316" />,
+      contatos: <IcClientes size={22} color="#F59E0B" />,
+    };
+    const cards = visibleReports(can);
     return (
       <div style={{ maxWidth: 960, margin: "0 auto" }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, color: "#E8E5DE", margin: "0 0 3px" }}>Relatórios</h1>
@@ -207,9 +209,9 @@ export default function RelatoriosPage() {
         <div style={{ display: "grid", gridTemplateColumns: screen.isMobile ? "1fr" : screen.isTablet ? "repeat(2, minmax(0, 1fr))" : "repeat(3, minmax(0, 1fr))", gap: 14 }}>
           {cards.map((c) => (
             <div key={c.id} onClick={() => setActive(c.id)} style={{ background: V7_BG, border: V7_BORDER, borderRadius: 12, padding: 22, cursor: "pointer", transition: "border-color 150ms ease, transform 150ms ease" }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(74,222,128,0.3)"; e.currentTarget.style.transform = "translateY(-1px)"; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(61,58,48,0.08)"; e.currentTarget.style.transform = "none"; }}>
-              <div style={{ width: 40, height: 40, borderRadius: 10, background: "rgba(61,58,48,0.2)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 12 }}>{c.icon}</div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: "#E8E5DE", marginBottom: 5 }}>{c.title}</div>
-              <div style={{ fontSize: 12, color: "#706B5F", marginBottom: 16, lineHeight: 1.5 }}>{c.desc}</div>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: "rgba(61,58,48,0.2)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 12 }}>{CARD_ICONS[c.id]}</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#E8E5DE", marginBottom: 5 }}>{c.titulo}</div>
+              <div style={{ fontSize: 12, color: "#706B5F", marginBottom: 16, lineHeight: 1.5 }}>{c.descricao}</div>
               <span style={{ fontSize: 12, fontWeight: 600, color: "#4ADE80" }}>Gerar relatório →</span>
             </div>
           ))}
