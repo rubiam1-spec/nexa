@@ -15,6 +15,7 @@ import {
 } from "../repositories/relatorioIndividualSupabaseRepository";
 import { gerarPdfRelatorioIndividual } from "../utils/gerarPdfRelatorio";
 import { NexaSelect } from "../../../shared/ui/NexaSelect";
+import { VizFrame, VIZ } from "../../../shared/viz";
 import { usePermissions } from "../../../shared/hooks/usePermissions";
 import { allowedScopes, type ReportScope } from "../domain/reportRegistry";
 import ScopeToggle from "./ScopeToggle";
@@ -61,11 +62,13 @@ function Sec({ children }: { children: React.ReactNode }) {
   return <div style={{ fontSize: 9, fontFamily: MONO, color: "#5C5647", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 12, marginTop: 28, fontWeight: 600 }}>{children}</div>;
 }
 
-// Barras horizontais — mesmo estilo da "Distribuição por tipo" da página.
-function Bars({ items, color }: { items: { label: string; count: number }[]; color: string }) {
+// Barras horizontais no padrão NexaViz (frame único + estado vazio). Recebe dados
+// prontos (agregação vive no hook useRelatorioIndividual).
+function Bars({ title, items, color }: { title: string; items: { label: string; count: number }[]; color: string }) {
   const max = Math.max(...items.map((i) => i.count), 1);
   return (
-    <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: 20 }}>
+    <div style={{ marginTop: 16 }}>
+    <VizFrame title={title} empty={items.length === 0} emptyLabel="Sem dados no período." height={0}>
       {items.map((it) => (
         <div key={it.label} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
           <span style={{ fontSize: 13, color: T.fog, width: 110, textAlign: "right", flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.label}</span>
@@ -75,6 +78,7 @@ function Bars({ items, color }: { items: { label: string; count: number }[]; col
           <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, color: T.chalk, width: 36, textAlign: "right" }}>{it.count}</span>
         </div>
       ))}
+    </VizFrame>
     </div>
   );
 }
@@ -254,16 +258,10 @@ export default function RelatorioIndividual({ fromDate, toDate, fromISO, toISO, 
                 <Kpi label="Pendentes" value={data.atividades.pendentes} color="#FBBF24" />
               </div>
               {data.atividades.porTipo.length > 0 && (
-                <>
-                  <Sec>Distribuição por tipo</Sec>
-                  <Bars items={data.atividades.porTipo.map((t) => ({ label: t.label, count: t.count }))} color={T.sprout} />
-                </>
+                <Bars title="Distribuição por tipo" items={data.atividades.porTipo.map((t) => ({ label: t.label, count: t.count }))} color={VIZ.blue} />
               )}
               {data.atividades.porSemana.length > 0 && (
-                <>
-                  <Sec>Evolução semanal</Sec>
-                  <Bars items={data.atividades.porSemana.map((s) => ({ label: s.semana, count: s.count }))} color={T.blue} />
-                </>
+                <Bars title="Evolução semanal" items={data.atividades.porSemana.map((s) => ({ label: s.semana, count: s.count }))} color={VIZ.slateBlue} />
               )}
             </>
           )}
@@ -286,8 +284,7 @@ export default function RelatorioIndividual({ fromDate, toDate, fromISO, toISO, 
                 <Kpi label="Vendas" value={data.negocios.vendas} color="#4ADE80" />
                 <Kpi label="Conversão" value={`${data.negocios.conversao}%`} color="#FBBF24" />
               </div>
-              <Sec>Funil pessoal por status</Sec>
-              <Bars items={data.negocios.porStatus.map((s) => ({ label: s.label, count: s.count }))} color={T.purple} />
+              <Bars title="Funil pessoal por status" items={data.negocios.porStatus.map((s) => ({ label: s.label, count: s.count }))} color={VIZ.purple} />
               {data.negocios.semDono > 0 && (
                 <div style={{ fontSize: 12, color: T.fog, marginTop: 12, padding: "10px 14px", background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 8 }}>
                   {data.negocios.semDono} negociações sem responsável atribuído não foram contabilizadas.
