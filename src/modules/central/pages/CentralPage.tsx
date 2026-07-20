@@ -14,6 +14,7 @@ import { formatWeekdayLongBRT, formatTimeBRT, formatDateShortBRT, getTodayDateSt
 import { useDailyBriefing, type BriefingHighlight, type BriefingAction } from "../../../shared/hooks/useDailyBriefing";
 import { useIntelligenceAlerts, type IntelligenceAlert } from "../hooks/useIntelligenceAlerts";
 import { Line } from "react-chartjs-2";
+import { VizFrame } from "../../../shared/viz";
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend } from "chart.js";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
@@ -217,14 +218,14 @@ function SalesChart() {
       },
     },
   };
+  // chart.js encapsulado no padrão NexaViz (VizFrame): título/subtítulo/estados
+  // vêm do frame único; o canvas (interatividade rica) permanece.
   return (
-    <div style={{ background: CARD_BG, borderRadius: 12, padding: "20px 22px", border: CARD_BORDER }}>
-      <div style={{ fontSize: 14, fontWeight: 700, color: "#E8E5DE", marginBottom: 2 }}>Vendas por semana</div>
-      <div style={{ fontFamily: MONO, fontSize: 8.5, color: "#3D3A30", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>ÚLTIMAS 8 SEMANAS</div>
+    <VizFrame title="Vendas por semana" subtitle="últimas 8 semanas · dados de exemplo" height={180}>
       <div style={{ position: "relative", height: 180 }}>
         <Line data={data} options={options} />
       </div>
-    </div>
+    </VizFrame>
   );
 }
 
