@@ -6,8 +6,8 @@
 // alimentada por um motor de scoring/insight. Manter o contrato de saída estável.
 import type { KanbanCard } from "../hooks/useKanbanData";
 import { columnOfStatusRaw, stageMeta, type BoardStage } from "./stageColumn";
-import { semaphoreOf } from "./semaphore";
-import type { FunnelMetrics } from "./funnelMetrics";
+import { semaphoreOf, isAssumed } from "./semaphore";
+import { computeReached, computeTransitions, bottleneckOf, type FunnelMetrics } from "./funnelMetrics";
 
 export type OperationReadingCta = { label: string; negotiationId: string } | null;
 export type OperationReading = { text: string; cta: OperationReadingCta };
@@ -54,8 +54,16 @@ export function generateOperationReading(
     ? { label: "Abrir item mais antigo travado", negotiationId: stuck.card.id }
     : null;
 
+  // Gargalo conta apenas negociações VIVAS E ASSUMIDAS (dono OU atividade) —
+  // terminais permanecem (são resultado real). Ghosts importados sem responsável
+  // saem da base. Reusa isAssumed (fonte única no semaphore.ts).
+  const isTerminal = (c: KanbanCard) => { const st = columnOfStatusRaw(c.status); return st === "venda" || st === "perdido"; };
+  const gated = cohort.filter((c) => isTerminal(c) || isAssumed(c));
+  const excluded = cohort.filter((c) => !isTerminal(c) && !isAssumed(c));
+  const excludedImportadas = excluded.filter((c) => c.importBatchId != null).length;
+  const bn = bottleneckOf(computeTransitions(computeReached(gated)));
+
   const parts: string[] = [];
-  const bn = metrics.bottleneck;
   if (bn && bn.conv != null) {
     parts.push(
       `Maior gargalo: ${stageMeta(bn.from).label} → ${stageMeta(bn.to).label} — só ${pct(bn.conv)} avançam (${bn.reachedTo} de ${bn.reachedFrom}).`,
@@ -69,6 +77,10 @@ export function generateOperationReading(
   if (stuck) {
     const cliente = stuck.card.clienteNome || "Sem cliente";
     parts.push(`Item mais antigo travado: ${cliente}, parado há ${stuck.days}d em ${stageMeta(columnOfStatusRaw(stuck.card.status)).label}.`);
+  }
+
+  if (excludedImportadas > 0) {
+    parts.push(`(${excludedImportadas} ${excludedImportadas === 1 ? "importada aguardando responsável" : "importadas aguardando responsável"} fora da conta.)`);
   }
 
   return { text: parts.join(" "), cta };

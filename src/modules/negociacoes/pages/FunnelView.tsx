@@ -96,6 +96,7 @@ export function FunnelView({ board, thresholdDays, onOpenNegotiation, onOpenStag
   const journeyHasData = journey.stages.some((s) => s.count > 0);
   const leadsStage = journey.stages[0];
   const atendStage = journey.stages[1];
+  const monthRange = monthly.length ? `${monthly[0].label} → ${monthly[monthly.length - 1].label}` : "—";
   const maxRowCount = Math.max(1, leadsStage.count, atendStage.count, ...metrics.stageStats.map((s) => s.count));
 
   return (
@@ -144,7 +145,7 @@ export function FunnelView({ board, thresholdDays, onOpenNegotiation, onOpenStag
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 6 }}>
           <span style={{ fontSize: 9, fontFamily: MONO, color: "var(--color-slate)", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600 }}>Evolução mensal</span>
           <span style={{ fontSize: 9.5, fontFamily: MONO, color: "var(--color-clay)" }}>
-            <span style={{ color: BLUE }}>■</span> criadas &nbsp; <span style={{ color: SPROUT }}>■</span> vendas · últimos 12 meses (não segue o filtro acima)
+            <span style={{ color: BLUE }}>■</span> criadas &nbsp; <span style={{ color: SPROUT }}>■</span> vendas · {monthRange} (não segue o filtro acima)
           </span>
         </div>
         <div style={{ overflowX: "auto" }}>
@@ -167,10 +168,10 @@ export function FunnelView({ board, thresholdDays, onOpenNegotiation, onOpenStag
       {/* Ranking de corretores do período */}
       <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 12, padding: "16px 18px", marginBottom: 18 }}>
         <div style={{ fontSize: 9, fontFamily: MONO, color: "var(--color-slate)", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600, marginBottom: 12 }}>Top corretores do período</div>
-        {ranking.length === 0 ? (
+        {ranking.rows.length === 0 ? (
           <div style={{ fontSize: 13, color: "var(--color-clay)", fontStyle: "italic" }}>Sem negociações no período.</div>
         ) : (
-          <BrokerRanking rows={ranking} isMobile={isMobile} />
+          <BrokerRanking rows={ranking.rows} semCorretorVendas={ranking.semCorretorVendas} isMobile={isMobile} />
         )}
       </div>
 
@@ -224,26 +225,40 @@ function StageRow({ color, label, count, valor, tempo, atencao, atencaoLabel, ba
 }
 
 // ── Ranking de corretores (barras inline) ──
-function BrokerRanking({ rows, isMobile }: { rows: BrokerRankRow[]; isMobile: boolean }) {
+function BrokerRanking({ rows, semCorretorVendas, isMobile }: { rows: BrokerRankRow[]; semCorretorVendas: number; isMobile: boolean }) {
   const maxVendas = Math.max(1, ...rows.map((r) => r.vendas));
+  const maxCriadas = Math.max(1, ...rows.filter((r) => r.semVenda).map((r) => r.criadas));
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {rows.map((r, i) => (
-        <div key={r.name} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 700, color: i === 0 ? SPROUT : "var(--color-slate)", width: 22, flexShrink: 0 }}>#{i + 1}</span>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--color-bone)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
-              <span style={{ fontFamily: MONO, fontSize: 11, color: "var(--color-fog)", flexShrink: 0, whiteSpace: "nowrap" }}>
-                {r.vendas} {r.vendas === 1 ? "venda" : "vendas"}{!isMobile ? ` · ${fmtV(r.vgv)} · ${r.conv == null ? "—" : `${Math.round(r.conv * 100)}%`} conv` : ""}
-              </span>
-            </div>
-            <div style={{ height: 7, borderRadius: 4, background: "var(--border-default)", overflow: "hidden" }}>
-              <div style={{ height: "100%", width: `${Math.max((r.vendas / maxVendas) * 100, r.vendas > 0 ? 4 : 0)}%`, background: i === 0 ? `linear-gradient(90deg, ${SPROUT}, #22C55E)` : "var(--color-clay)", borderRadius: 4 }} />
+      {rows.map((r, i) => {
+        // Valor "—" quando não há venda com unidade/valor (nunca "R$ 0").
+        const valorStr = r.vgv > 0 ? fmtV(r.vgv) : "—";
+        const convStr = r.conv == null ? "—" : `${Math.round(r.conv * 100)}%`;
+        const right = r.semVenda
+          ? `${r.criadas} ${r.criadas === 1 ? "criada" : "criadas"} · sem venda no período`
+          : `${r.vendas} ${r.vendas === 1 ? "venda" : "vendas"}${!isMobile ? ` · ${valorStr} · ${convStr} conv` : ""}`;
+        const barPct = r.semVenda ? r.criadas / maxCriadas : r.vendas / maxVendas;
+        const barBg = r.semVenda ? "var(--border-strong, #3D3A30)" : (i === 0 ? `linear-gradient(90deg, ${SPROUT}, #22C55E)` : "var(--color-clay)");
+        return (
+          <div key={r.name} style={{ display: "flex", alignItems: "center", gap: 12, opacity: r.semVenda ? 0.7 : 1 }}>
+            <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 700, color: !r.semVenda && i === 0 ? SPROUT : "var(--color-slate)", width: 22, flexShrink: 0 }}>#{i + 1}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "var(--color-bone)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
+                <span style={{ fontFamily: MONO, fontSize: 11, color: "var(--color-fog)", flexShrink: 0, whiteSpace: "nowrap" }}>{right}</span>
+              </div>
+              <div style={{ height: 7, borderRadius: 4, background: "var(--border-default)", overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${Math.max(barPct * 100, barPct > 0 ? 4 : 0)}%`, background: barBg, borderRadius: 4 }} />
+              </div>
             </div>
           </div>
+        );
+      })}
+      {semCorretorVendas > 0 ? (
+        <div style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--color-slate)", paddingTop: 6, borderTop: "1px solid rgba(61,58,48,0.4)" }}>
+          {semCorretorVendas} {semCorretorVendas === 1 ? "venda sem corretor" : "vendas sem corretor"} atribuído (fora do ranking).
         </div>
-      ))}
+      ) : null}
     </div>
   );
 }

@@ -32,6 +32,15 @@ export type Semaphore = { level: SemaphoreLevel; label: string };
 const TERMINAL = new Set(["WON", "LOST", "CANCELLED"]);
 const TERMINAL_LABEL: Record<string, string> = { WON: "Concluída", LOST: "Perdida", CANCELLED: "Cancelada" };
 
+/**
+ * "Assumida" = negociação com dono interno (owner_profile_id) OU com atividade
+ * registrada. Fonte ÚNICA da regra — reusada pelo semáforo e pela Leitura da
+ * operação (não duplicar a condição em outros lugares).
+ */
+export function isAssumed(input: { ownerProfileId?: string | null; lastActivityAt?: string | null }): boolean {
+  return !!input.ownerProfileId || !!input.lastActivityAt;
+}
+
 function ms(iso: string | null | undefined): number | null {
   if (!iso) return null;
   const t = new Date(iso).getTime();
@@ -89,11 +98,9 @@ export function semaphoreOf(
   }
 
   // 4. Alerta "Sem próxima ação": com contexto de status, só nag quando VIVO e
-  //    com dono OU atividade; caso contrário, neutro (não polui o board).
-  if (statusAware) {
-    const hasOwner = !!input.ownerProfileId;
-    const hasActivity = !!input.lastActivityAt;
-    if (!hasOwner && !hasActivity) return { level: "neutral", label: "—" };
+  //    ASSUMIDO (dono OU atividade); caso contrário, neutro (não polui o board).
+  if (statusAware && !isAssumed(input)) {
+    return { level: "neutral", label: "—" };
   }
   return { level: "amber", label: "Sem próxima ação" };
 }
