@@ -1,7 +1,10 @@
 // Parsing de datas: serial Excel, dd/mm/yyyy, intervalo semanal "dd/mm à dd/mm/yyyy".
 // Correção de typo de ano (ex.: 2026/2027 num conjunto de 2025) feita em nível de lote.
 
-export type ParsedDate = { date: Date | null; weekly: boolean };
+// year4 = a data veio de um ANO EXPLÍCITO de 4 dígitos (ISO, dd/mm/yyyy, serial
+// Excel). Nesse caso o ano é confiável e NUNCA pode ser reinterpretado pela
+// correção de ano dominante (evita o bug de deslocar 2024 → 2025 no lote).
+export type ParsedDate = { date: Date | null; weekly: boolean; year4: boolean };
 
 // Excel serial epoch (1899-12-30 por causa do bug de ano bissexto de 1900).
 const EXCEL_EPOCH = Date.UTC(1899, 11, 30);
@@ -27,7 +30,7 @@ export function parseExcelSerial(n: number): Date | null {
 export function parseDateCell(raw: string): ParsedDate {
   const s = (raw ?? "").trim();
   if (!s || s === "---" || s === "-" || /^n[ãa]o informado$/i.test(s)) {
-    return { date: null, weekly: false };
+    return { date: null, weekly: false, year4: false };
   }
 
   // Intervalo semanal: "dd/mm à dd/mm/yyyy" (ou a / - / –) → usar início da semana.
@@ -36,24 +39,24 @@ export function parseDateCell(raw: string): ParsedDate {
   );
   if (range) {
     const [, d1, m1, , , y] = range;
-    if (y) return { date: makeDate(+d1, +m1, normYear(y)), weekly: true };
+    if (y) return { date: makeDate(+d1, +m1, normYear(y)), weekly: true, year4: y.length === 4 };
   }
 
   // dd/mm/yyyy ou dd/mm/yy
   const dmy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
   if (dmy) {
     const [, d, m, y] = dmy;
-    return { date: makeDate(+d, +m, normYear(y)), weekly: false };
+    return { date: makeDate(+d, +m, normYear(y)), weekly: false, year4: y.length === 4 };
   }
 
-  // Número puro → serial Excel.
+  // Número puro → serial Excel (ano completo e inequívoco).
   if (/^\d+(\.\d+)?$/.test(s)) {
-    return { date: parseExcelSerial(parseFloat(s)), weekly: false };
+    return { date: parseExcelSerial(parseFloat(s)), weekly: false, year4: true };
   }
 
-  // ISO / outros formatos reconhecidos pelo Date.
+  // ISO / outros formatos reconhecidos pelo Date (ano de 4 dígitos explícito).
   const iso = new Date(s);
-  return Number.isNaN(iso.getTime()) ? { date: null, weekly: false } : { date: iso, weekly: false };
+  return Number.isNaN(iso.getTime()) ? { date: null, weekly: false, year4: false } : { date: iso, weekly: false, year4: true };
 }
 
 // Ano dominante do conjunto (para corrigir outliers de digitação).

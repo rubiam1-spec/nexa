@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useAccount } from "../../../app/contexts/AccountContext";
@@ -28,9 +28,11 @@ import { NexaSelect } from "../../../shared/ui/NexaSelect";
 import { NexaModal } from "../../../shared/ui/NexaModal";
 
 const MONO = "var(--font-mono)";
-const MAX_CARDS_PER_COL = 6;
 const SEMA_COLOR: Record<SemaphoreLevel, string> = { green: "#4ADE80", amber: "#E8B45A", red: "#F87171", neutral: "#706B5F" };
-const DENSE_THRESHOLD = 30;
+const DENSE_THRESHOLD = 30; // acima disso, coluna não renderiza tudo — rodapé salta p/ Lista
+const DENSE_VISIBLE = 25; // quantos cards a coluna densa renderiza antes do rodapé
+// Área de cards da coluna: scroll independente + scrollbar fina/discreta.
+const COL_SCROLL: React.CSSProperties = { flex: 1, minHeight: 0, overflowY: "auto", scrollbarWidth: "thin", scrollbarColor: "var(--border-strong, #3D3A30) transparent", WebkitOverflowScrolling: "touch" };
 
 function fmtV(v: number) { return v >= 1e6 ? `R$ ${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `R$ ${(v / 1e3).toFixed(0)}k` : `R$ ${v}`; }
 function fmtBRL(v: number | null) { return v ? v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }) : "—"; }
@@ -152,7 +154,19 @@ export default function KanbanPage() {
   const [simDetail, setSimDetail] = useState<KanbanCard | null>(null);
   const [deletingSim, setDeletingSim] = useState(false);
   const [prefunnelOpen, setPrefunnelOpen] = useState(false);
-  const [expandedCols, setExpandedCols] = useState<Set<BoardStage>>(new Set());
+
+  // Altura útil do board = viewport menos o topo do container (headers/faixas
+  // acima). O board não rola a página; cada coluna rola seus cards.
+  const boardRef = useRef<HTMLDivElement>(null);
+  const [boardH, setBoardH] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = boardRef.current;
+    if (!el) return;
+    const compute = () => setBoardH(Math.max(320, Math.round(window.innerHeight - el.getBoundingClientRect().top - 16)));
+    compute();
+    window.addEventListener("resize", compute);
+    return () => window.removeEventListener("resize", compute);
+  }, [isMobile, board.pending.length, loading]);
 
   const [myQueueMap, setMyQueueMap] = useState<Record<string, number>>({});
   useEffect(() => { const uid = authenticatedProfile?.id; if (uid) fetchMyQueuePositions(uid).then(setMyQueueMap); }, [authenticatedProfile?.id, refreshKey]);
@@ -239,7 +253,7 @@ export default function KanbanPage() {
               );
             })}
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingBottom: 16 }}>
+          <div ref={boardRef} style={{ display: "flex", flexDirection: "column", gap: 8, paddingBottom: 16, height: boardH ?? undefined, overflowY: "auto", scrollbarWidth: "thin", scrollbarColor: "var(--border-strong, #3D3A30) transparent", WebkitOverflowScrolling: "touch", overscrollBehavior: "contain" }}>
             {mobileTab === "leads" || mobileTab === "atendimento" ? (() => {
               const list = mobileTab === "leads" ? novosLeads : atendLeads;
               return list.length === 0
@@ -253,22 +267,21 @@ export default function KanbanPage() {
           </div>
         </>
       ) : (
-        <div style={{ overflowX: "auto", paddingBottom: 16 }}>
-          <div style={{ display: "flex", gap: 10, alignItems: "stretch", minWidth: 1260 }}>
+        <div ref={boardRef} style={{ overflowX: "auto", overflowY: "hidden", paddingBottom: 16, height: boardH ?? undefined }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "stretch", minWidth: 1260, height: "100%" }}>
             {renderLeadColumn("Leads", novosLeads, "#7DA7F4")}
             {renderLeadColumn("Em atendimento", atendLeads, "#9DB8E8")}
             {STAGES.map((est) => {
               const cs = board.byStage[est.id];
               const vgv = board.vgvByStage[est.id];
-              // Modo denso: colunas grandes (>30) não expandem inline — o rodapé
-              // "+N" salta para a Lista já filtrada naquele estágio.
+              // Coluna rola seus cards (overflow-y). Densa (>30): renderiza só as
+              // primeiras e o rodapé "+N · ver na Lista" (sticky) salta para a Lista.
               const isDense = cs.length > DENSE_THRESHOLD;
-              const isExpanded = expandedCols.has(est.id);
-              const visible = !isDense && isExpanded ? cs : cs.slice(0, MAX_CARDS_PER_COL);
+              const visible = isDense ? cs.slice(0, DENSE_VISIBLE) : cs;
               const hidden = cs.length - visible.length;
               return (
-                <div key={est.id} style={{ flex: 1, minWidth: 168, display: "flex", flexDirection: "column" }}>
-                  <div style={{ padding: "12px 14px", background: "var(--surface-raised)", borderRadius: "10px 10px 0 0", border: "1px solid var(--border-default)", borderBottom: "none" }}>
+                <div key={est.id} style={{ flex: 1, minWidth: 168, height: "100%", display: "flex", flexDirection: "column" }}>
+                  <div style={{ flexShrink: 0, padding: "12px 14px", background: "var(--surface-raised)", borderRadius: "10px 10px 0 0", border: "1px solid var(--border-default)", borderBottom: "none" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
                       <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--color-dust)" }}>{est.label}{isDense ? <span style={{ fontFamily: MONO, fontSize: 8.5, fontWeight: 600, color: "var(--color-slate)", marginLeft: 6 }}>· denso</span> : null}</span>
                       <span style={{ fontFamily: MONO, fontSize: 9, color: "var(--color-clay)", background: "var(--border-default)", padding: "1px 6px", borderRadius: 6 }}>{cs.length}</span>
@@ -276,14 +289,12 @@ export default function KanbanPage() {
                     {vgv > 0 ? <div style={{ fontFamily: MONO, fontSize: 9, color: "var(--color-clay)" }}>{fmtV(vgv)}</div> : null}
                     <div style={{ height: 2, borderRadius: 1, marginTop: 8, background: `linear-gradient(90deg, ${est.color}60, ${est.color}15)` }} />
                   </div>
-                  <div style={{ flex: 1, padding: 6, background: "rgba(18,17,14,0.3)", borderRadius: "0 0 10px 10px", border: "1px solid var(--border-default)", borderTop: "none", display: "flex", flexDirection: "column", gap: 6, minHeight: 200 }}>
+                  <div style={{ ...COL_SCROLL, padding: 6, background: "rgba(18,17,14,0.3)", borderRadius: "0 0 10px 10px", border: "1px solid var(--border-default)", borderTop: "none", display: "flex", flexDirection: "column", gap: 6 }}>
                     {cs.length === 0
                       ? <div style={{ textAlign: "center", padding: "20px 10px", border: "1px dashed var(--border-default)", borderRadius: 10, color: "var(--color-clay)", fontSize: 12, fontStyle: "italic" }}>Sem {est.label.toLowerCase()}</div>
                       : visible.map((c) => renderCard(c, est.id))}
-                    {hidden > 0 && (
-                      isDense
-                        ? <button type="button" onClick={() => navigate(`/negociacoes?view=lista&stage=${est.id}`)} style={{ fontFamily: MONO, fontSize: 9, color: "var(--color-sprout)", textAlign: "center", padding: 8, background: "none", border: "1px dashed var(--border-default)", borderRadius: 8, cursor: "pointer" }}>+{hidden} · ver na Lista →</button>
-                        : <button type="button" onClick={() => setExpandedCols((s) => { const n = new Set(s); n.add(est.id); return n; })} style={{ fontFamily: MONO, fontSize: 9, color: "var(--color-slate)", textAlign: "center", padding: 8, background: "none", border: "1px dashed var(--border-default)", borderRadius: 8, cursor: "pointer" }}>+{hidden} {est.label.toLowerCase()}</button>
+                    {isDense && hidden > 0 && (
+                      <button type="button" onClick={() => navigate(`/negociacoes?view=lista&stage=${est.id}`)} style={{ position: "sticky", bottom: 0, marginTop: "auto", flexShrink: 0, fontFamily: MONO, fontSize: 9, color: "var(--color-sprout)", textAlign: "center", padding: 8, background: "var(--surface-base, #16150F)", border: "1px dashed var(--border-default)", borderRadius: 8, cursor: "pointer" }}>+{hidden} · ver na Lista →</button>
                     )}
                   </div>
                 </div>
@@ -376,25 +387,26 @@ export default function KanbanPage() {
     </>
   );
 
-  // ---- Coluna de lead (LeadCard compartilhado; até 8, depois "ver todos") ----
+  // ---- Coluna de lead (LeadCard compartilhado; coluna rola seus cards) ----
   function renderLeadColumn(title: string, list: LeadView[], accent: string) {
-    const visible = list.slice(0, 8);
+    const isDense = list.length > DENSE_THRESHOLD;
+    const visible = isDense ? list.slice(0, DENSE_VISIBLE) : list;
     const hidden = list.length - visible.length;
     return (
-      <div style={{ flex: 1, minWidth: 176, display: "flex", flexDirection: "column" }}>
-        <div style={{ padding: "12px 14px", background: "var(--surface-raised)", borderRadius: "10px 10px 0 0", border: "1px solid var(--border-default)", borderBottom: "none" }}>
+      <div style={{ flex: 1, minWidth: 176, height: "100%", display: "flex", flexDirection: "column" }}>
+        <div style={{ flexShrink: 0, padding: "12px 14px", background: "var(--surface-raised)", borderRadius: "10px 10px 0 0", border: "1px solid var(--border-default)", borderBottom: "none" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
             <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--color-dust)" }}>{title}</span>
             <span style={{ fontFamily: MONO, fontSize: 9, color: "var(--color-clay)", background: "var(--border-default)", padding: "1px 6px", borderRadius: 6 }}>{list.length}</span>
           </div>
           <div style={{ height: 2, borderRadius: 1, marginTop: 8, background: `linear-gradient(90deg, ${accent}60, ${accent}15)` }} />
         </div>
-        <div style={{ flex: 1, padding: 6, background: "rgba(18,17,14,0.3)", borderRadius: "0 0 10px 10px", border: "1px solid var(--border-default)", borderTop: "none", display: "flex", flexDirection: "column", gap: 6, minHeight: 200 }}>
+        <div style={{ ...COL_SCROLL, padding: 6, background: "rgba(18,17,14,0.3)", borderRadius: "0 0 10px 10px", border: "1px solid var(--border-default)", borderTop: "none", display: "flex", flexDirection: "column", gap: 6 }}>
           {list.length === 0
             ? <div style={{ textAlign: "center", padding: "20px 10px", border: "1px dashed var(--border-default)", borderRadius: 10, color: "var(--color-clay)", fontSize: 12, fontStyle: "italic" }}>Sem leads</div>
             : visible.map((l) => <LeadCard key={l.client.id} lead={l} canAssign={canAssignLeads} busy={!!leadBusy && leadBusy.endsWith(l.client.id)} actions={leadCardActions(l)} />)}
-          {hidden > 0 && (
-            <button type="button" onClick={() => navigate("/leads")} style={{ fontFamily: MONO, fontSize: 9, color: "var(--color-sprout)", textAlign: "center", padding: 8, background: "none", border: "1px dashed var(--border-default)", borderRadius: 8, cursor: "pointer" }}>ver todos ({list.length}) →</button>
+          {isDense && hidden > 0 && (
+            <button type="button" onClick={() => navigate("/leads")} style={{ position: "sticky", bottom: 0, marginTop: "auto", flexShrink: 0, fontFamily: MONO, fontSize: 9, color: "var(--color-sprout)", textAlign: "center", padding: 8, background: "var(--surface-base, #16150F)", border: "1px dashed var(--border-default)", borderRadius: 8, cursor: "pointer" }}>ver todos ({list.length}) →</button>
           )}
         </div>
       </div>

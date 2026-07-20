@@ -107,7 +107,9 @@ export function buildStaging(input: BuildStagingInput): StagingRow[] {
     let createdAt: string | null = null;
     if (!pd.date) {
       flags.push("sem_data");
-    } else if (mode) {
+    } else if (mode && !pd.year4) {
+      // Correção de ano dominante só para anos AMBÍGUOS (2 dígitos). Data com ano
+      // de 4 dígitos é confiável e nunca é reinterpretada (fix do +1 ano em 2024).
       const { date, corrected } = correctYear(pd.date, mode);
       createdAt = toIsoDate(date);
       if (corrected) flags.push("ano_corrigido");
