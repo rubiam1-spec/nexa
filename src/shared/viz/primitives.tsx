@@ -23,10 +23,13 @@ export function Sparkline({ data, color = VIZ.blue, width = 66, height = 18 }: {
 
 const GRID = [0.25, 0.5, 0.75, 1];
 
-/** Barras verticais categóricas, com grid sutil, rótulos e valores opcionais. */
-export function BarSeries({ data, height = 200, showValues = true, max: maxProp, onHover, onLeave, onSelect }: {
+/** Barras verticais categóricas, com grid sutil, rótulos e valores opcionais.
+ *  onTap (pointer coarse): recebe o evento p/ tap-to-reveal (tem prioridade
+ *  sobre onSelect). labelEvery: desenha 1 rótulo a cada N (thinning anti-colisão). */
+export function BarSeries({ data, height = 200, showValues = true, max: maxProp, onHover, onLeave, onSelect, onTap, labelEvery = 1 }: {
   data: VizDatum[]; height?: number; showValues?: boolean; max?: number;
   onHover?: HoverFn<VizDatum>; onLeave?: () => void; onSelect?: (d: VizDatum, i: number) => void;
+  onTap?: HoverFn<VizDatum>; labelEvery?: number;
 }) {
   const W = 860, padTop = 16, padBottom = 34, padX = 8;
   const n = Math.max(1, data.length);
@@ -34,6 +37,8 @@ export function BarSeries({ data, height = 200, showValues = true, max: maxProp,
   const max = Math.max(1, maxProp ?? Math.max(...data.map((d) => d.value), 0));
   const slot = (W - padX * 2) / n;
   const barW = Math.min(28, slot * 0.6);
+  const every = Math.max(1, Math.round(labelEvery));
+  const interactive = !!(onSelect || onTap);
   return (
     <svg viewBox={`0 0 ${W} ${height}`} width="100%" height={height} style={{ minWidth: Math.max(560, n * 40) }} role="img" aria-label="Gráfico de barras">
       {GRID.map((g) => <line key={g} x1={padX} x2={W - padX} y1={padTop + plotH * (1 - g)} y2={padTop + plotH * (1 - g)} stroke={VIZ.grid} strokeWidth={0.5} />)}
@@ -41,13 +46,16 @@ export function BarSeries({ data, height = 200, showValues = true, max: maxProp,
         const h = (d.value / max) * plotH;
         const cx = padX + slot * i + slot / 2;
         const y = padTop + (plotH - h);
+        // thinning: mostra o rótulo do 1º, do último e de 1 a cada N.
+        const showLabel = i % every === 0 || i === n - 1;
         return (
-          <g key={i} style={{ cursor: onSelect ? "pointer" : "default" }}
+          <g key={i} data-viz-tap={interactive ? "" : undefined} style={{ cursor: interactive ? "pointer" : "default" }}
              onMouseMove={onHover ? (e) => onHover(e, d, i) : undefined} onMouseLeave={onLeave}
-             onClick={onSelect ? () => onSelect(d, i) : undefined}>
+             onClick={onTap ? (e) => onTap(e, d, i) : (onSelect ? () => onSelect(d, i) : undefined)}>
+            {interactive ? <rect x={cx - slot / 2} y={padTop} width={slot} height={plotH + padBottom} fill="transparent" /> : null}
             <rect x={cx - barW / 2} y={y} width={barW} height={Math.max(0, h)} rx={2} fill={d.color ?? VIZ.blue} opacity={0.7} />
             {showValues && d.value > 0 ? <text x={cx} y={y - 5} textAnchor="middle" fontFamily={VIZ.mono} fontSize={9} fontWeight={700} fill={VIZ.dust}>{d.value}</text> : null}
-            <text x={cx} y={height - 9} textAnchor="middle" fontFamily={VIZ.mono} fontSize={8.5} fill={VIZ.clay}>{d.label}</text>
+            {showLabel ? <text x={cx} y={height - 9} textAnchor="middle" fontFamily={VIZ.mono} fontSize={8.5} fill={VIZ.clay}>{d.label}</text> : null}
           </g>
         );
       })}
@@ -86,14 +94,56 @@ export function LineOverlay({ data, color = VIZ.positiveSolid, height = 200, sho
 
 export type FunnelStageDatum = VizDatum & { key: string; secondary?: string };
 
-/** Funil de barras com conectores proporcionais e % SOBRE cada conector. */
-export function FunnelBars({ stages, convs, height = 220, onSelect, onHover, onLeave }: {
+/** Funil de barras com conectores proporcionais e % SOBRE cada conector.
+ *  variant="vertical" (<480px): um estágio por LINHA, barra horizontal, % entre
+ *  as linhas — sem corte na borda direita. onTap: tap-to-reveal (prioridade). */
+export function FunnelBars({ stages, convs, height = 220, onSelect, onHover, onLeave, onTap, variant = "horizontal" }: {
   stages: FunnelStageDatum[]; convs: (number | null)[]; height?: number;
   onSelect?: (s: FunnelStageDatum, i: number) => void; onHover?: HoverFn<FunnelStageDatum>; onLeave?: () => void;
+  onTap?: HoverFn<FunnelStageDatum>; variant?: "horizontal" | "vertical";
 }) {
+  const maxCount = Math.max(1, ...stages.map((s) => s.value));
+  const interactive = !!(onSelect || onTap);
+
+  if (variant === "vertical") {
+    return (
+      <div role="img" aria-label="Funil" style={{ display: "flex", flexDirection: "column" }}>
+        {stages.map((s, i) => {
+          const pct = Math.max(3, (s.value / maxCount) * 100);
+          const color = s.color ?? VIZ.blue;
+          const conv = i > 0 ? convs[i - 1] : null;
+          return (
+            <div key={s.key}>
+              {i > 0 ? (
+                <div style={{ textAlign: "center", padding: "3px 0", fontFamily: VIZ.mono, fontSize: 11, fontWeight: 700, color: VIZ.muted }}>
+                  ↓ {conv == null ? "—" : `${Math.round(conv * 100)}%`}
+                </div>
+              ) : null}
+              <div
+                data-viz-tap={interactive ? "" : undefined}
+                onClick={onTap ? (e) => onTap(e, s, i) : (onSelect ? () => onSelect(s, i) : undefined)}
+                style={{ cursor: interactive ? "pointer" : "default", padding: "6px 2px" }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginBottom: 5 }}>
+                  <span style={{ fontFamily: "var(--font-sans)", fontSize: 12.5, fontWeight: 600, color: VIZ.dust, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.label}</span>
+                  <span style={{ display: "flex", alignItems: "baseline", gap: 6, flexShrink: 0 }}>
+                    {s.secondary ? <span style={{ fontFamily: VIZ.mono, fontSize: 10, color: VIZ.muted }}>{s.secondary}</span> : null}
+                    <span style={{ fontFamily: VIZ.mono, fontSize: 18, fontWeight: 800, color: VIZ.ink }}>{s.value}</span>
+                  </span>
+                </div>
+                <div style={{ height: 12, borderRadius: 4, background: "var(--border-default)", overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${pct}%`, background: color, opacity: 0.85, borderRadius: 4 }} />
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   const W = 820, padTop = 34, padBottom = 44, barW = Math.min(96, (W - 20) / stages.length - 12);
   const gap = stages.length > 1 ? (W - barW * stages.length) / (stages.length - 1) : 0;
-  const maxCount = Math.max(1, ...stages.map((s) => s.value));
   const maxBarH = height - padTop - padBottom;
   const bars = stages.map((s, i) => {
     const h = Math.max(3, (s.value / maxCount) * maxBarH);
@@ -113,9 +163,9 @@ export function FunnelBars({ stages, convs, height = 220, onSelect, onHover, onL
         return <text key={`conv-${b.s.key}`} x={midx} y={padTop - 14} textAnchor="middle" fontFamily={VIZ.mono} fontSize={12} fontWeight={700} fill={VIZ.muted}>{c == null ? "—" : `${Math.round(c * 100)}%`}</text>;
       })}
       {bars.map((b) => (
-        <g key={b.s.key} style={{ cursor: onSelect ? "pointer" : "default" }}
+        <g key={b.s.key} data-viz-tap={interactive ? "" : undefined} style={{ cursor: interactive ? "pointer" : "default" }}
            onMouseMove={onHover ? (e) => onHover(e, b.s, b.i) : undefined} onMouseLeave={onLeave}
-           onClick={onSelect ? () => onSelect(b.s, b.i) : undefined}>
+           onClick={onTap ? (e) => onTap(e, b.s, b.i) : (onSelect ? () => onSelect(b.s, b.i) : undefined)}>
           <rect x={b.x} y={b.y} width={barW} height={b.h} rx={4} fill={b.color} opacity={0.85} />
           <text x={b.x + barW / 2} y={b.y - 8} textAnchor="middle" fontFamily={VIZ.mono} fontSize={18} fontWeight={800} fill={VIZ.ink}>{b.s.value}</text>
           <text x={b.x + barW / 2} y={padTop + maxBarH + 18} textAnchor="middle" fontFamily="var(--font-sans)" fontSize={11} fontWeight={600} fill={VIZ.dust}>{b.s.label}</text>

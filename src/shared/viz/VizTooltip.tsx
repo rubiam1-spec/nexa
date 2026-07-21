@@ -3,19 +3,47 @@
 //   const tip = useVizTooltip();
 //   <rect onMouseMove={(e) => tip.show(e, <TipContent/>)} onMouseLeave={tip.hide} />
 //   {tip.node}
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { VIZ } from "./tokens";
 
-type TipState = { x: number; y: number; content: ReactNode } | null;
+type TipState = { x: number; y: number; content: ReactNode; sticky: boolean; key?: string } | null;
 
 export function useVizTooltip() {
   const [state, setState] = useState<TipState>(null);
+  const activeKey = useRef<string | null>(null);
 
   const show = useCallback((e: { clientX: number; clientY: number }, content: ReactNode) => {
-    setState({ x: e.clientX, y: e.clientY, content });
+    // Hover (desktop): não sobrescreve um tooltip fixado por toque.
+    setState((prev) => (prev?.sticky ? prev : { x: e.clientX, y: e.clientY, content, sticky: false }));
   }, []);
-  const hide = useCallback(() => setState(null), []);
+  const hide = useCallback(() => setState((prev) => (prev?.sticky ? prev : null)), []);
+
+  // Tap-to-reveal (pointer coarse): 1º toque num alvo fixa o tooltip; 2º toque
+  // no MESMO alvo devolve `true` (o consumidor navega). Toque fora fecha.
+  const tapReveal = useCallback((e: { clientX: number; clientY: number }, key: string, content: ReactNode): boolean => {
+    if (activeKey.current === key) {
+      activeKey.current = null;
+      setState(null);
+      return true;
+    }
+    activeKey.current = key;
+    setState({ x: e.clientX, y: e.clientY, content, sticky: true, key });
+    return false;
+  }, []);
+
+  // Fechar ao tocar fora de um alvo do gráfico (marcado com data-viz-tap).
+  useEffect(() => {
+    if (!state?.sticky) return;
+    const onDown = (ev: Event) => {
+      const t = ev.target as HTMLElement | null;
+      if (t && typeof t.closest === "function" && t.closest("[data-viz-tap]")) return; // alvo cuida
+      activeKey.current = null;
+      setState(null);
+    };
+    const id = window.setTimeout(() => document.addEventListener("pointerdown", onDown), 0);
+    return () => { window.clearTimeout(id); document.removeEventListener("pointerdown", onDown); };
+  }, [state?.sticky]);
 
   // Clamp à viewport: mantém o card visível perto do cursor.
   const node = state
@@ -47,7 +75,7 @@ export function useVizTooltip() {
       )
     : null;
 
-  return { show, hide, node };
+  return { show, hide, tapReveal, node };
 }
 
 /** Linha padrão de tooltip: rótulo à esquerda, valor (mono, forte) à direita. */

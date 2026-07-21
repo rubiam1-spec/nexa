@@ -7,6 +7,7 @@ import {
   type PeriodKey, type JourneyStage, type BrokerRankRow,
 } from "../board/funnelMetrics";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
+import { useIsTouch, MOBILE_BP } from "../../../shared/mobile";
 import {
   VizFrame, VizLegendItem, useVizTooltip, VizTipRow,
   Sparkline, BarSeries, LineOverlay, FunnelBars, VIZ,
@@ -30,8 +31,9 @@ function journeyStageColor(s: JourneyStage): string {
 }
 
 // ── Delta (chip vs. período anterior) ──
-function Delta({ v, kind, goodWhen }: { v: number | null; kind: "pct" | "pp" | "days"; goodWhen: "up" | "down" }) {
-  if (v == null) return <span style={{ fontSize: 9.5, color: VIZ.muted, fontFamily: MONO }}>— sem base</span>;
+function Delta({ v, kind, goodWhen, hideEmpty }: { v: number | null; kind: "pct" | "pp" | "days"; goodWhen: "up" | "down"; hideEmpty?: boolean }) {
+  // Mobile: sem base = sem chip (nada de placeholder morto). Desktop mantém.
+  if (v == null) return hideEmpty ? null : <span style={{ fontSize: 9.5, color: VIZ.muted, fontFamily: MONO }}>— sem base</span>;
   const flat = Math.abs(v) < (kind === "pct" ? 0.005 : 0.5);
   const up = v > 0;
   const good = flat ? null : (goodWhen === "up" ? up : !up);
@@ -50,6 +52,8 @@ export function FunnelView({ board, thresholdDays, onOpenStage }: {
   const [period, setPeriod] = useState<PeriodKey>("30d");
   const screen = useScreen();
   const isMobile = screen.isMobile;
+  const isSmall = screen.width < MOBILE_BP; // < 480: layout compacto
+  const isTouch = useIsTouch();
   const nowMs = Date.now();
   const tip = useVizTooltip();
 
@@ -77,10 +81,10 @@ export function FunnelView({ board, thresholdDays, onOpenStage }: {
   const convDeltaPP = mPrev.conversaoGeral == null ? null : (metrics.conversaoGeral ?? 0) - mPrev.conversaoGeral;
   const cicloDelta = (metrics.cicloMedioDias == null || mPrev.cicloMedioDias == null) ? null : metrics.cicloMedioDias - mPrev.cicloMedioDias;
   const kpis = [
-    { label: "Conversão geral", value: percent(metrics.conversaoGeral), hint: `${metrics.reached.venda} de ${metrics.entradas} entradas`, delta: <Delta v={convDeltaPP} kind="pp" goodWhen="up" />, spark: null as number[] | null, sparkColor: VIZ.blue },
-    { label: "VGV criado no período", value: vgvOrDash(metrics.openVGV), hint: `abertas · ${coverageLabel(metrics.openCoverage.withValue, metrics.openCoverage.total)}`, delta: <Delta v={pctDelta(metrics.openVGV, mPrev.openVGV)} kind="pct" goodWhen="up" />, spark: series.criadas, sparkColor: VIZ.blue },
-    { label: "Ciclo médio", value: daysStr(metrics.cicloMedioDias), hint: "criação → venda", delta: <Delta v={cicloDelta} kind="days" goodWhen="down" />, spark: null, sparkColor: VIZ.blue },
-    { label: "Vendido no período", value: `${metrics.vendido.count}`, hint: vgvOrDash(metrics.vendido.vgv), delta: <Delta v={pctDelta(metrics.vendido.count, mPrev.vendido.count)} kind="pct" goodWhen="up" />, spark: series.vendas, sparkColor: VIZ.positiveSolid },
+    { label: "Conversão geral", value: percent(metrics.conversaoGeral), hint: `${metrics.reached.venda} de ${metrics.entradas} entradas`, delta: <Delta v={convDeltaPP} kind="pp" goodWhen="up" hideEmpty={isMobile} />, spark: null as number[] | null, sparkColor: VIZ.blue },
+    { label: "VGV criado no período", value: vgvOrDash(metrics.openVGV), hint: `abertas · ${coverageLabel(metrics.openCoverage.withValue, metrics.openCoverage.total)}`, delta: <Delta v={pctDelta(metrics.openVGV, mPrev.openVGV)} kind="pct" goodWhen="up" hideEmpty={isMobile} />, spark: series.criadas, sparkColor: VIZ.blue },
+    { label: "Ciclo médio", value: daysStr(metrics.cicloMedioDias), hint: "criação → venda", delta: <Delta v={cicloDelta} kind="days" goodWhen="down" hideEmpty={isMobile} />, spark: null, sparkColor: VIZ.blue },
+    { label: "Vendido no período", value: `${metrics.vendido.count}`, hint: vgvOrDash(metrics.vendido.vgv), delta: <Delta v={pctDelta(metrics.vendido.count, mPrev.vendido.count)} kind="pct" goodWhen="up" hideEmpty={isMobile} />, spark: series.vendas, sparkColor: VIZ.positiveSolid },
   ];
 
   const journeyHasData = journey.stages.some((s) => s.count > 0);
@@ -90,6 +94,9 @@ export function FunnelView({ board, thresholdDays, onOpenStage }: {
   const evoMax = Math.max(1, ...monthly.map((m) => Math.max(m.criadas, m.vendas)));
   const evoBars: VizDatum[] = monthly.map((m) => ({ label: m.label, value: m.criadas, color: m.overflow ? VIZ.clay : VIZ.blue }));
   const evoLine: VizDatum[] = monthly.map((m) => ({ label: m.label, value: m.vendas }));
+  const evoTip = (i: number) => { const m = monthly[i]; return <><VizTipRow label={m.label} value="" /><VizTipRow label="criadas" value={`${m.criadas}`} color={VIZ.blue} /><VizTipRow label="vendas" value={`${m.vendas}`} color={VIZ.positiveSolid} /><VizTipRow label="VGV" value={vgvOrDash(m.vgvVendas)} /><div style={{ color: VIZ.muted, marginTop: 2 }}>{coverageLabel(m.vendasComValor, m.vendas)}</div></>; };
+  const evoEvery = isSmall ? Math.max(1, Math.ceil(monthly.length / 6)) : 1; // thinning anti-colisão
+  const evoWidth = Math.max(560, monthly.length * 40);
 
   // ── Funil da jornada: estágios + conversões + VGV (secundário) ──
   const vgvOf = (k: string) => metrics.stageStats.find((s) => s.stage === k)?.vgv ?? 0;
@@ -100,6 +107,11 @@ export function FunnelView({ board, thresholdDays, onOpenStage }: {
   }));
   const convs = journey.transitions.map((t) => t.conv);
   const maxRowCount = Math.max(1, journey.stages[0].count, journey.stages[1].count, ...metrics.stageStats.map((s) => s.count));
+  const funnelTip = (s: FunnelStageDatum, i: number) => {
+    const isNeg = NEG_STAGES.has(s.key);
+    const convIn = i > 0 ? convs[i - 1] : null;
+    return <><VizTipRow label={s.label} value={`${s.value}`} /><VizTipRow label="conversão de entrada" value={percent(convIn)} />{isNeg ? <><VizTipRow label="VGV" value={vgvOrDash(vgvOf(s.key))} /><VizTipRow label="tempo médio" value={daysStr(tempoOf(s.key))} /></> : null}</>;
+  };
 
   return (
     <div>
@@ -125,7 +137,7 @@ export function FunnelView({ board, thresholdDays, onOpenStage }: {
           <div key={k.label} style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 12, padding: "14px 16px" }}>
             <div style={{ fontSize: 8.5, color: VIZ.muted, fontFamily: MONO, letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 500 }}>{k.label}</div>
             <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 8, marginTop: 6 }}>
-              <div style={{ fontSize: 26, fontWeight: 700, color: VIZ.ink, fontFamily: MONO, lineHeight: 1 }}>{k.value}</div>
+              <div style={{ fontSize: isSmall ? "clamp(17px, 6.2vw, 26px)" : 26, fontWeight: 700, color: VIZ.ink, fontFamily: MONO, lineHeight: 1, whiteSpace: isSmall ? "nowrap" : undefined, overflow: isSmall ? "hidden" : undefined, textOverflow: isSmall ? "ellipsis" : undefined, minWidth: 0 }}>{k.value}</div>
               {k.spark ? <Sparkline data={k.spark} color={k.sparkColor} /> : null}
             </div>
             <div style={{ fontSize: 10, color: VIZ.muted, marginTop: 5 }}>{k.hint}</div>
@@ -144,12 +156,27 @@ export function FunnelView({ board, thresholdDays, onOpenStage }: {
           emptyLabel="Sem negociações no histórico para desenhar a evolução."
           height={220}
         >
-          <div style={{ position: "relative" }}>
-            <BarSeries data={evoBars} max={evoMax} height={210}
-              onHover={(e, _d, i) => { const m = monthly[i]; tip.show(e, <><VizTipRow label={m.label} value="" /><VizTipRow label="criadas" value={`${m.criadas}`} color={VIZ.blue} /><VizTipRow label="vendas" value={`${m.vendas}`} color={VIZ.positiveSolid} /><VizTipRow label="VGV" value={vgvOrDash(m.vgvVendas)} /><div style={{ color: VIZ.muted, marginTop: 2 }}>{coverageLabel(m.vendasComValor, m.vendas)}</div></>); }}
-              onLeave={tip.hide} />
-            <LineOverlay data={evoLine} max={evoMax} height={210} color={VIZ.positiveSolid} />
-          </div>
+          {(() => {
+            const bars = (
+              <BarSeries data={evoBars} max={evoMax} height={210} labelEvery={evoEvery}
+                onHover={isTouch ? undefined : (e, _d, i) => tip.show(e, evoTip(i))}
+                onLeave={isTouch ? undefined : tip.hide}
+                onTap={isTouch ? (e, _d, i) => { tip.tapReveal(e, `evo-${i}`, evoTip(i)); } : undefined} />
+            );
+            const line = <LineOverlay data={evoLine} max={evoMax} height={210} color={VIZ.positiveSolid} />;
+            // Mobile: scroller próprio + gradiente de borda fixado (indica scroll-x).
+            if (isSmall) {
+              return (
+                <div style={{ position: "relative" }}>
+                  <div style={{ overflowX: "auto" }}>
+                    <div style={{ position: "relative", width: evoWidth }}>{bars}{line}</div>
+                  </div>
+                  <div aria-hidden="true" style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: 22, background: "linear-gradient(to right, transparent, var(--surface-raised))", pointerEvents: "none" }} />
+                </div>
+              );
+            }
+            return <div style={{ position: "relative" }}>{bars}{line}</div>;
+          })()}
         </VizFrame>
       </div>
 
@@ -165,13 +192,11 @@ export function FunnelView({ board, thresholdDays, onOpenStage }: {
           <FunnelBars
             stages={funnelStages}
             convs={convs}
-            onSelect={(s) => { if (NEG_STAGES.has(s.key)) onOpenStage(s.key as BoardStage); }}
-            onHover={(e, s, i) => {
-              const isNeg = NEG_STAGES.has(s.key);
-              const convIn = i > 0 ? convs[i - 1] : null;
-              tip.show(e, <><VizTipRow label={s.label} value={`${s.value}`} /><VizTipRow label="conversão de entrada" value={percent(convIn)} />{isNeg ? <><VizTipRow label="VGV" value={vgvOrDash(vgvOf(s.key))} /><VizTipRow label="tempo médio" value={daysStr(tempoOf(s.key))} /></> : null}</>);
-            }}
-            onLeave={tip.hide}
+            variant={isSmall ? "vertical" : "horizontal"}
+            onSelect={isTouch ? undefined : (s) => { if (NEG_STAGES.has(s.key)) onOpenStage(s.key as BoardStage); }}
+            onHover={isTouch ? undefined : (e, s, i) => tip.show(e, funnelTip(s, i))}
+            onLeave={isTouch ? undefined : tip.hide}
+            onTap={isTouch ? (e, s, i) => { const nav = tip.tapReveal(e, `funnel-${s.key}`, funnelTip(s, i)); if (nav && NEG_STAGES.has(s.key)) onOpenStage(s.key as BoardStage); } : undefined}
           />
         </VizFrame>
       </div>
@@ -188,26 +213,36 @@ export function FunnelView({ board, thresholdDays, onOpenStage }: {
         <div style={{ padding: "10px 16px 0", fontFamily: MONO, fontSize: 9, letterSpacing: "0.06em", color: VIZ.clay }}>
           Segue o filtro · coorte de negociações criadas no período (fluxo, não estoque) · valores somam só quem tem unidade.
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 0.6fr 1fr 1fr 0.8fr", padding: "10px 16px", borderBottom: "1px solid var(--border-default)", fontFamily: MONO, fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", color: VIZ.muted }}>
-          <span>Estágio</span><span style={{ textAlign: "right" }}>Qtd</span><span style={{ textAlign: "right" }}>Valor</span><span style={{ textAlign: "right" }}>T. médio</span><span style={{ textAlign: "right" }}>Atenção</span>
+        <div style={{ display: "grid", gridTemplateColumns: isSmall ? "1fr auto" : "1.4fr 0.6fr 1fr 1fr 0.8fr", padding: "10px 16px", borderBottom: "1px solid var(--border-default)", fontFamily: MONO, fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", color: VIZ.muted }}>
+          <span>Estágio</span><span style={{ textAlign: "right" }}>Qtd</span>{isSmall ? null : <><span style={{ textAlign: "right" }}>Valor</span><span style={{ textAlign: "right" }}>T. médio</span><span style={{ textAlign: "right" }}>Atenção</span></>}
         </div>
-        <StageRow color={journeyStageColor(journey.stages[0])} label="Leads" count={journey.stages[0].count} valor="—" tempo="—" atencao={journey.leadsSemResposta} atencaoLabel="sem resposta" barPct={journey.stages[0].count / maxRowCount} />
-        <StageRow color={journeyStageColor(journey.stages[1])} label="Em atendimento" count={journey.stages[1].count} valor="—" tempo="—" atencao={0} barPct={journey.stages[1].count / maxRowCount} />
+        <StageRow isSmall={isSmall} color={journeyStageColor(journey.stages[0])} label="Leads" count={journey.stages[0].count} valor="—" tempo="—" atencao={journey.leadsSemResposta} atencaoLabel="sem resposta" barPct={journey.stages[0].count / maxRowCount} />
+        <StageRow isSmall={isSmall} color={journeyStageColor(journey.stages[1])} label="Em atendimento" count={journey.stages[1].count} valor="—" tempo="—" atencao={0} barPct={journey.stages[1].count / maxRowCount} />
         {metrics.stageStats.map((st) => {
           const meta = stageMeta(st.stage);
           return (
-            <StageRow key={st.stage} color={meta.color} label={meta.label} count={st.count}
+            <StageRow key={st.stage} isSmall={isSmall} color={meta.color} label={meta.label} count={st.count}
               valor={vgvOrDash(st.vgv)} tempo={daysStr(st.tempoMedioDias)} atencao={st.atencao}
               barPct={st.count / maxRowCount} onClick={() => onOpenStage(st.stage)} />
           );
         })}
-        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 0.6fr 1fr 1fr 0.8fr", padding: "11px 16px", alignItems: "center", opacity: 0.65 }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: "#706B5F" }} /><span style={{ fontSize: 13, color: "var(--color-fog)" }}>Pré-funil <span style={{ fontSize: 10 }}>· simulações · fora da conta</span></span></span>
-          <span style={{ textAlign: "right", fontFamily: MONO, fontSize: 13, color: "var(--color-fog)" }}>{metrics.prefunnel.count}</span>
-          <span style={{ textAlign: "right", fontFamily: MONO, fontSize: 13, color: VIZ.muted }}>{vgvOrDash(metrics.prefunnel.vgv)}</span>
-          <span style={{ textAlign: "right", color: VIZ.muted }}>—</span>
-          <span style={{ textAlign: "right", color: VIZ.muted }}>—</span>
-        </div>
+        {isSmall ? (
+          <div style={{ padding: "11px 16px", opacity: 0.65 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: "#706B5F" }} /><span style={{ fontSize: 13, color: "var(--color-fog)" }}>Pré-funil</span></span>
+              <span style={{ fontFamily: MONO, fontSize: 13, color: "var(--color-fog)" }}>{metrics.prefunnel.count}</span>
+            </div>
+            <div style={{ fontFamily: MONO, fontSize: 10.5, color: VIZ.muted, marginTop: 4 }}>{vgvOrDash(metrics.prefunnel.vgv)} · simulações · fora da conta</div>
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "1.4fr 0.6fr 1fr 1fr 0.8fr", padding: "11px 16px", alignItems: "center", opacity: 0.65 }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: "#706B5F" }} /><span style={{ fontSize: 13, color: "var(--color-fog)" }}>Pré-funil <span style={{ fontSize: 10 }}>· simulações · fora da conta</span></span></span>
+            <span style={{ textAlign: "right", fontFamily: MONO, fontSize: 13, color: "var(--color-fog)" }}>{metrics.prefunnel.count}</span>
+            <span style={{ textAlign: "right", fontFamily: MONO, fontSize: 13, color: VIZ.muted }}>{vgvOrDash(metrics.prefunnel.vgv)}</span>
+            <span style={{ textAlign: "right", color: VIZ.muted }}>—</span>
+            <span style={{ textAlign: "right", color: VIZ.muted }}>—</span>
+          </div>
+        )}
       </div>
 
       {tip.node}
@@ -215,19 +250,43 @@ export function FunnelView({ board, thresholdDays, onOpenStage }: {
   );
 }
 
-function StageRow({ color, label, count, valor, tempo, atencao, atencaoLabel, barPct, onClick }: {
-  color: string; label: string; count: number; valor: string; tempo: string; atencao: number; atencaoLabel?: string; barPct: number; onClick?: () => void;
+function StageRow({ color, label, count, valor, tempo, atencao, atencaoLabel, barPct, onClick, isSmall }: {
+  color: string; label: string; count: number; valor: string; tempo: string; atencao: number; atencaoLabel?: string; barPct: number; onClick?: () => void; isSmall?: boolean;
 }) {
   const clickable = !!onClick;
+  const bar = <div aria-hidden="true" style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.max(0, Math.min(1, barPct)) * 100}%`, background: color, opacity: 0.07, pointerEvents: "none" }} />;
+  const atencaoTxt = atencao > 0 ? `${atencao}${atencaoLabel ? " " + atencaoLabel : ""}` : null;
+
+  if (isSmall) {
+    // <480px: estágio + qtd na 1ª linha; Valor/T.médio/Atenção numa sub-linha.
+    const hasSub = valor !== "—" || tempo !== "—" || atencaoTxt;
+    return (
+      <div onClick={onClick} style={{ position: "relative", padding: "11px 16px", borderBottom: "1px solid rgba(61,58,48,0.4)", cursor: clickable ? "pointer" : "default" }}>
+        {bar}
+        <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} /><span style={{ fontSize: 13, color: "var(--color-bone)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>{clickable ? <span style={{ fontSize: 11, color: VIZ.muted }}>→</span> : null}</span>
+          <span style={{ fontFamily: MONO, fontSize: 15, fontWeight: 700, color: "var(--color-bone)", flexShrink: 0 }}>{count}</span>
+        </div>
+        {hasSub ? (
+          <div style={{ position: "relative", display: "flex", gap: 12, flexWrap: "wrap", marginTop: 4, fontFamily: MONO, fontSize: 11 }}>
+            {valor !== "—" ? <span style={{ color: "var(--color-dust)" }}>{valor}</span> : null}
+            {tempo !== "—" ? <span style={{ color: VIZ.muted }}>{tempo}</span> : null}
+            {atencaoTxt ? <span style={{ color: VIZ.negative }}>{atencaoTxt}</span> : null}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div onClick={onClick} title={clickable ? "Abrir Lista filtrada por este estágio" : undefined}
       style={{ position: "relative", display: "grid", gridTemplateColumns: "1.4fr 0.6fr 1fr 1fr 0.8fr", padding: "11px 16px", borderBottom: "1px solid rgba(61,58,48,0.4)", alignItems: "center", cursor: clickable ? "pointer" : "default" }}>
-      <div aria-hidden="true" style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.max(0, Math.min(1, barPct)) * 100}%`, background: color, opacity: 0.07, pointerEvents: "none" }} />
+      {bar}
       <span style={{ display: "flex", alignItems: "center", gap: 8, position: "relative" }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: color }} /><span style={{ fontSize: 13, color: "var(--color-bone)" }}>{label}</span>{clickable ? <span style={{ fontSize: 11, color: VIZ.muted }}>→</span> : null}</span>
       <span style={{ textAlign: "right", fontFamily: MONO, fontSize: 13, color: "var(--color-bone)", position: "relative" }}>{count}</span>
       <span style={{ textAlign: "right", fontFamily: MONO, fontSize: 13, color: "var(--color-dust)", position: "relative" }}>{valor}</span>
       <span style={{ textAlign: "right", fontFamily: MONO, fontSize: 12, color: VIZ.muted, position: "relative" }}>{tempo}</span>
-      <span style={{ textAlign: "right", fontFamily: MONO, fontSize: 12, color: atencao > 0 ? VIZ.negative : VIZ.muted, position: "relative" }}>{atencao > 0 ? `${atencao}${atencaoLabel ? " " + atencaoLabel : ""}` : "—"}</span>
+      <span style={{ textAlign: "right", fontFamily: MONO, fontSize: 12, color: atencao > 0 ? VIZ.negative : VIZ.muted, position: "relative" }}>{atencaoTxt ?? "—"}</span>
     </div>
   );
 }
