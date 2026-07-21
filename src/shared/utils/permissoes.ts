@@ -81,6 +81,9 @@ export function getPermissions(role: string | null) {
     // Dados estratégicos
     canViewUnitStatus: is(r, MANAGER_ROLES),
     canViewVGV: is(r, MANAGER_ROLES),
+    // Alteração de status de unidade (individual/massa) — mesmas 4 roles do RPC
+    // bulk_update_unit_status (owner/director/manager/administrative).
+    canManageUnitStatus: is(r, [...MANAGER_ROLES, "administrative"]),
 
     // Usuários
     canManageUsers: is(r, MANAGER_ROLES),

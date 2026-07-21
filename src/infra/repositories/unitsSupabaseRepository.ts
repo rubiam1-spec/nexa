@@ -108,6 +108,32 @@ export async function updateUnitStatus(
   return mapUnitRowToUnit(data as UnitRow);
 }
 
+// Alteração de status em massa via RPC transacional bulk_update_unit_status
+// (JÁ EXISTE em produção — nunca recriar). Retorna { updated, blocked }.
+export type BulkStatusBlocked = { unit_id: string; reason: string };
+export type BulkStatusResult = { updated: number; blocked: BulkStatusBlocked[] };
+
+export async function updateStatusBulk(
+  unitIds: string[],
+  status: UnidadeStatusType,
+  reason: string,
+): Promise<BulkStatusResult> {
+  const supabase = getSupabaseClientOrThrow("units repository");
+  const { data, error } = await supabase.rpc("bulk_update_unit_status", {
+    p_unit_ids: unitIds,
+    p_new_status: enumToDbStatus[status] ?? status,
+    p_reason: reason,
+  });
+  // Exceptions do RPC (not_authenticated | invalid_status | reason_required |
+  // invalid_batch_size) chegam como error.message; o mapa PT-BR fica no serviço.
+  if (error) throw new Error(error.message);
+  const r = (data ?? {}) as Record<string, unknown>;
+  return {
+    updated: Number(r.updated ?? 0),
+    blocked: Array.isArray(r.blocked) ? (r.blocked as BulkStatusBlocked[]) : [],
+  };
+}
+
 export async function createUnit(input: {
   accountId: string;
   developmentId: string;

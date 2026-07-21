@@ -17,6 +17,8 @@ import { useMapaPins } from "../hooks/useMapaPins";
 import MapaInterativo from "../components/MapaInterativo";
 import QueueEntryModal from "../../../shared/components/QueueEntryModal";
 import { NexaModal } from "../../../shared/ui/NexaModal";
+import { getPermissions } from "../../../shared/utils/permissoes";
+import ChangeUnitStatusModal, { type StatusTarget } from "../components/ChangeUnitStatusModal";
 import type { Unidade } from "../../../domain/unidade/Unidade";
 
 // ── v7 constants ──
@@ -100,7 +102,8 @@ export default function UnitsPage() {
   const role = account?.role ?? null;
 
   const unitsState = useUnits(accountId, developmentId, useMock);
-  const { units, isLoading } = unitsState;
+  const { units, isLoading, refetch: refetchUnits } = unitsState;
+  const canManageStatus = getPermissions(role).canManageUnitStatus;
   const negState = useNegotiations(accountId, developmentId, useMock, role, unitsState);
   const { developmentSettings: ds } = useCommercialSettings(accountId, developmentId, useMock, role);
 
@@ -122,6 +125,10 @@ export default function UnitsPage() {
   const [vis, setVis] = useState<"mapa" | "interativo" | "tabela">(urlView === "mapa" && temMapaInterativo ? "interativo" : "mapa");
   const [grupoFiltro, setGrupoFiltro] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Seleção múltipla (modo massa) + alvo do modal de alteração de status.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [statusTargets, setStatusTargets] = useState<StatusTarget[] | null>(null);
   const [showQueueModal, setShowQueueModal] = useState(false);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [leavingQueue, setLeavingQueue] = useState(false);
@@ -142,6 +149,15 @@ export default function UnitsPage() {
   }, [units]);
 
   const filtered = grupoFiltro ? units.filter((u) => u.quadra === grupoFiltro) : units;
+
+  // Seleção múltipla (fonte: `filtered`; "selecionar visíveis" = filtrados).
+  const toTarget = (u: Unidade): StatusTarget => ({ id: u.id, quadra: u.quadra, lote: u.lote, status: u.status });
+  const toggleSelect = (id: string) => setSelectedIds((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const clearSelection = () => setSelectedIds(new Set());
+  const allVisibleSelected = filtered.length > 0 && filtered.every((u) => selectedIds.has(u.id));
+  const someVisibleSelected = filtered.some((u) => selectedIds.has(u.id));
+  const toggleAllVisible = () => setSelectedIds(allVisibleSelected ? new Set() : new Set(filtered.map((u) => u.id)));
+  const exitSelectMode = () => { setSelectMode(false); clearSelection(); };
   const byGrupo = useMemo(() => {
     const m = new Map<string, Unidade[]>();
     for (const u of filtered) { const a = m.get(u.quadra) ?? []; a.push(u); m.set(u.quadra, a); }
@@ -224,6 +240,21 @@ export default function UnitsPage() {
         </>
       )}
 
+      {/* Toolbar de seleção múltipla (Tabela) — só para quem gere status */}
+      {vis === "tabela" && canManageStatus && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+          {!selectMode ? (
+            <button type="button" onClick={() => setSelectMode(true)} style={{ minHeight: 44, padding: "0 14px", borderRadius: 8, fontFamily: MONO, fontSize: 11, fontWeight: 600, cursor: "pointer", border: "1px solid rgba(61,58,48,0.4)", background: "transparent", color: "#9C9686" }}>Selecionar</button>
+          ) : (
+            <>
+              <button type="button" onClick={toggleAllVisible} style={{ minHeight: 44, padding: "0 14px", borderRadius: 8, fontFamily: MONO, fontSize: 11, fontWeight: 600, cursor: "pointer", border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.08)", color: "#4ADE80" }}>{allVisibleSelected ? "Desmarcar visíveis" : `Selecionar visíveis (${filtered.length})`}</button>
+              <button type="button" onClick={exitSelectMode} style={{ minHeight: 44, padding: "0 14px", borderRadius: 8, fontFamily: MONO, fontSize: 11, fontWeight: 600, cursor: "pointer", border: "1px solid rgba(61,58,48,0.4)", background: "transparent", color: "#9C9686" }}>Cancelar seleção</button>
+              <span style={{ fontFamily: MONO, fontSize: 11, color: "#9C9686" }}>{selectedIds.size} selecionada{selectedIds.size === 1 ? "" : "s"}</span>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Content */}
       <div style={{ display: "grid", gridTemplateColumns: sel && screen.isDesktop && vis !== "interativo" ? "1fr 320px" : "1fr", gap: 16 }}>
         {vis === "interativo" && ds?.mapaUrl ? (
@@ -295,6 +326,13 @@ export default function UnitsPage() {
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
                   <tr>
+                    {selectMode && (
+                      <th style={{ width: 40, padding: "10px 12px", borderBottom: "1px solid rgba(42,40,34,0.3)" }}>
+                        <input type="checkbox" aria-label="Selecionar todas as unidades visíveis" checked={allVisibleSelected}
+                          ref={(el) => { if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected; }}
+                          onChange={toggleAllVisible} style={{ width: 18, height: 18, cursor: "pointer", accentColor: "#4ADE80" }} />
+                      </th>
+                    )}
                     {[lblGrupo, lblUnidade, "Área", "Valor", "Status"].map((h) => (
                       <th key={h} style={{ textAlign: "left", padding: "10px 12px", fontFamily: MONO, fontSize: 9, color: "#706B5F", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600, borderBottom: "1px solid rgba(42,40,34,0.3)" }}>{h}</th>
                     ))}
@@ -305,11 +343,17 @@ export default function UnitsPage() {
                     const cfg = STATUS_CFG[u.status] ?? FALLBACK;
                     const rowBg = u.id === selectedId ? "linear-gradient(145deg, rgba(74,222,128,0.06), #16150F)" : "linear-gradient(145deg, #1F1E1A, #16150F)";
                     const hoverBg = "linear-gradient(145deg, rgba(74,222,128,0.03), #16150F)";
+                    const isChecked = selectedIds.has(u.id);
                     return (
-                      <tr key={u.id} onClick={() => setSelectedId(u.id === selectedId ? null : u.id)}
-                        style={{ borderBottom: "1px solid rgba(42,40,34,0.15)", cursor: "pointer", background: rowBg, transition: "background 0.15s, transform 0.1s" }}
-                        onMouseEnter={(e) => { if (u.id !== selectedId) { e.currentTarget.style.background = hoverBg; e.currentTarget.style.transform = "translateX(2px)"; } }}
-                        onMouseLeave={(e) => { if (u.id !== selectedId) { e.currentTarget.style.background = rowBg; e.currentTarget.style.transform = "none"; } }}>
+                      <tr key={u.id} onClick={() => (selectMode ? toggleSelect(u.id) : setSelectedId(u.id === selectedId ? null : u.id))}
+                        style={{ borderBottom: "1px solid rgba(42,40,34,0.15)", cursor: "pointer", background: selectMode && isChecked ? "linear-gradient(145deg, rgba(74,222,128,0.08), #16150F)" : rowBg, transition: "background 0.15s, transform 0.1s" }}
+                        onMouseEnter={(e) => { if (u.id !== selectedId && !(selectMode && isChecked)) { e.currentTarget.style.background = hoverBg; e.currentTarget.style.transform = "translateX(2px)"; } }}
+                        onMouseLeave={(e) => { if (u.id !== selectedId && !(selectMode && isChecked)) { e.currentTarget.style.background = rowBg; e.currentTarget.style.transform = "none"; } }}>
+                        {selectMode && (
+                          <td style={{ padding: "10px 12px" }} onClick={(e) => e.stopPropagation()}>
+                            <input type="checkbox" aria-label={`Selecionar ${lblGrupo} ${u.quadra} ${lblUnidade} ${u.lote}`} checked={isChecked} onChange={() => toggleSelect(u.id)} style={{ width: 18, height: 18, cursor: "pointer", accentColor: "#4ADE80" }} />
+                          </td>
+                        )}
                         <td style={{ padding: "10px 12px", color: "#FAF9F6", fontWeight: 700, fontFamily: MONO, fontSize: 13 }}>{u.quadra}</td>
                         <td style={{ padding: "10px 12px", color: "#FAF9F6", fontWeight: 700, fontFamily: MONO, fontSize: 13 }}>{u.lote}</td>
                         <td style={{ padding: "10px 12px", color: "#9C9686", fontFamily: MONO, fontSize: 12 }}>{(u as Record<string, unknown>).area ? `${(u as Record<string, unknown>).area} m²` : "—"}</td>
@@ -417,6 +461,9 @@ export default function UnitsPage() {
                   <button type="button" onClick={() => navigate(`/negociacoes/${selNeg.id}`)} style={{ width: "100%", height: 36, borderRadius: 8, fontSize: 13, fontWeight: 600, background: "transparent", color: "#C4BFB3", border: "1px solid rgba(61,58,48,0.2)", cursor: "pointer" }}>Ver venda</button>
                 ) : null
               ) : null}
+              {canManageStatus && (
+                <button type="button" onClick={() => setStatusTargets([toTarget(sel)])} style={{ width: "100%", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 600, background: "transparent", color: "#C4BFB3", border: "1px solid rgba(61,58,48,0.35)", cursor: "pointer" }}>Alterar status</button>
+              )}
             </div>
 
             {queueEnabled && selQueue.myPosition && (
@@ -485,6 +532,26 @@ export default function UnitsPage() {
             </NexaModal>
           );
         })()
+      )}
+
+      {/* Barra de ação flutuante — seleção em massa */}
+      {selectMode && selectedIds.size > 0 && (
+        <div style={{ position: "fixed", left: 0, right: 0, bottom: 16, display: "flex", justifyContent: "center", zIndex: 200, pointerEvents: "none", padding: "0 12px" }}>
+          <div style={{ pointerEvents: "auto", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", justifyContent: "center", background: "var(--surface-raised, #1C1B18)", border: "1px solid var(--border-strong, #3D3A30)", borderRadius: 12, padding: "8px 10px 8px 16px", boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+            <span style={{ fontFamily: MONO, fontSize: 12, color: "#E8E5DE", fontWeight: 600 }}>{selectedIds.size} selecionada{selectedIds.size === 1 ? "" : "s"}</span>
+            <button type="button" onClick={() => setStatusTargets(units.filter((u) => selectedIds.has(u.id)).map(toTarget))} style={{ minHeight: 44, padding: "0 16px", borderRadius: 8, border: "none", background: "var(--color-sprout)", color: "var(--interactive-on-primary, #16150F)", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Alterar status</button>
+            <button type="button" onClick={clearSelection} style={{ minHeight: 44, padding: "0 14px", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "#9C9686", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Limpar</button>
+          </div>
+        </div>
+      )}
+
+      {statusTargets && (
+        <ChangeUnitStatusModal
+          open={!!statusTargets}
+          targets={statusTargets}
+          onClose={() => setStatusTargets(null)}
+          onChanged={() => { refetchUnits(); clearSelection(); }}
+        />
       )}
     </div>
   );

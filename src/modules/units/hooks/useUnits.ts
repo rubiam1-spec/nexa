@@ -19,6 +19,7 @@ export function useUnits(
   const [units, setUnits] = useState<Unidade[]>([]);
   const [status, setStatus] = useState<UnitsStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -79,7 +80,7 @@ export function useUnits(
     return () => {
       isMounted = false;
     };
-  }, [accountId, developmentId, useMockFallback]);
+  }, [accountId, developmentId, useMockFallback, refreshKey]);
 
   const persistUnitStatus = useCallback(
     async (unitId: string, status: Unidade["status"]) => {
@@ -111,5 +112,6 @@ export function useUnits(
         current.map((item) => (item.id === unit.id ? unit : item)),
       ),
     persistUnitStatus,
+    refetch: () => setRefreshKey((k) => k + 1),
   };
 }
