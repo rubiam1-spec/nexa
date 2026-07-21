@@ -9,7 +9,6 @@ import { supabase } from "../../../infra/supabase/supabaseClient";
 import CentralAgenda from "../components/CentralAgenda";
 import WeeklyPlanCard from "../components/WeeklyPlanCard";
 import CentralMobile from "../components/CentralMobile";
-import { NegotiationStatus } from "../../../domain/status/negotiation";
 import { formatWeekdayLongBRT, formatTimeBRT, formatDateShortBRT, getTodayDateStringBRT } from "../../../shared/utils/dateUtils";
 import { useDailyBriefing, type BriefingHighlight, type BriefingAction } from "../../../shared/hooks/useDailyBriefing";
 import { briefingFreshness } from "../briefingFreshness";
@@ -523,9 +522,10 @@ export default function CentralPage() {
     );
   }
 
-  // Derive funnel from negotiations — normalize status to avoid case mismatch
-  const openNegs = data.negotiations.filter((n) => n.status === NegotiationStatus.OPEN).length;
-  const inProgressNegs = data.negotiations.filter((n) => n.status === NegotiationStatus.IN_PROGRESS).length;
+  // Contagens REAIS por etapa (fonte: negStageCounts, base completa) — antes vinha
+  // de data.negotiations (preview capado em 15), o que divergia dos KPIs.
+  const openNegs = data.negStageCounts.open;
+  const inProgressNegs = data.negStageCounts.inProgress;
   const lostNegs = data.lostCount;
   const wonNegs = data.wonCount;
   const funnelMax = Math.max(openNegs, inProgressNegs, data.stock.reserved, wonNegs, lostNegs, 1);

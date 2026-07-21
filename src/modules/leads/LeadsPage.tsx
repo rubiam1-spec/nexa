@@ -11,6 +11,8 @@ import {
 import { AssignModal, DiscardModal } from "./LeadActionModals";
 import { NexaSelect } from "../../shared/ui/NexaSelect";
 import { useCelebration, CelebrationToasts } from "../../shared/components/Celebration";
+import { useScreen } from "../../shared/hooks/useIsMobile";
+import { MOBILE_BP } from "../../shared/mobile";
 
 const MONO = "var(--font-mono)";
 type Filter = "active" | SType;
@@ -25,6 +27,7 @@ export default function LeadsPage() {
   const [campaignFilter, setCampaignFilter] = useState<string>(""); // "" = todas
   const campaignName = useMemo(() => new Map(campaigns.map((c) => [c.id, c.name])), [campaigns]);
   // Busca focada quando aberto via atalho de Contatos (/leads?q=Nome).
+  const isSmall = useScreen().width < MOBILE_BP;
   const [search, setSearch] = useState(qp.get("q") ?? "");
   const [assignTarget, setAssignTarget] = useState<LeadView | null>(null);
   const [discardTarget, setDiscardTarget] = useState<LeadView | null>(null);
@@ -100,8 +103,8 @@ export default function LeadsPage() {
 
       {/* Busca + filtro de campanha + chips */}
       <div style={{ marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nome, origem, campanha ou responsável..."
-          style={{ flex: 1, minWidth: 220, maxWidth: 420, background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 8, padding: "10px 14px", color: "var(--text-primary)", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={isSmall ? "Buscar leads..." : "Buscar por nome, origem, campanha ou responsável..."}
+          style={{ flex: 1, minWidth: isSmall ? 140 : 220, maxWidth: 420, background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 8, padding: "10px 14px", color: "var(--text-primary)", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
         {campaigns.length > 0 && (
           <div style={{ width: 220 }}>
             <NexaSelect

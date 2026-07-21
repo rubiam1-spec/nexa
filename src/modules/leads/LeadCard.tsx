@@ -6,6 +6,8 @@ import type { LeadView } from "./useLeads";
 import { LEAD_STAGE_META, SEMAPHORE_COLOR } from "./leadDisplay";
 import { LeadQualificationStatus as S, isLeadActive } from "../../domain/status/leadQualification";
 import { CLIENT_SOURCE_LABELS } from "../../shared/types/client";
+import { useScreen } from "../../shared/hooks/useIsMobile";
+import { MOBILE_SMALL_BP } from "../../shared/mobile";
 
 const MONO = "var(--font-mono)";
 
@@ -31,6 +33,7 @@ export default function LeadCard({ lead, canAssign, busy, movedNote, campaignLab
   campaignLabel?: string;
   actions: LeadCardActions;
 }) {
+  const isNarrow = useScreen().width < MOBILE_SMALL_BP; // < 400: ações em grid 2×2
   const c = lead.client;
   const meta = LEAD_STAGE_META[lead.qualification];
   const originLabel = c.origin ? (CLIENT_SOURCE_LABELS[c.origin] ?? c.origin) : "—";
@@ -64,19 +67,19 @@ export default function LeadCard({ lead, canAssign, busy, movedNote, campaignLab
           <span style={{ fontFamily: MONO, fontSize: 10, color: SEMAPHORE_COLOR[lead.semaphore.level], whiteSpace: "nowrap" }}>{lead.semaphore.label}</span>
         </div>
       )}
-      {/* Ações */}
-      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(61,58,48,0.12)" }}>
-        {canAssign ? <Btn label="Atribuir" busy={busy} onClick={actions.onAssign} /> : null}
-        {lead.canWork && lead.qualification === S.NEW ? <Btn label="Iniciar" cor="#E8B45A" busy={busy} onClick={actions.onStart} /> : null}
-        {lead.canWork && lead.qualification === S.IN_SERVICE ? <Btn label="Qualificar" cor="#4ADE80" busy={busy} onClick={actions.onQualify} /> : null}
-        {canConvertOrWork ? <Btn label="Converter" cor="#34D399" busy={busy} onClick={actions.onConvert} /> : null}
-        {canConvertOrWork ? <Btn label="Descartar" cor="#F87171" busy={busy} onClick={actions.onDiscard} /> : null}
+      {/* Ações — <400px: grid 2×2 (botões full-width, alvo ≥44px) */}
+      <div style={{ display: isNarrow ? "grid" : "flex", gridTemplateColumns: isNarrow ? "1fr 1fr" : undefined, gap: 6, flexWrap: isNarrow ? undefined : "wrap", marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(61,58,48,0.12)" }}>
+        {canAssign ? <Btn label="Atribuir" busy={busy} full={isNarrow} onClick={actions.onAssign} /> : null}
+        {lead.canWork && lead.qualification === S.NEW ? <Btn label="Iniciar" cor="#E8B45A" busy={busy} full={isNarrow} onClick={actions.onStart} /> : null}
+        {lead.canWork && lead.qualification === S.IN_SERVICE ? <Btn label="Qualificar" cor="#4ADE80" busy={busy} full={isNarrow} onClick={actions.onQualify} /> : null}
+        {canConvertOrWork ? <Btn label="Converter" cor="#34D399" busy={busy} full={isNarrow} onClick={actions.onConvert} /> : null}
+        {canConvertOrWork ? <Btn label="Descartar" cor="#F87171" busy={busy} full={isNarrow} onClick={actions.onDiscard} /> : null}
       </div>
     </div>
   );
 }
 
-function Btn({ label, cor, onClick, busy }: { label: string; cor?: string; onClick: () => void; busy?: boolean }) {
+function Btn({ label, cor, onClick, busy, full }: { label: string; cor?: string; onClick: () => void; busy?: boolean; full?: boolean }) {
   const col = cor ?? "#9C9686";
-  return <button type="button" disabled={busy} onClick={onClick} style={{ fontSize: 12, padding: "0 12px", minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 8, border: `1px solid ${col}40`, background: `${col}15`, color: col, cursor: busy ? "default" : "pointer", opacity: busy ? 0.5 : 1, whiteSpace: "nowrap" }}>{label}</button>;
+  return <button type="button" disabled={busy} onClick={onClick} style={{ fontSize: 12, padding: "0 12px", minHeight: 44, width: full ? "100%" : undefined, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 8, border: `1px solid ${col}40`, background: `${col}15`, color: col, cursor: busy ? "default" : "pointer", opacity: busy ? 0.5 : 1, whiteSpace: "nowrap" }}>{label}</button>;
 }

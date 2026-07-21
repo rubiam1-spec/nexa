@@ -16,6 +16,9 @@ export interface AgendaItem { id: string; type: string; title: string; startTime
 export interface CentralData {
   focus: FocusItem[]; pulse: PulseKPI[]; stock: StockData;
   negotiations: NegotiationItem[]; negotiationsTotal: number; negotiationsPreview: string; lostCount: number; wonCount: number;
+  // Contagens REAIS por etapa (base completa myNegs) — o funil não pode usar
+  // `negotiations` (preview capado em 15), senão diverge dos KPIs.
+  negStageCounts: { open: number; inProgress: number };
   agenda: AgendaItem[]; agendaPreview: string;
   contacts: ContactItem[]; contactsPreview: string;
   internalTeam: TeamMemberData[]; externalTeam: TeamMemberData[];
@@ -195,6 +198,11 @@ export function useCentral(role: string | null, userId: string | null, accountId
           const br = (Array.isArray(n.brokers) ? n.brokers[0] : n.brokers) as Record<string, unknown> | null;
           return { id: n.id as string, clientName: (cl?.name as string) ?? "—", unitLabel: un ? `Q${un.quadra}·L${un.lote}` : n.third_party_property_id ? "Imóvel terceiro" : "—", status: n.status as string, valor: Number(un?.valor ?? 0), brokerName: (br?.name as string) ?? null, isThirdParty: !!n.third_party_property_id, propertyName: n.third_party_property_id ? "Imóvel terceiro" : null };
         });
+        // Contagens reais por etapa (base completa, não o preview de 15).
+        const negStageCounts = {
+          open: myNegs.filter((n) => (n.status as string) === NegotiationStatus.OPEN).length,
+          inProgress: myNegs.filter((n) => (n.status as string) === NegotiationStatus.IN_PROGRESS).length,
+        };
         const negotiationsTotal = myNegs.reduce((s, n) => { const un = (Array.isArray(n.units) ? n.units[0] : n.units) as Record<string, unknown> | null; return s + Number(un?.valor ?? 0); }, 0);
         const negotiationsPreview = myNegs.length > 0 ? `${myNegs.length} em andamento${negotiationsTotal > 0 ? ` · ${negotiationsTotal >= 1e6 ? `R$ ${(negotiationsTotal / 1e6).toFixed(1)}M` : `R$ ${(negotiationsTotal / 1e3).toFixed(0)}k`} em pipeline` : ""}` : "Nenhuma negociação ativa";
 
@@ -246,7 +254,7 @@ export function useCentral(role: string | null, userId: string | null, accountId
         const externalTeam: TeamMemberData[] = isManager ? teamRaw.filter((t) => EXTERNAL_ROLES.includes(t.role as string)).map(buildMemberStats).sort(sortByActivity) : [];
 
         if (mounted) {
-          setData({ focus, pulse, stock, negotiations: negotiationItems, negotiationsTotal, negotiationsPreview, lostCount, wonCount, agenda: agendaItems, agendaPreview, contacts: contactItems, contactsPreview, internalTeam, externalTeam });
+          setData({ focus, pulse, stock, negotiations: negotiationItems, negotiationsTotal, negotiationsPreview, lostCount, wonCount, negStageCounts, agenda: agendaItems, agendaPreview, contacts: contactItems, contactsPreview, internalTeam, externalTeam });
           setError(null);
         }
       } catch (err) {
