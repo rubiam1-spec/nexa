@@ -18,7 +18,6 @@ import { getNegotiationStatusLabel } from "../../../domain/negociacao/Negotiatio
 import NexaBadge from "../../../shared/components/NexaBadge";
 import { SaleService } from "../../../domain/venda/SaleService";
 import { getSaleStatusLabel } from "../../../domain/venda/SaleStatusLabel";
-import { SaleStatus } from "../../../domain/venda/SaleStatus";
 import { createClient, getClientWithSpouse } from "../../../infra/repositories/clientsSupabaseRepository";
 import { addParty as addPartyRepo } from "../../../infra/repositories/negotiationPartiesSupabaseRepository";
 import { formatPhone } from "../../../shared/utils/masks";
@@ -202,7 +201,6 @@ export default function NegotiationDetailPage() {
       prependSale,
       sales,
       status: salesStatus,
-      documentsGate,
     },
     broker,
     client,
@@ -470,7 +468,7 @@ export default function NegotiationDetailPage() {
           <div style={{ fontSize: 14, color: "var(--color-fog)", marginBottom: 16 }}>
             Negociação não encontrada.
           </div>
-          <Link to="/negociacoes" style={{ fontSize: 13, fontWeight: 600, color: "var(--color-sprout)" }}>← Voltar às negociações</Link>
+          <Link to="/pipeline" style={{ fontSize: 13, fontWeight: 600, color: "var(--color-sprout)" }}>← Voltar ao pipeline</Link>
         </div>
       </div>
     );
@@ -885,6 +883,8 @@ export default function NegotiationDetailPage() {
       {/* Breadcrumb + Header */}
       <div style={{ marginBottom: 24 }}>
         <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "#5C5647", marginBottom: 14, display: "flex", alignItems: "center", gap: 6 }}>
+          <Link to="/pipeline" style={{ color: "#706B5F", textDecoration: "none" }}>Pipeline</Link>
+          <span style={{ color: "#3D3A30" }}>›</span>
           <Link to="/negociacoes" style={{ color: "#706B5F", textDecoration: "none" }}>Negociações</Link>
           <span style={{ color: "#3D3A30" }}>›</span>
           <span>{negotiation.id.slice(0, 8).toUpperCase()}</span>
@@ -1690,33 +1690,11 @@ export default function NegotiationDetailPage() {
                   <span className="nexa-badge" style={{ color: "var(--color-fog)", background: "rgba(156,150,134,0.12)" }}>{getSaleStatusLabel(sale.status)}</span>
                 </div>
                 <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-slate)" }}>{formatDateTimeBRT(sale.createdAt)}</div>
-                {sale.status === SaleStatus.AWAITING_DOCUMENTS && documentsGate ? (
-                  <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 6, background: documentsGate.complete ? "rgba(74,222,128,0.08)" : "rgba(217,119,6,0.08)", border: `1px solid ${documentsGate.complete ? "rgba(74,222,128,0.25)" : "rgba(217,119,6,0.25)"}` }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: documentsGate.complete ? "var(--color-sprout)" : "#D97706" }}>Documentos: {documentsGate.requiredApproved}/{documentsGate.requiredTotal} obrigatórios aprovados</div>
-                    {!documentsGate.complete && documentsGate.pendingLabels.length > 0 ? (
-                      <div style={{ fontSize: 11, color: "var(--color-fog)", marginTop: 4 }}>Pendentes: {documentsGate.pendingLabels.join(", ")}</div>
-                    ) : null}
-                    {negotiation?.clientId ? (
-                      <button type="button" onClick={() => navigate(`/contatos/${negotiation.clientId}?tab=documentos`)} style={{ marginTop: 6, background: "none", border: "none", color: "var(--color-sprout)", fontSize: 11, fontWeight: 600, cursor: "pointer", padding: 0, textDecoration: "underline" }}>Abrir documentos do comprador</button>
-                    ) : null}
-                  </div>
-                ) : null}
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
                   {canAdvanceSaleByRole ? (
                     <>
                       <button type="button" disabled={isTransitioningSale || !SaleService.podeAvancarParaDocumentos(sale)} onClick={() => void handleSaleTransition(sale.id, "documents")} style={btnSecondary}>Documentação</button>
-                      {(() => {
-                        const atDocs = sale.status === SaleStatus.AWAITING_DOCUMENTS;
-                        const blocked = Boolean(atDocs && documentsGate && !documentsGate.complete);
-                        const role = actorRole as string | null;
-                        const canOverrideDocs = role === "director" || role === "owner";
-                        const baseDisabled = isTransitioningSale || !SaleService.podeAvancarParaContrato(sale);
-                        const missing = documentsGate ? documentsGate.requiredTotal - documentsGate.requiredApproved : 0;
-                        if (blocked && canOverrideDocs) {
-                          return <button type="button" disabled={baseDisabled} title={`${missing} documento(s) obrigatório(s) pendente(s)`} onClick={() => void handleSaleTransition(sale.id, "contract")} style={btnSecondary}>Avançar mesmo assim</button>;
-                        }
-                        return <button type="button" disabled={baseDisabled || blocked} title={blocked ? `Faltam ${missing} documento(s) obrigatório(s)` : undefined} onClick={() => void handleSaleTransition(sale.id, "contract")} style={btnSecondary}>Contrato</button>;
-                      })()}
+                      <button type="button" disabled={isTransitioningSale || !SaleService.podeAvancarParaContrato(sale)} onClick={() => void handleSaleTransition(sale.id, "contract")} style={btnSecondary}>Contrato</button>
                       <button type="button" disabled={isTransitioningSale || !SaleService.podeAvancarParaPagamento(sale)} onClick={() => void handleSaleTransition(sale.id, "payment")} style={btnSecondary}>Pagamento</button>
                       <button type="button" disabled={isTransitioningSale || !SaleService.podeConcluir(sale)} onClick={() => void handleSaleTransition(sale.id, "complete")} style={btnPrimary}>Concluir</button>
                     </>
