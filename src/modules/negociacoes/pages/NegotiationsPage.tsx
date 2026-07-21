@@ -20,10 +20,13 @@ import { createClient } from "../../../infra/repositories/clientsSupabaseReposit
 import { getPermissions } from "../../../shared/utils/permissoes";
 import { formatCurrency } from "../../../shared/utils/masks";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
+import { MobileSheet, MOBILE_BP } from "../../../shared/mobile";
 
 // Rótulos/cores de estágio vêm da fonte única (board/stageColumn) — sem vocabulário
 // local. "Todas" + 5 estágios canônicos, cada chip com contador da fonte única.
 const SEMA_COLOR: Record<SemaphoreLevel, string> = { green: "#4ADE80", amber: "#E8B45A", red: "#F87171", neutral: "#706B5F" };
+// Palavra curta do semáforo p/ o mobile (o label completo é longo demais em 380px).
+const SEMA_SHORT: Record<SemaphoreLevel, string> = { green: "em dia", amber: "atenção", red: "atrasado", neutral: "—" };
 
 function boardUnitLabel(c: KanbanCard): string {
   if (c.thirdPartyPropertyId) return c.thirdPartyPropertyTitulo || "Imóvel";
@@ -72,6 +75,9 @@ export default function NegotiationsPage() {
   const { authenticatedProfile } = useAuth();
   const { isBroker, brokerId, isConsultant, ownerProfileId } = useAccount();
   const screen = useScreen();
+  const isSmall = screen.width < MOBILE_BP; // < 480: layout compacto
+  const [filterSheet, setFilterSheet] = useState(false);
+  const [moreMenu, setMoreMenu] = useState(false);
   const {
     accountContext: {
       account,
@@ -236,7 +242,8 @@ export default function NegotiationsPage() {
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {canImport && (
+          {/* Desktop: ações inline. Mobile <480: "Nova negociação" primária + "⋯". */}
+          {!isSmall && canImport && (
             <button
               type="button"
               onClick={() => setShowHistory(true)}
@@ -246,7 +253,7 @@ export default function NegotiationsPage() {
               Histórico de importações
             </button>
           )}
-          {canImport && (
+          {!isSmall && canImport && (
             <button type="button" onClick={() => setShowImport(true)} style={btnSecondary}>
               Importar negociações
             </button>
@@ -254,8 +261,21 @@ export default function NegotiationsPage() {
           <button type="button" onClick={() => setShowForm((p) => !p)} style={showForm ? btnSecondary : btnPrimary}>
             {showForm ? "Cancelar" : "Nova negociação"}
           </button>
+          {isSmall && canImport && (
+            <button type="button" aria-label="Mais ações" onClick={() => setMoreMenu(true)}
+              style={{ minWidth: 44, minHeight: 44, borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--color-fog)", fontSize: 20, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>⋯</button>
+          )}
         </div>
       </div>
+
+      {isSmall && canImport && (
+        <MobileSheet open={moreMenu} onClose={() => setMoreMenu(false)} title="Ações" ariaLabel="Mais ações">
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <button type="button" onClick={() => { setMoreMenu(false); setShowImport(true); }} style={{ ...btnSecondary, width: "100%", minHeight: 44 }}>Importar negociações</button>
+            <button type="button" onClick={() => { setMoreMenu(false); setShowHistory(true); }} style={{ ...btnSecondary, width: "100%", minHeight: 44 }}>Histórico de importações</button>
+          </div>
+        </MobileSheet>
+      )}
 
       {canImport && (
         <NegotiationImportWizard
@@ -347,71 +367,81 @@ export default function NegotiationsPage() {
         </div>
       ) : null}
 
-      {/* Busca — disponível a todos os perfis */}
-      {board.totalCount > 0 ? (
-        <div style={{ marginBottom: 12 }}>
-          <input value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} placeholder="Buscar por cliente, unidade ou corretor..." style={{ width: "100%", maxWidth: 420, background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 8, padding: "10px 14px", color: "var(--text-primary)", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-        </div>
-      ) : null}
+      {board.totalCount > 0 ? (() => {
+        const stageChipsData = [{ id: "all" as const, label: "Todas", count: board.totalCount, color: "#9C9686" },
+          ...STAGES.map((s) => ({ id: s.id, label: s.label, count: board.countByStage[s.id], color: s.color }))];
+        const chipEl = (chip: { id: BoardStage | "all"; label: string; count: number; color: string }) => {
+          const active = selectedStage === chip.id;
+          return (
+            <button key={chip.id} type="button" onClick={() => { setSelectedStage(chip.id); setPage(0); }}
+              style={{ padding: "6px 12px", borderRadius: 8, whiteSpace: "nowrap", flexShrink: 0,
+                border: active ? `1px solid ${chip.color}55` : "1px solid rgba(42,40,34,0.5)",
+                background: active ? `${chip.color}14` : "transparent",
+                color: active ? chip.color : "var(--color-fog)",
+                fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+              {chip.label} · {chip.count}
+            </button>
+          );
+        };
+        const brokerSelect = canFilter ? (
+          <SearchableSelect
+            options={brokers.filter((b) => b.status === "active").map((b) => ({ value: b.id, label: b.name }))}
+            value={filterBroker === "all" ? "" : filterBroker}
+            onChange={(v) => setFilterBroker(v || "all")}
+            placeholder="Buscar corretor..."
+            emptyOptionLabel="Todos os corretores"
+          />
+        ) : null;
+        const originSelect = (
+          <NexaSelect value={origin} onChange={(v) => { setOrigin(v as "all" | "import" | "manual"); setPage(0); }}
+            options={[{ value: "all", label: "Todas as origens" }, { value: "import", label: "Importadas" }, { value: "manual", label: "Manuais" }]}
+            ariaLabel="Filtrar por origem" />
+        );
+        const sortSelect = (
+          <NexaSelect value={sortBy} onChange={(v) => setSortBy(v as "date" | "valor")}
+            options={[{ value: "date", label: "Ordenar por data" }, { value: "valor", label: "Ordenar por valor" }]}
+            ariaLabel="Ordenação" />
+        );
 
-      {/* Filtros — chips de estágio com contadores (todos os perfis) + corretor (gestão) */}
-      {board.totalCount > 0 ? (
-        <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-          {canFilter ? (
-            <div style={{ minWidth: 220, maxWidth: 260, flex: "0 1 260px" }}>
-              <SearchableSelect
-                options={brokers.filter((b) => b.status === "active").map((b) => ({ value: b.id, label: b.name }))}
-                value={filterBroker === "all" ? "" : filterBroker}
-                onChange={(v) => setFilterBroker(v || "all")}
-                placeholder="Buscar corretor..."
-                emptyOptionLabel="Todos os corretores"
-              />
-            </div>
-          ) : null}
-
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-            {[{ id: "all" as const, label: "Todas", count: board.totalCount, color: "#9C9686" },
-              ...STAGES.map((s) => ({ id: s.id, label: s.label, count: board.countByStage[s.id], color: s.color }))].map((chip) => {
-              const active = selectedStage === chip.id;
-              return (
-                <button key={chip.id} type="button" onClick={() => { setSelectedStage(chip.id); setPage(0); }}
-                  style={{ padding: "6px 12px", borderRadius: 8,
-                    border: active ? `1px solid ${chip.color}55` : "1px solid rgba(42,40,34,0.5)",
-                    background: active ? `${chip.color}14` : "transparent",
-                    color: active ? chip.color : "var(--color-fog)",
-                    fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
-                  {chip.label} · {chip.count}
+        if (isSmall) {
+          const activeCount = (filterBroker !== "all" ? 1 : 0) + (origin !== "all" ? 1 : 0) + (search.trim() ? 1 : 0);
+          return (
+            <>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
+                <button type="button" onClick={() => setFilterSheet(true)} style={{ flexShrink: 0, minHeight: 44, padding: "0 14px", borderRadius: 8, border: "1px solid var(--border-default)", background: activeCount > 0 ? "rgba(74,222,128,0.08)" : "transparent", color: activeCount > 0 ? "#4ADE80" : "var(--color-fog)", fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                  Filtros{activeCount > 0 ? ` (${activeCount})` : ""}
                 </button>
-              );
-            })}
-          </div>
+                <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2 }}>
+                  {stageChipsData.map(chipEl)}
+                </div>
+              </div>
+              <MobileSheet open={filterSheet} onClose={() => setFilterSheet(false)} title="Filtros" ariaLabel="Filtros">
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <input value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} placeholder="Buscar cliente, unidade ou corretor..." style={{ width: "100%", background: "var(--surface-base)", border: "1px solid var(--border-default)", borderRadius: 8, padding: "12px 14px", color: "var(--text-primary)", fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+                  {brokerSelect}
+                  {originSelect}
+                  {sortSelect}
+                  <button type="button" onClick={() => setFilterSheet(false)} style={{ ...btnPrimary, width: "100%", minHeight: 44 }}>Ver resultados</button>
+                </div>
+              </MobileSheet>
+            </>
+          );
+        }
 
-          <div style={{ width: 190 }}>
-            <NexaSelect
-              value={origin}
-              onChange={(v) => { setOrigin(v as "all" | "import" | "manual"); setPage(0); }}
-              options={[
-                { value: "all", label: "Todas as origens" },
-                { value: "import", label: "Importadas" },
-                { value: "manual", label: "Manuais" },
-              ]}
-              ariaLabel="Filtrar por origem"
-            />
-          </div>
-
-          <div style={{ width: 200 }}>
-            <NexaSelect
-              value={sortBy}
-              onChange={(v) => setSortBy(v as "date" | "valor")}
-              options={[
-                { value: "date", label: "Ordenar por data" },
-                { value: "valor", label: "Ordenar por valor" },
-              ]}
-              ariaLabel="Ordenação"
-            />
-          </div>
-        </div>
-      ) : null}
+        return (
+          <>
+            <div style={{ marginBottom: 12 }}>
+              <input value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} placeholder="Buscar por cliente, unidade ou corretor..." style={{ width: "100%", maxWidth: 420, background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 8, padding: "10px 14px", color: "var(--text-primary)", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+            </div>
+            <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+              {canFilter ? <div style={{ minWidth: 220, maxWidth: 260, flex: "0 1 260px" }}>{brokerSelect}</div> : null}
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>{stageChipsData.map(chipEl)}</div>
+              <div style={{ width: 190 }}>{originSelect}</div>
+              <div style={{ width: 200 }}>{sortSelect}</div>
+            </div>
+          </>
+        );
+      })() : null}
 
       {(() => {
         // Lista consome a MESMA fonte (board.negotiations, já filtrada por busca/corretor
@@ -446,6 +476,38 @@ export default function NegotiationsPage() {
                 status: c.status, ownerProfileId: c.ownerProfileId,
               }, thresholdDays, nowMs);
               const criadaDias = Math.max(0, Math.floor((nowMs - new Date(c.createdAt).getTime()) / 86400000));
+              const criadaTxt = criadaDias === 0 ? "hoje" : `há ${criadaDias}d`;
+              const importadaBadge = c.importBatchId ? <span style={{ flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 8.5, fontWeight: 700, color: "#7DA7F4", background: "rgba(125,167,244,0.12)", borderRadius: 4, padding: "1px 5px", letterSpacing: "0.04em", textTransform: "uppercase" }}>Importada</span> : null;
+
+              if (isSmall) {
+                // <480px: 2 andares, zero clipping. 1º: cliente + valor. 2º: estágio + corretor + criada + semáforo.
+                return (
+                  <div key={c.id} onClick={() => navigateToSimulador(`/negociacoes/${c.id}`)}
+                    style={{ padding: "12px 14px", cursor: "pointer", background: "linear-gradient(145deg, var(--surface-raised), var(--surface-base))", border: "1px solid var(--border-default)", borderRadius: 10 }}>
+                    {/* Andar 1: unidade-dot + cliente ... valor */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: boardUnitDot(c.unitStatus), flexShrink: 0 }} />
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {c.clienteNome ?? <span style={{ color: "#706B5F", fontStyle: "italic" }}>Sem cliente</span>}
+                      </span>
+                      <span style={{ flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 700, color: "var(--color-bone)" }}>{c.valor ? formatCurrency(c.valor) : "—"}</span>
+                    </div>
+                    {/* Andar 2: estágio + unidade + corretor + criada + semáforo + IMPORTADA */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 7, paddingLeft: 16 }}>
+                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 8.5, fontWeight: 700, color: meta.color, background: meta.soft, padding: "2px 7px", borderRadius: 4, letterSpacing: "0.05em", textTransform: "uppercase", whiteSpace: "nowrap" }}>{meta.label}</span>
+                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 140 }}>{boardUnitLabel(c)}</span>
+                      {c.corretorNome ? <span style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 100 }}>{c.corretorNome}</span> : null}
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: SEMA_COLOR[s.level], flexShrink: 0 }} />
+                        <span style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: SEMA_COLOR[s.level] }}>{SEMA_SHORT[s.level]}</span>
+                      </span>
+                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)" }}>{criadaTxt}</span>
+                      {importadaBadge}
+                    </div>
+                  </div>
+                );
+              }
+
               return (
                 <div key={c.id} onClick={() => navigateToSimulador(`/negociacoes/${c.id}`)}
                   style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", cursor: "pointer",
@@ -461,7 +523,7 @@ export default function NegotiationsPage() {
                         <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {c.clienteNome ?? <span style={{ color: "#706B5F", fontStyle: "italic" }}>Sem cliente</span>}
                         </span>
-                        {c.importBatchId ? <span style={{ flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 8.5, fontWeight: 700, color: "#7DA7F4", background: "rgba(125,167,244,0.12)", borderRadius: 4, padding: "1px 5px", letterSpacing: "0.04em", textTransform: "uppercase" }}>Importada</span> : null}
+                        {importadaBadge}
                       </div>
                       <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{boardUnitLabel(c)}</div>
                     </div>
@@ -478,7 +540,7 @@ export default function NegotiationsPage() {
                     <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: SEMA_COLOR[s.level], whiteSpace: "nowrap" }}>{s.label}</span>
                   </div>
                   {/* Criada (created_at da negociação) */}
-                  <div title="Criada" style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)", minWidth: 54, textAlign: "right" }}>{criadaDias === 0 ? "hoje" : `há ${criadaDias}d`}</div>
+                  <div title="Criada" style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)", minWidth: 54, textAlign: "right" }}>{criadaTxt}</div>
                 </div>
               );
             })}

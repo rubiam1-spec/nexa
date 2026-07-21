@@ -262,7 +262,19 @@ export default function KanbanPage() {
             })() : (
               board.byStage[mobileTab].length === 0
                 ? <div style={{ textAlign: "center", padding: "32px 10px", border: "1px dashed var(--border-default)", borderRadius: 10, color: "var(--color-clay)", fontSize: 12, fontStyle: "italic" }}>Sem {stageMeta(mobileTab).label.toLowerCase()}</div>
-                : board.byStage[mobileTab].map((c) => renderCard(c, mobileTab))
+                : (() => {
+                    // Mesma fonte e cap do desktop: densa (>30) mostra 25 + rodapé → Lista.
+                    const cs = board.byStage[mobileTab];
+                    const isDense = cs.length > DENSE_THRESHOLD;
+                    const visible = isDense ? cs.slice(0, DENSE_VISIBLE) : cs;
+                    const hidden = cs.length - visible.length;
+                    return <>
+                      {visible.map((c) => renderCard(c, mobileTab))}
+                      {isDense && hidden > 0 ? (
+                        <button type="button" onClick={() => navigate(`/negociacoes?view=lista&stage=${mobileTab}`)} style={{ marginTop: 4, flexShrink: 0, fontFamily: MONO, fontSize: 11, color: "var(--color-sprout)", textAlign: "center", padding: 12, minHeight: 44, background: "var(--surface-base, #16150F)", border: "1px dashed var(--border-default)", borderRadius: 8, cursor: "pointer" }}>+{hidden} · ver na Lista →</button>
+                      ) : null}
+                    </>;
+                  })()
             )}
           </div>
         </>
@@ -424,19 +436,19 @@ export default function KanbanPage() {
         onClick={() => navigate(`/negociacoes/${c.id}`)}
         onMouseEnter={() => setHoveredId(c.id)} onMouseLeave={() => setHoveredId(null)}
         style={{ position: "relative", zIndex: cardMenuOpen === c.id ? 30 : isHovered ? 20 : "auto", background: stage === "venda" ? "linear-gradient(145deg, rgba(52,211,153,0.08) 0%, #16150F 60%)" : "linear-gradient(145deg, #22211C 0%, #16150F 100%)", border: isHovered ? "1px solid rgba(74,222,128,0.18)" : "1px solid var(--border-default)", borderRadius: 9, padding: 11, cursor: "pointer", transition: "border-color 150ms ease, transform 150ms ease", transform: isHovered ? "translateY(-1px)" : "none", opacity: stage === "perdido" ? 0.6 : 1 }}>
-        {/* Linha 1: bolinha unidade + código + valor */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: unitDot(c.unitStatus), flexShrink: 0 }} />
-          <span style={{ fontSize: 11.5, fontWeight: 600, color: "var(--color-dust)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unitLabel(c)}</span>
-          {c.unitId && myQueueMap[c.unitId] ? <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "#7DA7F420", color: "#7DA7F4", fontWeight: 600 }}>Fila #{myQueueMap[c.unitId]}</span> : null}
-          <span style={{ marginLeft: "auto", fontFamily: MONO, fontSize: 12, fontWeight: 700, color: stage === "venda" ? "#34D399" : "var(--color-bone)" }}>{fmtBRL(c.valor)}</span>
-        </div>
-        {/* Linha 2: cliente (+ badge Importada quando veio de lote de importação) */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, minWidth: 0 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-bone)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {/* Linha 1: CLIENTE (título) + Importada + valor à direita */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3, minWidth: 0 }}>
+          <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, color: "var(--color-bone)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {c.clienteNome || <span style={{ color: "var(--color-clay)", fontStyle: "italic", fontWeight: 400 }}>Sem cliente</span>}
           </span>
           {c.importBatchId ? <span style={{ flexShrink: 0, fontFamily: MONO, fontSize: 8, fontWeight: 700, color: "#7DA7F4", background: "rgba(125,167,244,0.12)", borderRadius: 4, padding: "1px 4px", letterSpacing: "0.03em", textTransform: "uppercase" }}>Importada</span> : null}
+          <span style={{ flexShrink: 0, fontFamily: MONO, fontSize: 12, fontWeight: 700, color: stage === "venda" ? "#34D399" : "var(--color-bone)" }}>{fmtBRL(c.valor)}</span>
+        </div>
+        {/* Linha 2: unidade como METADADO fraco (nunca título) + fila */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, minWidth: 0 }}>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: unitDot(c.unitStatus), flexShrink: 0 }} />
+          <span style={{ fontSize: 10.5, color: "var(--color-slate)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unitLabel(c)}</span>
+          {c.unitId && myQueueMap[c.unitId] ? <span style={{ flexShrink: 0, fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "#7DA7F420", color: "#7DA7F4", fontWeight: 600 }}>Fila #{myQueueMap[c.unitId]}</span> : null}
         </div>
         {/* Linha 3: semáforo (ou motivo, se perdido) */}
         {stage === "perdido" && c.lostReason ? (
