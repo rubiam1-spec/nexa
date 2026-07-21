@@ -210,6 +210,7 @@ export async function createClient(input: {
   internalNotes?: string;
   developmentId?: string;
   dataNascimento?: string;
+  qualificationStatus?: string;
 }): Promise<Client> {
   const supabase = getSupabaseClientOrThrow("clients repository");
   const insertPayload: Record<string, unknown> = {
@@ -241,6 +242,7 @@ export async function createClient(input: {
   };
   if (input.createdBy) insertPayload.created_by = input.createdBy;
   if (input.brokerId) insertPayload.broker_id = input.brokerId;
+  if (input.qualificationStatus) insertPayload.qualification_status = input.qualificationStatus;
 
   const { data, error } = await supabase
     .from("clients")

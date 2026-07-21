@@ -109,6 +109,16 @@ export async function updateUnitStatus(
 }
 
 // Detalhe completo da unidade para a Ficha (campos que getUnits não traz).
+// Venda vigente da unidade (sales, status <> 'cancelled'). Sem client_id na
+// tabela sales: o comprador só é recuperável para venda de fluxo (via negociação).
+export type UnitSaleInfo = {
+  id: string;
+  amount: number | null;
+  saleDate: string | null; // 'YYYY-MM-DD' ou null ("não informada")
+  origin: string | null; // 'flow' | 'historical' | ...
+  negotiationId: string | null;
+};
+
 export type UnitDetail = {
   area: number | null;
   areaComum: number | null;
@@ -116,6 +126,7 @@ export type UnitDetail = {
   balaoSugerido: number | null;
   parcelaSugerida: number | null;
   socioPermutante: boolean;
+  sale: UnitSaleInfo | null;
 };
 
 export async function getUnitDetail(unitId: string): Promise<UnitDetail | null> {
@@ -129,6 +140,25 @@ export async function getUnitDetail(unitId: string): Promise<UnitDetail | null> 
   if (!data) return null;
   const r = data as Record<string, unknown>;
   const num = (v: unknown) => (v == null || v === "" ? null : Number(v));
+
+  const { data: saleRow } = await supabase
+    .from("sales")
+    .select("id, amount, sale_date, origin, negotiation_id")
+    .eq("unit_id", unitId)
+    .neq("status", "cancelled")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const sale: UnitSaleInfo | null = saleRow
+    ? {
+        id: String((saleRow as Record<string, unknown>).id),
+        amount: num((saleRow as Record<string, unknown>).amount),
+        saleDate: ((saleRow as Record<string, unknown>).sale_date as string | null) ?? null,
+        origin: ((saleRow as Record<string, unknown>).origin as string | null) ?? null,
+        negotiationId: ((saleRow as Record<string, unknown>).negotiation_id as string | null) ?? null,
+      }
+    : null;
+
   return {
     area: num(r.area),
     areaComum: num(r.area_comum),
@@ -136,7 +166,32 @@ export async function getUnitDetail(unitId: string): Promise<UnitDetail | null> 
     balaoSugerido: num(r.balao_sugerido),
     parcelaSugerida: num(r.parcela_sugerida),
     socioPermutante: !!r.socio_permutante,
+    sale,
   };
+}
+
+// Registro de venda histórica (Modelo B) via RPC register_historical_sale
+// (JÁ EXISTE em produção — nunca recriar). p_sale_date pode ser null.
+export type RegisterSaleResult = { saleId: string; unitStatus: string };
+
+export async function registerHistoricalSale(
+  unitId: string,
+  clientId: string,
+  amount: number,
+  saleDate: string | null,
+): Promise<RegisterSaleResult> {
+  const supabase = getSupabaseClientOrThrow("units repository");
+  const { data, error } = await supabase.rpc("register_historical_sale", {
+    p_unit_id: unitId,
+    p_client_id: clientId,
+    p_amount: amount,
+    p_sale_date: saleDate,
+  });
+  // Exceptions (not_authenticated | unit_not_found | forbidden | client_not_found |
+  // sale_already_registered | invalid_amount) chegam como error.message; mapa PT-BR no serviço.
+  if (error) throw new Error(error.message);
+  const r = (data ?? {}) as Record<string, unknown>;
+  return { saleId: String(r.sale_id ?? ""), unitStatus: String(r.unit_status ?? "") };
 }
 
 // Alteração de status em massa via RPC transacional bulk_update_unit_status

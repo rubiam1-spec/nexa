@@ -19,6 +19,7 @@ describe("unitHistoryDisplay — trilha tolerante PT-BR", () => {
   it("ações canônicas conhecidas", () => {
     expect(parseUnitHistoryAction("RESERVATION_ACTIVATED").label).toBe("Reserva ativada");
     expect(parseUnitHistoryAction("SALE_CREATED").label).toBe("Venda registrada");
+    expect(parseUnitHistoryAction("historical_sale_registered").label).toBe("Venda histórica registrada");
     expect(parseUnitHistoryAction("imported").label).toBe("Importada");
   });
 

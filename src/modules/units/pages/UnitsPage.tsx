@@ -393,9 +393,9 @@ export default function UnitsPage() {
             canManageStatus={canManageStatus}
             useMock={useMock}
             isMobile={isMobile}
+            createdByProfileId={userId}
             onClose={() => setSelectedId(null)}
             onOpenNegotiation={(id) => navigate(`/negociacoes/${id}`)}
-            onConciliar={() => navigate(`/negociacoes?unitId=${sel.id}`)}
             onStatusChanged={() => refetchUnits()}
             queueSection={queueEnabled && sel.status !== UnidadeStatus.DISPONIVEL && sel.status !== UnidadeStatus.VENDIDO ? (
               <div>

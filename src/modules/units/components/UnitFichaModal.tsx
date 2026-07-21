@@ -12,9 +12,10 @@ import { getNegotiationStatusLabel } from "../../../domain/negociacao/Negotiatio
 import { parseUnitHistoryAction, unitStatusLabelTolerant } from "../../../domain/unidade/unitHistoryDisplay";
 import { bulkBlockReasonLabel } from "../../../domain/unidade/bulkStatusReason";
 import { getUnitDetail, type UnitDetail } from "../../../infra/repositories/unitsSupabaseRepository";
-import { getClientById } from "../../../infra/repositories/clientsSupabaseRepository";
+import { getClientById, getClients, createClient } from "../../../infra/repositories/clientsSupabaseRepository";
 import { useUnitTimeline } from "../hooks/useUnitTimeline";
 import { useUnitStatusChange } from "../hooks/useUnitStatusChange";
+import { useRegisterSale } from "../hooks/useRegisterSale";
 import { NexaSelect } from "../../../shared/ui/NexaSelect";
 import { formatDateBRT, formatTimeBRT } from "../../../shared/utils/dateUtils";
 import { compactBRL, vgvOrDash } from "../../../shared/viz";
@@ -46,9 +47,19 @@ function Overline({ children }: { children: ReactNode }) {
 }
 const HR = <div style={{ height: 1, background: "rgba(61,58,48,0.4)", margin: "20px 0" }} />;
 
+const inputStyle: React.CSSProperties = { width: "100%", background: "var(--surface-base)", border: "1px solid var(--border-default)", borderRadius: 8, padding: "10px 12px", color: "var(--text-primary)", fontSize: 13, outline: "none", boxSizing: "border-box" };
+
+// Data da venda: 'YYYY-MM-DD' → 'dd/mm/aaaa' sem shift de fuso; null → texto explícito.
+function fmtSaleDate(s: string | null): string {
+  if (!s) return "data não informada";
+  const [y, m, d] = s.split("-");
+  if (!y || !m) return "data não informada";
+  return d ? `${d}/${m}/${y}` : `${m}/${y}`;
+}
+
 export default function UnitFichaModal({
   unit, negotiation, lblGrupo, lblUnidade, totalUnits, canManageStatus, useMock, queueSection, isMobile,
-  onClose, onOpenNegotiation, onConciliar, onStatusChanged,
+  createdByProfileId, onClose, onOpenNegotiation, onStatusChanged,
 }: {
   unit: Unidade;
   negotiation: LinkedNegotiation;
@@ -58,20 +69,23 @@ export default function UnitFichaModal({
   useMock: boolean;
   queueSection?: ReactNode;
   isMobile: boolean;
+  createdByProfileId: string | null;
   onClose: () => void;
   onOpenNegotiation: (negId: string) => void;
-  onConciliar: () => void;
   onStatusChanged: () => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [detail, setDetail] = useState<UnitDetail | null>(null);
+  const [detailLoaded, setDetailLoaded] = useState(false);
+  const [detailNonce, setDetailNonce] = useState(0);
   const [clientName, setClientName] = useState<string | null>(null);
   const timeline = useUnitTimeline(useMock ? null : unit.id);
 
-  // Estágio interno: ficha | status. `enter` anima a troca (slide+fade).
-  const [stage, setStage] = useState<"ficha" | "status">("ficha");
+  // Estágio interno: ficha | status | sale. `enter` anima a troca (slide+fade).
+  type Stage = "ficha" | "status" | "sale";
+  const [stage, setStage] = useState<Stage>("ficha");
   const [entering, setEntering] = useState(false);
-  const goStage = (next: "ficha" | "status") => {
+  const goStage = (next: Stage) => {
     setStage(next);
     if (typeof requestAnimationFrame !== "undefined") {
       setEntering(true);
@@ -99,7 +113,7 @@ export default function UnitFichaModal({
     const panel = panelRef.current;
     panel?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { if (stage === "status") goStage("ficha"); else onClose(); return; }
+      if (e.key === "Escape") { if (stage === "status" || stage === "sale") goStage("ficha"); else onClose(); return; }
       if (e.key === "Tab" && panel) {
         const list = Array.from(panel.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])')).filter((el) => !el.hasAttribute("disabled") && el.offsetParent !== null);
         if (!list.length) return;
@@ -113,11 +127,13 @@ export default function UnitFichaModal({
   }, [stage, onClose]);
 
   useEffect(() => {
-    if (useMock) return;
+    if (useMock) { setDetailLoaded(true); return; }
     let alive = true;
-    getUnitDetail(unit.id).then((d) => { if (alive) setDetail(d); }).catch(() => { if (alive) setDetail(null); });
+    getUnitDetail(unit.id)
+      .then((d) => { if (alive) { setDetail(d); setDetailLoaded(true); } })
+      .catch(() => { if (alive) { setDetail(null); setDetailLoaded(true); } });
     return () => { alive = false; };
-  }, [unit.id, useMock]);
+  }, [unit.id, useMock, detailNonce]);
 
   useEffect(() => {
     const cid = negotiation?.clientId;
@@ -137,6 +153,66 @@ export default function UnitFichaModal({
   }
   function openStatus() { setBlockMsg(null); setDestino(""); setReason(""); reset(); goStage("status"); }
 
+  // ── Registrar venda (Modelo B) — estágio interno "sale" ──────────────
+  const saleForm = useRegisterSale(() => { onStatusChanged(); void timeline.refetch(); });
+  const [buyerId, setBuyerId] = useState("");
+  const [clientOpts, setClientOpts] = useState<{ value: string; label: string }[]>([]);
+  const [clientsLoaded, setClientsLoaded] = useState(false);
+  const [newMode, setNewMode] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newPhone, setNewPhone] = useState("");
+  const [creatingContact, setCreatingContact] = useState(false);
+  const [contactErr, setContactErr] = useState<string | null>(null);
+  const [amountStr, setAmountStr] = useState("");
+  const [dateMode, setDateMode] = useState<"exact" | "month" | "none">("none");
+  const [dateExact, setDateExact] = useState("");
+  const [dateMonth, setDateMonth] = useState("");
+  const [justRegisteredBuyer, setJustRegisteredBuyer] = useState<string | null>(null);
+
+  const buyerName = clientOpts.find((c) => c.value === buyerId)?.label ?? null;
+  const amountNum = amountStr === "" ? NaN : Number(amountStr);
+  const amountOk = Number.isFinite(amountNum) && amountNum >= 0;
+  function computedSaleDate(): string | null {
+    if (dateMode === "exact") return dateExact || null;
+    if (dateMode === "month") return dateMonth ? `${dateMonth}-01` : null;
+    return null;
+  }
+  const dateResumo = dateMode === "exact" ? (dateExact ? fmtSaleDate(dateExact) : "data —") : dateMode === "month" ? (dateMonth ? fmtSaleDate(`${dateMonth}-01`) : "mês —") : "não informada";
+
+  function openSale() {
+    saleForm.reset(); setContactErr(null); setNewMode(false); setNewName(""); setNewPhone("");
+    setBuyerId(""); setAmountStr(unit.valor ? String(unit.valor) : "");
+    setDateMode("none"); setDateExact(""); setDateMonth("");
+    goStage("sale");
+    if (!clientsLoaded && !useMock) {
+      getClients(unit.accountId)
+        .then((list) => { setClientOpts(list.map((c) => ({ value: c.id, label: c.name }))); setClientsLoaded(true); })
+        .catch(() => setClientsLoaded(true));
+    }
+  }
+
+  async function createContact() {
+    const name = newName.trim();
+    if (name.length < 2) { setContactErr("Informe o nome do contato."); return; }
+    setCreatingContact(true); setContactErr(null);
+    try {
+      const c = await createClient({ accountId: unit.accountId, name, phone: newPhone.trim() || undefined, origin: "manual", qualificationStatus: "converted", createdBy: createdByProfileId ?? undefined });
+      setClientOpts((prev) => [{ value: c.id, label: c.name }, ...prev.filter((x) => x.value !== c.id)]);
+      setBuyerId(c.id); setNewMode(false); setNewName(""); setNewPhone("");
+    } catch (e) {
+      setContactErr(e instanceof Error ? e.message : "Falha ao criar contato.");
+    } finally { setCreatingContact(false); }
+  }
+
+  async function confirmSale() {
+    if (!buyerId || !amountOk) return;
+    const r = await saleForm.submit(unit.id, buyerId, amountNum, computedSaleDate());
+    setDetailNonce((n) => n + 1); // recarrega a seção (sucesso OU already_registered)
+    if (!r) return; // erro inline (inclui sale_already_registered)
+    setJustRegisteredBuyer(buyerName);
+    goStage("ficha");
+  }
+
   // Condições sugeridas (só as presentes).
   const condicoes = useMemo(() => {
     const rows: { label: string; value: string }[] = [];
@@ -152,7 +228,10 @@ export default function UnitFichaModal({
   metaParts.push(vgvOrDash(unit.valor));
   metaParts.push(`${totalUnits} no espelho`);
 
-  const vendidaSemNeg = unit.status === UnidadeStatus.VENDIDO && !negotiation;
+  const saleInfo = detail?.sale ?? null;
+  // Venda sem registro: unidade Vendida, sem negociação e sem venda registrada.
+  const vendaSemRegistro = unit.status === UnidadeStatus.VENDIDO && !negotiation && !saleInfo && detailLoaded;
+  const compradorLabel = justRegisteredBuyer ?? clientName ?? "Comprador —";
 
   const bodyAnim: React.CSSProperties = { transform: entering ? "translateX(14px)" : "translateX(0)", opacity: entering ? 0 : 1, transition: "transform 180ms ease, opacity 180ms ease" };
 
@@ -168,7 +247,7 @@ export default function UnitFichaModal({
           <div style={{ minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
               <h2 id="ficha-title" style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontStyle: "italic", fontSize: 26, fontWeight: 400, color: "var(--color-bone, #E8E5DE)", margin: 0, lineHeight: 1.1 }}>
-                {lblGrupo} {unit.quadra} · {lblUnidade} {unit.lote}{stage === "status" ? <span style={{ color: "var(--text-muted)" }}> · Alterar status</span> : null}
+                {lblGrupo} {unit.quadra} · {lblUnidade} {unit.lote}{stage === "status" ? <span style={{ color: "var(--text-muted)" }}> · Alterar status</span> : stage === "sale" ? <span style={{ color: "var(--text-muted)" }}> · Registrar venda</span> : null}
               </h2>
               {stage === "ficha" ? <StatusChip status={unit.status} /> : null}
             </div>
@@ -211,12 +290,76 @@ export default function UnitFichaModal({
               <button type="button" disabled={isSubmitting || !destino || !reasonOk} onClick={() => void confirmStatus()} style={{ minHeight: 40, padding: "0 22px", borderRadius: 8, border: "none", background: "var(--color-sprout)", color: "var(--interactive-on-primary, #16150F)", fontSize: 13, fontWeight: 700, cursor: isSubmitting || !destino || !reasonOk ? "not-allowed" : "pointer", opacity: isSubmitting || !destino || !reasonOk ? 0.5 : 1 }}>{isSubmitting ? "Alterando..." : "Confirmar"}</button>
             </div>
           </div>
+        ) : stage === "sale" ? (
+          /* ══ ESTÁGIO INTERNO: REGISTRAR VENDA (Modelo B) ══ */
+          <div style={bodyAnim}>
+            <button type="button" onClick={() => goStage("ficha")} style={{ background: "transparent", border: "none", color: "var(--text-secondary)", fontSize: 12, cursor: "pointer", padding: "6px 0", marginBottom: 8 }}>← Voltar</button>
+
+            {/* COMPRADOR */}
+            <div style={{ marginBottom: 16 }}>
+              <Overline>Comprador</Overline>
+              {!newMode ? (
+                <>
+                  <NexaSelect value={buyerId} onChange={(v) => setBuyerId(v)} options={clientOpts} placeholder={clientsLoaded ? "Buscar contato..." : "Carregando contatos..."} searchable ariaLabel="Comprador" />
+                  <button type="button" onClick={() => { setNewMode(true); setContactErr(null); }} style={{ background: "transparent", border: "none", color: "var(--color-sprout)", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "8px 0 0" }}>+ Criar novo contato</button>
+                </>
+              ) : (
+                <div style={{ border: "1px solid var(--border-default)", borderRadius: 8, padding: 12 }}>
+                  <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nome do comprador" style={inputStyle} />
+                  <input value={newPhone} onChange={(e) => setNewPhone(e.target.value)} placeholder="Telefone (opcional)" style={{ ...inputStyle, marginTop: 8 }} />
+                  {contactErr && <div style={{ fontSize: 12, color: "#F87171", marginTop: 8 }}>{contactErr}</div>}
+                  <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 10 }}>
+                    <button type="button" onClick={() => { setNewMode(false); setContactErr(null); }} style={{ minHeight: 34, padding: "0 14px", borderRadius: 7, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-secondary)", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Cancelar</button>
+                    <button type="button" disabled={creatingContact || newName.trim().length < 2} onClick={() => void createContact()} style={{ minHeight: 34, padding: "0 16px", borderRadius: 7, border: "none", background: "var(--color-sprout)", color: "var(--interactive-on-primary, #16150F)", fontSize: 12.5, fontWeight: 700, cursor: creatingContact || newName.trim().length < 2 ? "not-allowed" : "pointer", opacity: creatingContact || newName.trim().length < 2 ? 0.5 : 1 }}>{creatingContact ? "Criando..." : "Criar contato"}</button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* VALOR */}
+            <div style={{ marginBottom: 16 }}>
+              <Overline>Valor da venda</Overline>
+              <div style={{ position: "relative" }}>
+                <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontFamily: MONO, fontSize: 13, color: "var(--text-muted)" }}>R$</span>
+                <input type="number" min={0} inputMode="numeric" value={amountStr} onChange={(e) => setAmountStr(e.target.value)} placeholder="0"
+                  style={{ ...inputStyle, paddingLeft: 34, fontFamily: MONO }} />
+              </div>
+            </div>
+
+            {/* DATA DA VENDA — mês/ano OU exata OU não informada */}
+            <div style={{ marginBottom: 16 }}>
+              <Overline>Data da venda (opcional)</Overline>
+              <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+                {([["none", "Não informada"], ["month", "Mês/ano"], ["exact", "Data exata"]] as const).map(([m, lbl]) => (
+                  <button key={m} type="button" onClick={() => setDateMode(m)} style={{ minHeight: 32, padding: "0 12px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", border: `1px solid ${dateMode === m ? "var(--color-sprout)" : "var(--border-default)"}`, background: dateMode === m ? "rgba(139,157,107,0.12)" : "transparent", color: dateMode === m ? "var(--color-sprout)" : "var(--text-secondary)" }}>{lbl}</button>
+                ))}
+              </div>
+              {dateMode === "month" && <input type="month" value={dateMonth} onChange={(e) => setDateMonth(e.target.value)} style={{ ...inputStyle, fontFamily: MONO }} />}
+              {dateMode === "exact" && <input type="date" value={dateExact} onChange={(e) => setDateExact(e.target.value)} style={{ ...inputStyle, fontFamily: MONO }} />}
+            </div>
+
+            {/* RESUMO da transição */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", background: "var(--surface-base)", border: "1px solid var(--border-default)", borderRadius: 8, padding: "10px 12px", marginBottom: 16, fontSize: 12.5, color: "var(--text-secondary)" }}>
+              <span style={{ fontFamily: MONO, color: "var(--text-muted)" }}>{lblGrupo} {unit.quadra}·{lblUnidade} {unit.lote}</span>
+              <StatusChip status={UnidadeStatus.VENDIDO} />
+              <span>· {newMode ? (newName.trim() || "novo comprador") : (buyerName ?? "comprador —")}</span>
+              <span style={{ fontFamily: MONO }}>· {amountOk ? compactBRL(amountNum) : "—"}</span>
+              <span>· {dateResumo}</span>
+            </div>
+
+            {saleForm.errorMessage && <div style={{ background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.3)", borderRadius: 8, padding: "10px 12px", fontSize: 12.5, color: "#F87171", marginBottom: 14 }}>{saleForm.errorMessage}</div>}
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
+              <button type="button" onClick={() => goStage("ficha")} style={{ minHeight: 40, padding: "0 18px", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-secondary)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Cancelar</button>
+              <button type="button" disabled={saleForm.isSubmitting || !buyerId || !amountOk} onClick={() => void confirmSale()} style={{ minHeight: 40, padding: "0 22px", borderRadius: 8, border: "none", background: "var(--color-sprout)", color: "var(--interactive-on-primary, #16150F)", fontSize: 13, fontWeight: 700, cursor: saleForm.isSubmitting || !buyerId || !amountOk ? "not-allowed" : "pointer", opacity: saleForm.isSubmitting || !buyerId || !amountOk ? 0.5 : 1 }}>{saleForm.isSubmitting ? "Registrando..." : "Confirmar venda"}</button>
+            </div>
+          </div>
         ) : (
           /* ══ ESTÁGIO FICHA ══ */
           <div style={bodyAnim}>
             {HR}
-            {/* NEGOCIAÇÃO */}
-            <Overline>Negociação</Overline>
+            {/* NEGOCIAÇÃO / VENDA */}
+            <Overline>{!negotiation && saleInfo ? "Venda" : "Negociação"}</Overline>
             {negotiation ? (
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
@@ -225,11 +368,26 @@ export default function UnitFichaModal({
                 </div>
                 <button type="button" onClick={() => onOpenNegotiation(negotiation.id)} style={{ background: "transparent", border: "none", color: "var(--color-sprout)", fontSize: 13, fontWeight: 600, cursor: "pointer", padding: 4 }}>abrir →</button>
               </div>
-            ) : vendidaSemNeg ? (
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", border: "1px solid rgba(232,180,90,0.3)", borderRadius: 8, padding: "10px 12px" }}>
-                <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>Venda sem negociação registrada</span>
-                <button type="button" onClick={onConciliar} style={{ background: "transparent", border: "none", color: "#E8B45A", fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: 4 }}>Conciliar →</button>
+            ) : saleInfo ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{compradorLabel}</span>
+                    {saleInfo.origin === "historical" && <span style={{ fontFamily: MONO, fontSize: 10, fontWeight: 700, color: "var(--text-muted)", background: "var(--surface-base)", border: "1px solid var(--border-default)", borderRadius: 6, padding: "2px 7px" }}>histórica</span>}
+                  </div>
+                  {saleInfo.origin === "flow" && saleInfo.negotiationId && (
+                    <button type="button" onClick={() => onOpenNegotiation(saleInfo.negotiationId!)} style={{ background: "transparent", border: "none", color: "var(--color-sprout)", fontSize: 13, fontWeight: 600, cursor: "pointer", padding: 4 }}>abrir negociação →</button>
+                  )}
+                </div>
+                <div style={{ fontFamily: MONO, fontSize: 11, color: "var(--text-muted)", letterSpacing: "0.03em" }}>{vgvOrDash(saleInfo.amount)} · {fmtSaleDate(saleInfo.saleDate)}</div>
               </div>
+            ) : vendaSemRegistro ? (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", border: "1px solid rgba(232,180,90,0.3)", borderRadius: 8, padding: "10px 12px" }}>
+                <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>Venda sem registro</span>
+                {canManageStatus && <button type="button" onClick={openSale} style={{ background: "transparent", border: "none", color: "#E8B45A", fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: 4 }}>Registrar venda →</button>}
+              </div>
+            ) : !detailLoaded && unit.status === UnidadeStatus.VENDIDO ? (
+              <div className="nexa-skeleton" style={{ height: 14, width: 160, borderRadius: 4 }} />
             ) : (
               <div style={{ fontSize: 13, color: "var(--text-muted)", fontStyle: "italic" }}>Sem negociação vinculada.</div>
             )}

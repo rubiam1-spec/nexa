@@ -33,6 +33,7 @@ const ACTION_LABELS: Record<string, string> = {
   RESERVATION_CANCELLED: "Reserva cancelada",
   RESERVATION_EXPIRED: "Reserva expirada",
   SALE_CREATED: "Venda registrada",
+  historical_sale_registered: "Venda histórica registrada",
 };
 
 export type UnitHistoryActionDisplay = { label: string; reason: string | null };
