@@ -120,7 +120,7 @@ export default function LeadsPage() {
           const color = chip.id === "active" ? "#9C9686" : LEAD_STAGE_META[chip.id as SType].color;
           return (
             <button key={chip.id} type="button" onClick={() => setFilter(chip.id)}
-              style={{ padding: "6px 12px", borderRadius: 8,
+              style={{ minHeight: 44, padding: "0 14px", display: "inline-flex", alignItems: "center", borderRadius: 8,
                 border: active ? `1px solid ${color}55` : "1px solid rgba(42,40,34,0.5)",
                 background: active ? `${color}14` : "transparent",
                 color: active ? color : "var(--color-fog)",

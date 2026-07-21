@@ -281,11 +281,14 @@ export default function UnitsPage() {
                   }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       {selectMode && canManageStatus && (
-                        <input type="checkbox" aria-label={`Selecionar todo o ${lblGrupo} ${grupo}`}
-                          checked={gUnits.every((u) => selectedIds.has(u.id))}
-                          ref={(el) => { if (el) el.indeterminate = gUnits.some((u) => selectedIds.has(u.id)) && !gUnits.every((u) => selectedIds.has(u.id)); }}
-                          onChange={() => setSelectedIds((prev) => { const n = new Set(prev); const all = gUnits.every((u) => n.has(u.id)); gUnits.forEach((u) => (all ? n.delete(u.id) : n.add(u.id))); return n; })}
-                          style={{ width: 18, height: 18, cursor: "pointer", accentColor: "#4ADE80", flexShrink: 0 }} />
+                        // Alvo de toque ≥44px no mobile (a caixa visual segue 20px).
+                        <label style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: isMobile ? 44 : 24, minHeight: isMobile ? 44 : 24, margin: isMobile ? "-10px 4px -10px -8px" : 0, cursor: "pointer", flexShrink: 0 }}>
+                          <input type="checkbox" aria-label={`Selecionar todo o ${lblGrupo} ${grupo}`}
+                            checked={gUnits.every((u) => selectedIds.has(u.id))}
+                            ref={(el) => { if (el) el.indeterminate = gUnits.some((u) => selectedIds.has(u.id)) && !gUnits.every((u) => selectedIds.has(u.id)); }}
+                            onChange={() => setSelectedIds((prev) => { const n = new Set(prev); const all = gUnits.every((u) => n.has(u.id)); gUnits.forEach((u) => (all ? n.delete(u.id) : n.add(u.id))); return n; })}
+                            style={{ width: 20, height: 20, cursor: "pointer", accentColor: "#4ADE80", flexShrink: 0 }} />
+                        </label>
                       )}
                       <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, color: "#FAF9F6", letterSpacing: "0.08em", textTransform: "uppercase" }}>{lblGrupo} {grupo}</span>
                       <span style={{ fontFamily: MONO, fontSize: 9, color: "#706B5F" }}>{gUnits.length} {lblUnidade.toLowerCase()}{gUnits.length !== 1 ? "s" : ""}</span>
@@ -310,7 +313,7 @@ export default function UnitsPage() {
                           onMouseEnter={(e) => { const el = e.currentTarget; el.style.transform = "translateY(-2px)"; el.style.background = cfg.hoverBg; el.style.borderColor = "rgba(74,222,128,0.4)"; el.style.boxShadow = "0 4px 12px rgba(0,0,0,0.3)"; el.style.zIndex = "10"; }}
                           onMouseLeave={(e) => { const el = e.currentTarget; el.style.transform = "none"; el.style.background = cfg.bg; el.style.borderColor = isSel ? cfg.color : cfg.border; el.style.boxShadow = isSel ? `0 0 0 3px ${cfg.color}40` : "none"; el.style.zIndex = "1"; }}>
                           {isChecked && (
-                            <div aria-hidden="true" style={{ position: "absolute", top: -4, left: -4, width: 16, height: 16, borderRadius: "50%", background: "#4ADE80", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: "#16150F", zIndex: 3, border: "2px solid var(--surface-base)" }}>✓</div>
+                            <div aria-hidden="true" style={{ position: "absolute", top: -6, left: -6, width: 22, height: 22, borderRadius: "50%", background: "#4ADE80", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: "#16150F", zIndex: 3, border: "2px solid var(--surface-base)", boxShadow: "0 1px 4px rgba(0,0,0,0.4)" }}>✓</div>
                           )}
                           {hasFila && (
                             <div style={{ position: "absolute", top: -4, right: -4, width: isMyQueue ? 22 : 18, height: isMyQueue ? 22 : 18, borderRadius: "50%", background: isMyQueue ? "rgba(74,222,128,0.9)" : "rgba(167,139,250,0.9)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontFamily: MONO, fontWeight: 700, color: isMyQueue ? "var(--interactive-on-primary)" : "#FFFFFF", zIndex: 2, border: "2px solid var(--surface-base)" }}>
@@ -490,7 +493,7 @@ export default function UnitsPage() {
 
       {/* Barra de ação flutuante — seleção em massa */}
       {selectMode && selectedIds.size > 0 && (
-        <div style={{ position: "fixed", left: 0, right: 0, bottom: 16, display: "flex", justifyContent: "center", zIndex: 200, pointerEvents: "none", padding: "0 12px" }}>
+        <div style={{ position: "fixed", left: 0, right: 0, bottom: "max(16px, env(safe-area-inset-bottom))", display: "flex", justifyContent: "center", zIndex: 200, pointerEvents: "none", padding: "0 12px" }}>
           <div style={{ pointerEvents: "auto", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", justifyContent: "center", background: "var(--surface-raised, #1C1B18)", border: "1px solid var(--border-strong, #3D3A30)", borderRadius: 12, padding: "8px 10px 8px 16px", boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
             <span style={{ fontFamily: MONO, fontSize: 12, color: "#E8E5DE", fontWeight: 600 }}>{selectedIds.size} selecionada{selectedIds.size === 1 ? "" : "s"}</span>
             <button type="button" onClick={() => setStatusTargets(units.filter((u) => selectedIds.has(u.id)).map(toTarget))} style={{ minHeight: 44, padding: "0 16px", borderRadius: 8, border: "none", background: "var(--color-sprout)", color: "var(--interactive-on-primary, #16150F)", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Alterar status</button>

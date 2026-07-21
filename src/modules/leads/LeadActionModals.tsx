@@ -32,7 +32,7 @@ export function AssignModal({ lead, members, brokerageDirectory = [], pendingBro
 
         <NexaEntityPicker model={model} onPick={onPick} pendingLabel={pendingLabel} onInvite={onInvite} autoFocus />
 
-        <button type="button" onClick={onClose} style={{ marginTop: 12, width: "100%", padding: 10, borderRadius: 8, border: "1px solid var(--color-stone)", background: "transparent", color: "var(--color-bone)", fontSize: 13, cursor: "pointer", flexShrink: 0 }}>Cancelar</button>
+        <button type="button" onClick={onClose} style={{ marginTop: 12, width: "100%", minHeight: 44, padding: "0 16px", borderRadius: 8, border: "1px solid var(--color-stone)", background: "transparent", color: "var(--color-bone)", fontSize: 13, cursor: "pointer", flexShrink: 0 }}>Cancelar</button>
       </div>
     </NexaModal>
   );
@@ -48,8 +48,8 @@ export function DiscardModal({ lead, onClose, onConfirm }: { lead: LeadView; onC
         <textarea autoFocus value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Motivo do descarte (obrigatório)" rows={3}
           style={{ width: "100%", background: "var(--surface-base)", border: "1px solid var(--border-default)", borderRadius: 8, padding: "9px 12px", color: "var(--text-primary)", fontSize: 13, outline: "none", boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
-          <button type="button" onClick={onClose} style={{ padding: "9px 16px", borderRadius: 8, border: "1px solid var(--color-stone)", background: "transparent", color: "var(--color-bone)", fontSize: 13, cursor: "pointer" }}>Cancelar</button>
-          <button type="button" disabled={!reason.trim()} onClick={() => onConfirm(reason)} style={{ padding: "9px 16px", borderRadius: 8, border: "none", background: reason.trim() ? "#F87171" : "rgba(248,113,113,0.3)", color: "#0F0E0C", fontSize: 13, fontWeight: 700, cursor: reason.trim() ? "pointer" : "default" }}>Descartar</button>
+          <button type="button" onClick={onClose} style={{ minHeight: 44, padding: "0 16px", borderRadius: 8, border: "1px solid var(--color-stone)", background: "transparent", color: "var(--color-bone)", fontSize: 13, cursor: "pointer" }}>Cancelar</button>
+          <button type="button" disabled={!reason.trim()} onClick={() => onConfirm(reason)} style={{ minHeight: 44, padding: "0 16px", borderRadius: 8, border: "none", background: reason.trim() ? "#F87171" : "rgba(248,113,113,0.3)", color: "#0F0E0C", fontSize: 13, fontWeight: 700, cursor: reason.trim() ? "pointer" : "default" }}>Descartar</button>
         </div>
       </div>
     </NexaModal>

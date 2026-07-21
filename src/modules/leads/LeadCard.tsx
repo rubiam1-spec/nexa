@@ -78,5 +78,5 @@ export default function LeadCard({ lead, canAssign, busy, movedNote, campaignLab
 
 function Btn({ label, cor, onClick, busy }: { label: string; cor?: string; onClick: () => void; busy?: boolean }) {
   const col = cor ?? "#9C9686";
-  return <button type="button" disabled={busy} onClick={onClick} style={{ fontSize: 11, padding: "5px 9px", minHeight: 30, borderRadius: 6, border: `1px solid ${col}40`, background: `${col}15`, color: col, cursor: busy ? "default" : "pointer", opacity: busy ? 0.5 : 1, whiteSpace: "nowrap" }}>{label}</button>;
+  return <button type="button" disabled={busy} onClick={onClick} style={{ fontSize: 12, padding: "0 12px", minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 8, border: `1px solid ${col}40`, background: `${col}15`, color: col, cursor: busy ? "default" : "pointer", opacity: busy ? 0.5 : 1, whiteSpace: "nowrap" }}>{label}</button>;
 }
