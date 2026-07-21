@@ -5,8 +5,7 @@ import { useAccount } from "../../../app/contexts/AccountContext";
 import { useDevelopment } from "../../../app/contexts/DevelopmentContext";
 import { useAuth } from "../../../app/contexts/AuthContext";
 import { UnidadeStatus } from "../../../domain/unidade/UnidadeStatus";
-import { getUnidadeStatusLabel } from "../../../domain/unidade/UnidadeStatusLabel";
-import NexaBadge from "../../../shared/components/NexaBadge";
+import UnitFichaModal from "../components/UnitFichaModal";
 import { formatDateBRT } from "../../../shared/utils/dateUtils";
 import { useNegotiations } from "../../negociacoes/hooks/useNegotiations";
 import { useUnits } from "../hooks/useUnits";
@@ -129,6 +128,7 @@ export default function UnitsPage() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statusTargets, setStatusTargets] = useState<StatusTarget[] | null>(null);
+  const [fichaRefresh, setFichaRefresh] = useState(0); // força reload da ficha após alterar status
   const [showQueueModal, setShowQueueModal] = useState(false);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [leavingQueue, setLeavingQueue] = useState(false);
@@ -241,7 +241,7 @@ export default function UnitsPage() {
       )}
 
       {/* Toolbar de seleção múltipla (Tabela) — só para quem gere status */}
-      {vis === "tabela" && canManageStatus && (
+      {(vis === "tabela" || vis === "mapa") && canManageStatus && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
           {!selectMode ? (
             <button type="button" onClick={() => setSelectMode(true)} style={{ minHeight: 44, padding: "0 14px", borderRadius: 8, fontFamily: MONO, fontSize: 11, fontWeight: 600, cursor: "pointer", border: "1px solid rgba(61,58,48,0.4)", background: "transparent", color: "#9C9686" }}>Selecionar</button>
@@ -256,7 +256,7 @@ export default function UnitsPage() {
       )}
 
       {/* Content */}
-      <div style={{ display: "grid", gridTemplateColumns: sel && screen.isDesktop && vis !== "interativo" ? "1fr 320px" : "1fr", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16 }}>
         {vis === "interativo" && ds?.mapaUrl ? (
           <MapaInterativo
             mapaUrl={ds.mapaUrl} units={units} pins={pins}
@@ -280,7 +280,14 @@ export default function UnitsPage() {
                     border: "1px solid rgba(42,40,34,0.5)",
                     borderRadius: 8,
                   }}>
-                    <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      {selectMode && canManageStatus && (
+                        <input type="checkbox" aria-label={`Selecionar todo o ${lblGrupo} ${grupo}`}
+                          checked={gUnits.every((u) => selectedIds.has(u.id))}
+                          ref={(el) => { if (el) el.indeterminate = gUnits.some((u) => selectedIds.has(u.id)) && !gUnits.every((u) => selectedIds.has(u.id)); }}
+                          onChange={() => setSelectedIds((prev) => { const n = new Set(prev); const all = gUnits.every((u) => n.has(u.id)); gUnits.forEach((u) => (all ? n.delete(u.id) : n.add(u.id))); return n; })}
+                          style={{ width: 18, height: 18, cursor: "pointer", accentColor: "#4ADE80", flexShrink: 0 }} />
+                      )}
                       <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, color: "#FAF9F6", letterSpacing: "0.08em", textTransform: "uppercase" }}>{lblGrupo} {grupo}</span>
                       <span style={{ fontFamily: MONO, fontSize: 9, color: "#706B5F" }}>{gUnits.length} {lblUnidade.toLowerCase()}{gUnits.length !== 1 ? "s" : ""}</span>
                     </div>
@@ -291,17 +298,21 @@ export default function UnitsPage() {
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(56px, 1fr))", gap: 5 }}>
                     {gUnits.sort((a, b) => { const na = parseInt(a.lote), nb = parseInt(b.lote); return !isNaN(na) && !isNaN(nb) ? na - nb : a.lote.localeCompare(b.lote); }).map((u) => {
                       const cfg = STATUS_CFG[u.status] ?? FALLBACK;
-                      const isSel = u.id === selectedId;
+                      const isChecked = selectMode && selectedIds.has(u.id);
+                      const isSel = u.id === selectedId || isChecked;
                       const qs = queueEnabled ? queueSummary[u.id] : undefined;
                       const hasFila = qs && qs.totalWaiting > 0;
                       const isMyQueue = qs?.myPosition !== null && qs?.myPosition !== undefined;
                       const isSold = u.status === UnidadeStatus.VENDIDO;
                       return (
-                        <button key={u.id} type="button" onClick={() => setSelectedId(u.id === selectedId ? null : u.id)}
+                        <button key={u.id} type="button" onClick={() => (selectMode ? toggleSelect(u.id) : setSelectedId(u.id))}
                           title={`${lblUnidade} ${u.lote}\n${lblGrupo} ${u.quadra}\nValor: R$ ${u.valor.toLocaleString("pt-BR")}\nStatus: ${cfg.label}${(u as unknown as { area?: number }).area ? `\nÁrea: ${(u as unknown as { area: number }).area} m²` : ""}${hasFila ? `\n${qs!.totalWaiting} na fila` : ""}`}
-                          style={{ width: "100%", minHeight: 52, borderRadius: 8, background: cfg.bg, border: isSel ? `2px solid ${cfg.color}` : `1px solid ${cfg.border}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, cursor: "pointer", transition: "transform 0.15s, border-color 0.15s, box-shadow 0.15s", boxShadow: isSel ? `0 0 0 3px ${cfg.color}40` : "none", padding: "6px 4px", position: "relative", opacity: isSold ? 0.55 : 1, zIndex: 1 }}
+                          style={{ width: "100%", minHeight: 52, borderRadius: 8, background: cfg.bg, border: isSel ? `2px solid ${cfg.color}` : `1px solid ${cfg.border}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, cursor: "pointer", transition: "transform 0.15s, border-color 0.15s, box-shadow 0.15s", boxShadow: isSel ? `0 0 0 3px ${cfg.color}40` : "none", padding: "6px 4px", position: "relative", opacity: isSold && !isChecked ? 0.55 : 1, zIndex: 1 }}
                           onMouseEnter={(e) => { const el = e.currentTarget; el.style.transform = "translateY(-2px)"; el.style.background = cfg.hoverBg; el.style.borderColor = "rgba(74,222,128,0.4)"; el.style.boxShadow = "0 4px 12px rgba(0,0,0,0.3)"; el.style.zIndex = "10"; }}
                           onMouseLeave={(e) => { const el = e.currentTarget; el.style.transform = "none"; el.style.background = cfg.bg; el.style.borderColor = isSel ? cfg.color : cfg.border; el.style.boxShadow = isSel ? `0 0 0 3px ${cfg.color}40` : "none"; el.style.zIndex = "1"; }}>
+                          {isChecked && (
+                            <div aria-hidden="true" style={{ position: "absolute", top: -4, left: -4, width: 16, height: 16, borderRadius: "50%", background: "#4ADE80", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: "#16150F", zIndex: 3, border: "2px solid var(--surface-base)" }}>✓</div>
+                          )}
                           {hasFila && (
                             <div style={{ position: "absolute", top: -4, right: -4, width: isMyQueue ? 22 : 18, height: isMyQueue ? 22 : 18, borderRadius: "50%", background: isMyQueue ? "rgba(74,222,128,0.9)" : "rgba(167,139,250,0.9)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontFamily: MONO, fontWeight: 700, color: isMyQueue ? "var(--interactive-on-primary)" : "#FFFFFF", zIndex: 2, border: "2px solid var(--surface-base)" }}>
                               {isMyQueue ? `#${qs!.myPosition}` : qs!.totalWaiting}
@@ -345,7 +356,7 @@ export default function UnitsPage() {
                     const hoverBg = "linear-gradient(145deg, rgba(74,222,128,0.03), #16150F)";
                     const isChecked = selectedIds.has(u.id);
                     return (
-                      <tr key={u.id} onClick={() => (selectMode ? toggleSelect(u.id) : setSelectedId(u.id === selectedId ? null : u.id))}
+                      <tr key={u.id} onClick={() => (selectMode ? toggleSelect(u.id) : setSelectedId(u.id))}
                         style={{ borderBottom: "1px solid rgba(42,40,34,0.15)", cursor: "pointer", background: selectMode && isChecked ? "linear-gradient(145deg, rgba(74,222,128,0.08), #16150F)" : rowBg, transition: "background 0.15s, transform 0.1s" }}
                         onMouseEnter={(e) => { if (u.id !== selectedId && !(selectMode && isChecked)) { e.currentTarget.style.background = hoverBg; e.currentTarget.style.transform = "translateX(2px)"; } }}
                         onMouseLeave={(e) => { if (u.id !== selectedId && !(selectMode && isChecked)) { e.currentTarget.style.background = rowBg; e.currentTarget.style.transform = "none"; } }}>
@@ -371,108 +382,51 @@ export default function UnitsPage() {
           </div>
         )}
 
-        {/* ═══ SIDE PANEL ═══ */}
+        {/* Ficha da Unidade (modal) — substitui o antigo cartão lateral */}
         {sel ? (
-          <div style={screen.isDesktop ? { background: CARD_BG, border: CARD_BORDER, borderRadius: 12, padding: 20, height: "fit-content", position: "sticky", top: 24 } : { position: "fixed", bottom: 0, left: 0, right: 0, maxHeight: "75vh", background: "var(--surface-raised)", borderRadius: "16px 16px 0 0", zIndex: 100, overflowY: "auto", padding: "16px 16px 24px", border: "1px solid var(--border-default)", borderBottom: "none" }}>
-            {!screen.isDesktop && <div style={{ width: 40, height: 4, borderRadius: 2, background: "var(--surface-hover)", margin: "0 auto 16px" }} />}
-            {/* Status badge */}
-            <div style={{ marginBottom: 10 }}>
-              <NexaBadge entity="unit" status={sel.status} label={getUnidadeStatusLabel(sel.status)} />
-            </div>
-            {/* Title */}
-            <div style={{ fontSize: 18, fontWeight: 700, color: "#E8E5DE", marginBottom: 16 }}>{lblGrupo} {sel.quadra} · {lblUnidade} {sel.lote}</div>
-            {/* Data grid 2×2 — sempre 4 cards, '—' quando ausente */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              {(() => {
-                const areaRaw = (sel as Record<string, unknown>).area;
-                const areaNum = typeof areaRaw === "number" ? areaRaw : areaRaw != null && areaRaw !== "" ? Number(areaRaw) : null;
-                const areaVal = areaNum && !isNaN(areaNum) && areaNum > 0 ? `${areaNum.toLocaleString("pt-BR")} m²` : "—";
-                const valorVal = sel.valor > 0 ? `R$ ${sel.valor.toLocaleString("pt-BR")}` : "—";
-                const negVal = selNeg ? `NEG-${selNeg.id.slice(0, 4).toUpperCase()}` : "—";
-                const cells = [
-                  { label: "ÁREA", value: areaVal, highlight: false },
-                  { label: "VALOR", value: valorVal, highlight: sel.valor > 0 },
-                  { label: "STATUS", value: getUnidadeStatusLabel(sel.status), highlight: false },
-                  { label: "NEGOCIAÇÃO", value: negVal, highlight: false },
-                ];
-                return cells.map((item) => (
-                  <div key={item.label}>
-                    <div style={{ fontFamily: MONO, fontSize: 8, color: "#5C5647", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 3 }}>{item.label}</div>
-                    <div style={{ fontFamily: MONO, fontSize: item.highlight ? 16 : 13, fontWeight: item.highlight ? 700 : 500, color: item.highlight ? "#4ADE80" : item.value === "—" ? "#5C5647" : "#E8E5DE" }}>{item.value}</div>
-                  </div>
-                ));
-              })()}
-            </div>
-
-            {/* Queue section */}
-            {queueEnabled && sel.status !== UnidadeStatus.DISPONIVEL && sel.status !== UnidadeStatus.VENDIDO && (
-              <div style={{ marginTop: 16 }}>
+          <UnitFichaModal
+            key={`ficha-${sel.id}-${fichaRefresh}`}
+            unit={sel}
+            negotiation={selNeg ? { id: selNeg.id, status: selNeg.status, clientId: selNeg.clientId } : null}
+            lblGrupo={lblGrupo}
+            lblUnidade={lblUnidade}
+            canManageStatus={canManageStatus}
+            useMock={useMock}
+            isMobile={isMobile}
+            onClose={() => setSelectedId(null)}
+            onOpenNegotiation={(id) => navigate(`/negociacoes/${id}`)}
+            onConciliar={() => navigate(`/negociacoes?unitId=${sel.id}`)}
+            onAlterarStatus={() => setStatusTargets([toTarget(sel)])}
+            queueSection={queueEnabled && sel.status !== UnidadeStatus.DISPONIVEL && sel.status !== UnidadeStatus.VENDIDO ? (
+              <div>
+                <div style={{ fontFamily: MONO, fontSize: 8.5, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10 }}>Fila de espera{selQueue.queueCount ? ` (${selQueue.queueCount})` : ""}</div>
                 {selQueue.myPosition && (
                   <div style={{ padding: "10px 14px", borderRadius: 8, background: "rgba(74,222,128,0.08)", border: "1px solid rgba(74,222,128,0.25)", marginBottom: 10 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: "#4ADE80" }}>Você está na posição #{selQueue.myPosition}</div>
-                    {(() => { const myEntry = selQueue.queue.find((q) => q.requested_by === userId); return myEntry?.clients?.name ? <div style={{ fontSize: 12, color: "#706B5F", marginTop: 2 }}>Cliente: {myEntry.clients.name}</div> : null; })()}
                   </div>
                 )}
-                {selQueue.queue.length > 0 && (
-                  <>
-                    <div style={{ fontFamily: MONO, fontSize: 8.5, fontWeight: 600, color: "#5C5647", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10 }}>
-                      Fila de espera ({selQueue.queueCount} {selQueue.queueCount === 1 ? "interessado" : "interessados"})
+                {selQueue.queue.length > 0 ? (isBroker ? selQueue.queue.filter((q) => q.requested_by === userId) : selQueue.queue).map((entry) => {
+                  const isMe = entry.requested_by === userId;
+                  return (
+                    <div key={entry.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, border: isMe ? "1px solid rgba(74,222,128,0.3)" : CARD_BORDER, marginBottom: 6, background: isMe ? "rgba(74,222,128,0.04)" : "rgba(18,17,14,0.3)" }}>
+                      <div style={{ fontSize: 14, fontWeight: 500, color: isMe ? "#4ADE80" : "#5C5647", minWidth: 20, textAlign: "center", fontFamily: MONO }}>#{entry.position}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 500, color: "#E8E5DE" }}>{entry.clients?.name || entry.brokers?.name || entry.profiles?.name || "Interesse registrado"}{isMe ? <span style={{ fontSize: 10, color: "#4ADE80", marginLeft: 6 }}>VOCÊ</span> : ""}</div>
+                        <div style={{ fontSize: 10, color: "#706B5F" }}>Corretor: {entry.brokers?.name || entry.profiles?.name || "—"} · {formatDateBRT(entry.created_at)}</div>
+                      </div>
                     </div>
-                    {(isBroker ? selQueue.queue.filter((q) => q.requested_by === userId) : selQueue.queue).map((entry) => {
-                      const isMe = entry.requested_by === userId;
-                      return (
-                        <div key={entry.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, border: isMe ? "1px solid rgba(74,222,128,0.3)" : CARD_BORDER, marginBottom: 6, background: isMe ? "rgba(74,222,128,0.04)" : "rgba(18,17,14,0.3)" }}>
-                          <div style={{ fontSize: 14, fontWeight: 500, color: isMe ? "#4ADE80" : "#5C5647", minWidth: 20, textAlign: "center", fontFamily: MONO }}>#{entry.position}</div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 12, fontWeight: 500, color: "#E8E5DE" }}>{entry.clients?.name || entry.brokers?.name || entry.profiles?.name || "Interesse registrado"}{isMe ? <span style={{ fontSize: 10, color: "#4ADE80", marginLeft: 6 }}>VOCÊ</span> : ""}</div>
-                            <div style={{ fontSize: 10, color: "#706B5F" }}>Corretor: {entry.brokers?.name || entry.profiles?.name || "—"} · {formatDateBRT(entry.created_at)}</div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </>
-                )}
-                {selQueue.queue.length === 0 && <div style={{ fontSize: 12, color: "#5C5647", marginBottom: 8 }}>Nenhum interessado na fila.</div>}
+                  );
+                }) : <div style={{ fontSize: 12, color: "#5C5647", marginBottom: 8 }}>Nenhum interessado na fila.</div>}
                 {!selQueue.myPosition ? (
-                  <button type="button" onClick={() => setShowQueueModal(true)} style={{ width: "100%", height: 36, borderRadius: 8, fontSize: 13, fontWeight: 600, background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.2)", color: "#4ADE80", cursor: "pointer", marginTop: 8 }}>Entrar na fila</button>
-                ) : null}
+                  <button type="button" onClick={() => setShowQueueModal(true)} style={{ width: "100%", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 600, background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.2)", color: "#4ADE80", cursor: "pointer", marginTop: 8 }}>Entrar na fila</button>
+                ) : (
+                  <button type="button" onClick={() => setShowLeaveConfirm(true)} style={{ width: "100%", marginTop: 8, background: "transparent", border: "none", color: "#706B5F", fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>Sair da fila</button>
+                )}
+                {queueToast && <div style={{ fontSize: 12, color: "#4ADE80", background: "rgba(74,222,128,0.08)", borderRadius: 8, padding: "8px 12px", marginTop: 8 }}>{queueToast}</div>}
               </div>
-            )}
-
-            {queueToast && <div style={{ fontSize: 12, color: "#4ADE80", background: "rgba(74,222,128,0.08)", borderRadius: 8, padding: "8px 12px", marginTop: 8 }}>{queueToast}</div>}
-
-            {/* Action buttons — matriz por status */}
-            <div style={{ display: "grid", gap: 8, marginTop: 20 }}>
-              {sel.status === UnidadeStatus.DISPONIVEL ? (
-                <>
-                  <button type="button" onClick={() => navigate(`/simulador?unitId=${sel.id}`)} style={{ width: "100%", height: 36, borderRadius: 8, fontSize: 13, fontWeight: 700, background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.2)", color: "#4ADE80", cursor: "pointer", transition: "all 150ms ease" }}>Simular</button>
-                  <button type="button" onClick={() => navigate(`/negociacoes?unitId=${sel.id}`)} style={{ width: "100%", height: 36, borderRadius: 8, fontSize: 13, fontWeight: 600, background: "transparent", color: "#C4BFB3", border: "1px solid rgba(61,58,48,0.2)", cursor: "pointer" }}>Iniciar negociação</button>
-                </>
-              ) : sel.status === UnidadeStatus.RESERVADO ? (
-                selNeg ? (
-                  <button type="button" onClick={() => navigate(`/negociacoes/${selNeg.id}`)} style={{ width: "100%", height: 36, borderRadius: 8, fontSize: 13, fontWeight: 600, background: "transparent", color: "#C4BFB3", border: "1px solid rgba(61,58,48,0.2)", cursor: "pointer" }}>Ver reserva</button>
-                ) : null
-              ) : sel.status === UnidadeStatus.EM_NEGOCIACAO ? (
-                selNeg ? (
-                  <button type="button" onClick={() => navigate(`/negociacoes/${selNeg.id}`)} style={{ width: "100%", height: 36, borderRadius: 8, fontSize: 13, fontWeight: 600, background: "transparent", color: "#C4BFB3", border: "1px solid rgba(61,58,48,0.2)", cursor: "pointer" }}>Ver negociação</button>
-                ) : null
-              ) : sel.status === UnidadeStatus.VENDIDO ? (
-                selNeg ? (
-                  <button type="button" onClick={() => navigate(`/negociacoes/${selNeg.id}`)} style={{ width: "100%", height: 36, borderRadius: 8, fontSize: 13, fontWeight: 600, background: "transparent", color: "#C4BFB3", border: "1px solid rgba(61,58,48,0.2)", cursor: "pointer" }}>Ver venda</button>
-                ) : null
-              ) : null}
-              {canManageStatus && (
-                <button type="button" onClick={() => setStatusTargets([toTarget(sel)])} style={{ width: "100%", minHeight: 44, borderRadius: 8, fontSize: 13, fontWeight: 600, background: "transparent", color: "#C4BFB3", border: "1px solid rgba(61,58,48,0.35)", cursor: "pointer" }}>Alterar status</button>
-              )}
-            </div>
-
-            {queueEnabled && selQueue.myPosition && (
-              <button type="button" onClick={() => setShowLeaveConfirm(true)} style={{ width: "100%", marginTop: 10, background: "transparent", border: "none", color: "#706B5F", fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>Sair da fila</button>
-            )}
-            <button type="button" onClick={() => setSelectedId(null)} style={{ width: "100%", marginTop: 8, background: "transparent", border: "none", color: "#5C5647", fontSize: 11, cursor: "pointer" }}>Fechar</button>
-          </div>
+            ) : undefined}
+          />
         ) : null}
-        {sel && !screen.isDesktop ? <div onClick={() => setSelectedId(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 99 }} /> : null}
       </div>
 
       {/* Legend (below map/grid) */}
@@ -550,7 +504,7 @@ export default function UnitsPage() {
           open={!!statusTargets}
           targets={statusTargets}
           onClose={() => setStatusTargets(null)}
-          onChanged={() => { refetchUnits(); clearSelection(); }}
+          onChanged={() => { refetchUnits(); clearSelection(); setFichaRefresh((k) => k + 1); }}
         />
       )}
     </div>

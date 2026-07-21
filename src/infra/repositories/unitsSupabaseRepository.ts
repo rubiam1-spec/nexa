@@ -108,6 +108,37 @@ export async function updateUnitStatus(
   return mapUnitRowToUnit(data as UnitRow);
 }
 
+// Detalhe completo da unidade para a Ficha (campos que getUnits não traz).
+export type UnitDetail = {
+  area: number | null;
+  areaComum: number | null;
+  entradaSugerida: number | null;
+  balaoSugerido: number | null;
+  parcelaSugerida: number | null;
+  socioPermutante: boolean;
+};
+
+export async function getUnitDetail(unitId: string): Promise<UnitDetail | null> {
+  const supabase = getSupabaseClientOrThrow("units repository");
+  const { data, error } = await supabase
+    .from("units")
+    .select("area, area_comum, entrada_sugerida, balao_sugerido, parcela_sugerida, socio_permutante")
+    .eq("id", unitId)
+    .maybeSingle();
+  if (error) throw new Error(`Falha ao carregar detalhe da unidade: ${error.message}`);
+  if (!data) return null;
+  const r = data as Record<string, unknown>;
+  const num = (v: unknown) => (v == null || v === "" ? null : Number(v));
+  return {
+    area: num(r.area),
+    areaComum: num(r.area_comum),
+    entradaSugerida: num(r.entrada_sugerida),
+    balaoSugerido: num(r.balao_sugerido),
+    parcelaSugerida: num(r.parcela_sugerida),
+    socioPermutante: !!r.socio_permutante,
+  };
+}
+
 // Alteração de status em massa via RPC transacional bulk_update_unit_status
 // (JÁ EXISTE em produção — nunca recriar). Retorna { updated, blocked }.
 export type BulkStatusBlocked = { unit_id: string; reason: string };
