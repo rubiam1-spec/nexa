@@ -128,7 +128,6 @@ export default function UnitsPage() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statusTargets, setStatusTargets] = useState<StatusTarget[] | null>(null);
-  const [fichaRefresh, setFichaRefresh] = useState(0); // força reload da ficha após alterar status
   const [showQueueModal, setShowQueueModal] = useState(false);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [leavingQueue, setLeavingQueue] = useState(false);
@@ -385,18 +384,19 @@ export default function UnitsPage() {
         {/* Ficha da Unidade (modal) — substitui o antigo cartão lateral */}
         {sel ? (
           <UnitFichaModal
-            key={`ficha-${sel.id}-${fichaRefresh}`}
+            key={`ficha-${sel.id}`}
             unit={sel}
             negotiation={selNeg ? { id: selNeg.id, status: selNeg.status, clientId: selNeg.clientId } : null}
             lblGrupo={lblGrupo}
             lblUnidade={lblUnidade}
+            totalUnits={units.length}
             canManageStatus={canManageStatus}
             useMock={useMock}
             isMobile={isMobile}
             onClose={() => setSelectedId(null)}
             onOpenNegotiation={(id) => navigate(`/negociacoes/${id}`)}
             onConciliar={() => navigate(`/negociacoes?unitId=${sel.id}`)}
-            onAlterarStatus={() => setStatusTargets([toTarget(sel)])}
+            onStatusChanged={() => refetchUnits()}
             queueSection={queueEnabled && sel.status !== UnidadeStatus.DISPONIVEL && sel.status !== UnidadeStatus.VENDIDO ? (
               <div>
                 <div style={{ fontFamily: MONO, fontSize: 8.5, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10 }}>Fila de espera{selQueue.queueCount ? ` (${selQueue.queueCount})` : ""}</div>
@@ -504,7 +504,7 @@ export default function UnitsPage() {
           open={!!statusTargets}
           targets={statusTargets}
           onClose={() => setStatusTargets(null)}
-          onChanged={() => { refetchUnits(); clearSelection(); setFichaRefresh((k) => k + 1); }}
+          onChanged={() => { refetchUnits(); clearSelection(); }}
         />
       )}
     </div>
