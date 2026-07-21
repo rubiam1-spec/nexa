@@ -167,7 +167,6 @@ export default function UnitFichaModal({
   const [dateMode, setDateMode] = useState<"exact" | "month" | "none">("none");
   const [dateExact, setDateExact] = useState("");
   const [dateMonth, setDateMonth] = useState("");
-  const [justRegisteredBuyer, setJustRegisteredBuyer] = useState<string | null>(null);
 
   const buyerName = clientOpts.find((c) => c.value === buyerId)?.label ?? null;
   const amountNum = amountStr === "" ? NaN : Number(amountStr);
@@ -207,9 +206,8 @@ export default function UnitFichaModal({
   async function confirmSale() {
     if (!buyerId || !amountOk) return;
     const r = await saleForm.submit(unit.id, buyerId, amountNum, computedSaleDate());
-    setDetailNonce((n) => n + 1); // recarrega a seção (sucesso OU already_registered)
+    setDetailNonce((n) => n + 1); // recarrega a seção do banco (comprador incluso)
     if (!r) return; // erro inline (inclui sale_already_registered)
-    setJustRegisteredBuyer(buyerName);
     goStage("ficha");
   }
 
@@ -231,7 +229,7 @@ export default function UnitFichaModal({
   const saleInfo = detail?.sale ?? null;
   // Venda sem registro: unidade Vendida, sem negociação e sem venda registrada.
   const vendaSemRegistro = unit.status === UnidadeStatus.VENDIDO && !negotiation && !saleInfo && detailLoaded;
-  const compradorLabel = justRegisteredBuyer ?? clientName ?? "Comprador —";
+  const compradorLabel = saleInfo?.buyerName ?? clientName ?? "Comprador —";
 
   const bodyAnim: React.CSSProperties = { transform: entering ? "translateX(14px)" : "translateX(0)", opacity: entering ? 0 : 1, transition: "transform 180ms ease, opacity 180ms ease" };
 

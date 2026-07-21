@@ -109,14 +109,16 @@ export async function updateUnitStatus(
 }
 
 // Detalhe completo da unidade para a Ficha (campos que getUnits não traz).
-// Venda vigente da unidade (sales, status <> 'cancelled'). Sem client_id na
-// tabela sales: o comprador só é recuperável para venda de fluxo (via negociação).
+// Venda vigente da unidade (sales, status <> 'cancelled'). sales.client_id
+// (FK → clients) persiste o comprador; resolvido via embed também na histórica.
 export type UnitSaleInfo = {
   id: string;
   amount: number | null;
   saleDate: string | null; // 'YYYY-MM-DD' ou null ("não informada")
   origin: string | null; // 'flow' | 'historical' | ...
   negotiationId: string | null;
+  clientId: string | null;
+  buyerName: string | null;
 };
 
 export type UnitDetail = {
@@ -143,19 +145,24 @@ export async function getUnitDetail(unitId: string): Promise<UnitDetail | null> 
 
   const { data: saleRow } = await supabase
     .from("sales")
-    .select("id, amount, sale_date, origin, negotiation_id")
+    .select("id, amount, sale_date, origin, negotiation_id, client_id, clients(name)")
     .eq("unit_id", unitId)
     .neq("status", "cancelled")
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  const sale: UnitSaleInfo | null = saleRow
+  const sr = saleRow as Record<string, unknown> | null;
+  const clientRel = sr?.clients as { name?: string } | { name?: string }[] | null | undefined;
+  const buyerName = Array.isArray(clientRel) ? (clientRel[0]?.name ?? null) : (clientRel?.name ?? null);
+  const sale: UnitSaleInfo | null = sr
     ? {
-        id: String((saleRow as Record<string, unknown>).id),
-        amount: num((saleRow as Record<string, unknown>).amount),
-        saleDate: ((saleRow as Record<string, unknown>).sale_date as string | null) ?? null,
-        origin: ((saleRow as Record<string, unknown>).origin as string | null) ?? null,
-        negotiationId: ((saleRow as Record<string, unknown>).negotiation_id as string | null) ?? null,
+        id: String(sr.id),
+        amount: num(sr.amount),
+        saleDate: (sr.sale_date as string | null) ?? null,
+        origin: (sr.origin as string | null) ?? null,
+        negotiationId: (sr.negotiation_id as string | null) ?? null,
+        clientId: (sr.client_id as string | null) ?? null,
+        buyerName,
       }
     : null;
 
