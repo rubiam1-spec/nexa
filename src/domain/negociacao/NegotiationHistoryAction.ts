@@ -22,6 +22,9 @@ export const NegotiationHistoryAction = {
   SALE_ADVANCED: "SALE_ADVANCED",
   SALE_COMPLETED: "SALE_COMPLETED",
   SALE_CANCELLED: "SALE_CANCELLED",
+  // Unidade desvinculada por resolução de disputa (conflito de reserva/venda).
+  // Valor em snake_case porque vem cru do banco (ação de sistema).
+  UNIT_UNLINKED_CONFLICT: "unit_unlinked_conflict",
 } as const;
 
 export type NegotiationHistoryAction =

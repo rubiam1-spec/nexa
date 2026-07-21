@@ -110,9 +110,13 @@ function normalizeNegotiationHistoryAction(
     case NegotiationHistoryAction.SALE_ADVANCED:
     case NegotiationHistoryAction.SALE_COMPLETED:
     case NegotiationHistoryAction.SALE_CANCELLED:
+    case NegotiationHistoryAction.UNIT_UNLINKED_CONFLICT:
       return action;
     default:
-      throw new Error(`Unsupported negotiation history action: ${action}`);
+      // Tolerância por contrato: ação desconhecida NUNCA derruba a página de
+      // detalhe (P0). Mantém o valor bruto — o display resolve o rótulo genérico.
+      console.warn(`[NEXA] Unknown negotiation history action: "${action}", using as-is`);
+      return action as NegotiationHistoryActionType;
   }
 }
 
