@@ -3,7 +3,8 @@ import type { CSSProperties } from "react";
 import type { CentralData, FocusItem, PulseKPI } from "../hooks/useCentral";
 import type { IntelligenceAlert } from "../hooks/useIntelligenceAlerts";
 import { useDailyBriefing } from "../../../shared/hooks/useDailyBriefing";
-import { formatWeekdayLongBRT } from "../../../shared/utils/dateUtils";
+import { formatWeekdayLongBRT, formatDateShortBRT } from "../../../shared/utils/dateUtils";
+import { briefingFreshness } from "../briefingFreshness";
 import { NegotiationStatus } from "../../../domain/status/negotiation";
 
 const T = {
@@ -723,6 +724,27 @@ function DailyBriefMini({ accountId, developmentId }: { accountId: string | null
   const { briefing, loading } = useDailyBriefing(accountId, developmentId);
   if (loading || !briefing) return null;
 
+  const fresh = briefingFreshness(briefing.created_at, Date.now());
+
+  // Honestidade: acima de 48h NÃO renderiza o conteúdo velho — estado explícito.
+  if (fresh.isStale) {
+    return (
+      <div>
+        <SectionLabel>Análise da operação</SectionLabel>
+        <div style={{ background: CARD_BG, border: CARD_BORDER, borderLeft: `3px solid ${T.slate}`, borderRadius: RADIUS, padding: "14px 16px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <span style={{ fontFamily: MONO, fontSize: 9, color: T.slate, letterSpacing: "0.12em", textTransform: "uppercase" }}>BRIEFING IA</span>
+            <span style={{ fontFamily: MONO, fontSize: 9, color: T.slate }}>gerado {fresh.relative}</span>
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: T.bone }}>Briefing desatualizado</div>
+          <div style={{ fontSize: 12, color: T.fog, marginTop: 3 }}>
+            Última geração {fresh.relative} · {formatDateShortBRT(briefing.briefing_date)}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Dedupe por texto visível (title||text). Texto vazio é descartado.
   const seen = new Set<string>();
   const highlights = (briefing.highlights ?? [])
@@ -754,10 +776,11 @@ function DailyBriefMini({ accountId, developmentId }: { accountId: string | null
           padding: "14px 16px",
         }}
       >
-        <div style={{ marginBottom: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
           <span style={{ fontFamily: MONO, fontSize: 9, color: T.sprout, letterSpacing: "0.12em", textTransform: "uppercase" }}>
             BRIEFING IA
           </span>
+          <span style={{ fontFamily: MONO, fontSize: 9, color: T.slate }}>gerado {fresh.relative}</span>
         </div>
         {hasSummary ? (
           <div style={{ fontSize: 13, color: T.bone, lineHeight: 1.55, whiteSpace: "pre-line" }}>
@@ -882,7 +905,7 @@ function CentralMobileBroker(props: BaseProps) {
   const go = (path: string) => navigate(path);
   const openNegs = props.data.negotiations.filter((n) => n.status === NegotiationStatus.OPEN).length;
   const inProg = props.data.negotiations.filter((n) => n.status === NegotiationStatus.IN_PROGRESS).length;
-  const pipelinePills = [
+  const negPills = [
     { label: "Abertas", value: openNegs, color: "#60A5FA" },
     { label: "Andamento", value: inProg, color: "#FBBF24" },
     { label: "Ganhas", value: props.data.wonCount, color: T.sprout },
@@ -892,15 +915,15 @@ function CentralMobileBroker(props: BaseProps) {
     <div style={{ display: "flex", flexDirection: "column" }}>
       <Header userName={props.userName} developmentName={props.developmentName} onOpenSettings={props.onOpenSettings} />
 
-      {/* Mini pipeline inline */}
+      {/* Minhas negociações — resumo inline */}
       <div>
-        <SectionLabel>Meu pipeline</SectionLabel>
+        <SectionLabel>Minhas negociações</SectionLabel>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-          {pipelinePills.map((p) => (
+          {negPills.map((p) => (
             <button
               key={p.label}
               type="button"
-              onClick={() => go("/pipeline")}
+              onClick={() => go("/negociacoes")}
               style={{
                 background: CARD_BG,
                 border: CARD_BORDER,

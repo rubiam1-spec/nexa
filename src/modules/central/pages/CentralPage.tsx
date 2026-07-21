@@ -12,6 +12,7 @@ import CentralMobile from "../components/CentralMobile";
 import { NegotiationStatus } from "../../../domain/status/negotiation";
 import { formatWeekdayLongBRT, formatTimeBRT, formatDateShortBRT, getTodayDateStringBRT } from "../../../shared/utils/dateUtils";
 import { useDailyBriefing, type BriefingHighlight, type BriefingAction } from "../../../shared/hooks/useDailyBriefing";
+import { briefingFreshness } from "../briefingFreshness";
 import { useIntelligenceAlerts, type IntelligenceAlert } from "../hooks/useIntelligenceAlerts";
 import { Line } from "react-chartjs-2";
 import { VizFrame } from "../../../shared/viz";
@@ -90,7 +91,7 @@ const KPI_CFG: Record<string, KPIConfig> = {
   negs: { label: "NEGOCIAÇÕES ATIVAS", icon: "N", glowColor: "#4ADE80", iconBg: "rgba(74,222,128,0.07)", iconColor: "#4ADE80", progressColor: "#4ADE80" },
   reservas: { label: "RESERVAS", icon: "R", glowColor: "#D97706", iconBg: "rgba(217,119,6,0.07)", iconColor: "#D97706", progressColor: "#D97706" },
   vendas: { label: "VENDAS", icon: "V", glowColor: "#60A5FA", iconBg: "rgba(96,165,250,0.07)", iconColor: "#60A5FA", progressColor: "#60A5FA" },
-  vgv: { label: "VGV ESTIMADO", icon: "R$", glowColor: "#4ADE80", iconBg: "rgba(74,222,128,0.07)", iconColor: "#4ADE80", isMoney: true, progressColor: "#4ADE80" },
+  vgv: { label: "VGV vendido (unidades)", icon: "R$", glowColor: "#4ADE80", iconBg: "rgba(74,222,128,0.07)", iconColor: "#4ADE80", isMoney: true, progressColor: "#4ADE80" },
   ticket: { label: "TICKET MÉDIO", icon: "TK", glowColor: "#A78BFA", iconBg: "rgba(167,139,250,0.07)", iconColor: "#A78BFA", isMoney: true, progressColor: "#A78BFA" },
   contatos: { label: "MEUS CONTATOS", icon: "C", glowColor: "#60A5FA", iconBg: "rgba(96,165,250,0.07)", iconColor: "#60A5FA", progressColor: "#60A5FA" },
   atividades: { label: "ATIVIDADES SEMANA", icon: "A", glowColor: "#A78BFA", iconBg: "rgba(167,139,250,0.07)", iconColor: "#A78BFA", progressColor: "#A78BFA" },
@@ -374,7 +375,7 @@ const CENTRAL_MODULES: CentralModule[] = [
   { key: "daily_briefing", label: "Análise da Operação", description: "Briefing com IA sobre a operação", defaultVisible: vis({ owner: true, director: true, manager: true }) },
   { key: "agenda", label: "Agenda", description: "Atividades do dia e da semana", defaultVisible: vis({ owner: true, director: true, manager: true, commercial_consultant: true, broker: true, concierge: true }) },
   { key: "kpis", label: "Indicadores (KPIs)", description: "Negociações, reservas, vendas, VGV", defaultVisible: vis({ owner: true, director: true, manager: true, commercial_consultant: true, broker: true }) },
-  { key: "funnel", label: "Funil Comercial", description: "Pipeline de negociações por etapa", defaultVisible: vis({ owner: true, director: true, manager: true }) },
+  { key: "funnel", label: "Funil Comercial", description: "Funil de negociações por etapa", defaultVisible: vis({ owner: true, director: true, manager: true }) },
   { key: "stock", label: "Estoque de Unidades", description: "Disponíveis, reservadas, vendidas", defaultVisible: vis({ owner: true, director: true, manager: true }) },
   { key: "chart", label: "Gráfico de Vendas", description: "Evolução semanal de vendas", defaultVisible: vis({ owner: true, director: true, manager: true }) },
   { key: "intelligence_alerts", label: "Alertas de Inteligência", description: "Alertas IA com sugestões de ação", defaultVisible: vis({ owner: true, director: true, manager: true }) },
@@ -559,7 +560,7 @@ export default function CentralPage() {
             { label: "Simulador", path: "/simulador" },
             { label: "+ Contato", path: "/contatos/novo" },
             { label: "Mapa", path: "/unidades?view=mapa" },
-            { label: "Pipeline", path: "/pipeline" },
+            { label: "Negociações", path: "/negociacoes" },
           ].map((btn) => (
             <button key={btn.label} type="button" onClick={() => navigate(btn.path)} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.bone, fontSize: 13, cursor: "pointer" }}>{btn.label}</button>
           ))}
@@ -908,6 +909,7 @@ function DailyBriefingCard({ accountId, developmentId }: { accountId: string; de
   const score = briefing.metrics.health_score ?? 0;
   const hc = healthColorFor(score);
   const ageLabel = briefingAgeLabel(briefing.briefing_date);
+  const fresh = briefingFreshness(briefing.created_at, Date.now());
   const topActions = briefing.actions.slice(0, 2);
   const restActions = briefing.actions.slice(2);
 
@@ -916,12 +918,14 @@ function DailyBriefingCard({ accountId, developmentId }: { accountId: string; de
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14, gap: 12 }}>
         <div>
           <div style={{ fontFamily: MONO, fontSize: 9, color: T.fog, letterSpacing: "0.12em" }}>ANÁLISE DA OPERAÇÃO</div>
-          <div style={{ fontFamily: MONO, fontSize: 10, color: T.slate, marginTop: 3 }}>{ageLabel} · {formatTimeBRT(briefing.created_at)}</div>
+          <div style={{ fontFamily: MONO, fontSize: 10, color: T.slate, marginTop: 3 }}>gerado {fresh.relative} · {ageLabel} {formatTimeBRT(briefing.created_at)}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          <div style={{ fontFamily: MONO, fontSize: 12, fontWeight: 700, padding: "4px 12px", borderRadius: 8, color: hc, background: `${hc}15`, border: `1px solid ${hc}30` }}>
-            {score}/100
-          </div>
+          {!fresh.isStale && (
+            <div style={{ fontFamily: MONO, fontSize: 12, fontWeight: 700, padding: "4px 12px", borderRadius: 8, color: hc, background: `${hc}15`, border: `1px solid ${hc}30` }}>
+              {score}/100
+            </div>
+          )}
           <button type="button" onClick={() => void generateBriefing()} disabled={generating} style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 10, cursor: generating ? "wait" : "pointer" }}>
             {generating ? "..." : "Atualizar"}
           </button>
@@ -931,6 +935,16 @@ function DailyBriefingCard({ accountId, developmentId }: { accountId: string; de
         </div>
       </div>
 
+      {fresh.isStale ? (
+        // Honestidade: acima de 48h não renderiza o conteúdo velho.
+        <div style={{ padding: "14px 16px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "var(--surface-overlay)" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: T.bone }}>Briefing desatualizado</div>
+          <div style={{ fontSize: 12, color: T.fog, marginTop: 4 }}>
+            Última geração {ageLabel} ({formatDateShortBRT(briefing.briefing_date)}). Gere uma nova análise para ver o panorama atual da operação.
+          </div>
+        </div>
+      ) : (
+      <>
       <div style={{ fontSize: 13, color: T.bone, lineHeight: 1.6, marginBottom: 16 }}>{briefing.summary}</div>
 
       {briefing.highlights.length > 0 && (
@@ -965,6 +979,8 @@ function DailyBriefingCard({ accountId, developmentId }: { accountId: string; de
             </div>
           ))}
         </>
+      )}
+      </>
       )}
 
       {error && <div style={{ fontSize: 11, color: "#F87171", marginTop: 10 }}>{error}</div>}
