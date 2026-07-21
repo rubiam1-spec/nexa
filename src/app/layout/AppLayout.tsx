@@ -12,7 +12,6 @@ const HOME_PATHS = new Set(["/", "/central", "/meu-dia", "/dashboard"]);
 
 function getMobilePageTitle(pathname: string): string {
   if (HOME_PATHS.has(pathname)) return "";
-  if (pathname === "/pipeline") return "Pipeline";
   if (pathname === "/simulador") return "Simulador";
   if (pathname === "/contatos") return "Contatos";
   if (pathname === "/contatos/novo") return "Novo contato";
