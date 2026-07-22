@@ -4,14 +4,14 @@
 // um ResizeObserver que mede o elemento e devolve sua largura. O componente ramifica
 // no espaço real disponível — imune ao paradoxo "1024 paisagem é mais estreito que
 // 834 retrato". Interação continua arbitrada só por useIsTouch (nunca por largura).
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * @returns [ref, width] — anexe `ref` ao elemento; `width` é a largura de conteúdo
  * medida (0 até a 1ª medição / SSR). Ramifique layout por `width`, não por viewport.
  */
-export function useContainerWidth<T extends HTMLElement = HTMLDivElement>(): [RefObject<T>, number] {
-  const ref = useRef<T>(null);
+export function useContainerWidth<T extends HTMLElement = HTMLDivElement>() {
+  const ref = useRef<T | null>(null);
   const [width, setWidth] = useState(0);
 
   useEffect(() => {
@@ -29,5 +29,5 @@ export function useContainerWidth<T extends HTMLElement = HTMLDivElement>(): [Re
     return () => ro.disconnect();
   }, []);
 
-  return [ref, width];
+  return [ref, width] as const;
 }
