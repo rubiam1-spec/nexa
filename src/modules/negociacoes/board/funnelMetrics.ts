@@ -11,6 +11,25 @@ import { columnOfStatusRaw, FUNNEL_FLOW, type BoardStage } from "./stageColumn";
 import { semaphoreOf } from "./semaphore";
 import { LeadQualificationStatus } from "../../../domain/status/leadQualification";
 import type { LeadFunnelRow } from "./leadFunnel";
+import { buildSalesTruth, salesTruthTotals, type SaleTruthSaleRow, type SaleTruthWon } from "../../../domain/venda/salesTruth";
+
+// ── VERDADE ÚNICA DE VENDAS · semântica oficial (E3) ─────────────────────────
+// UMA fonte (salesTruth = sales(≠cancelled) ∪ WON-sem-registro, dedupe por
+// negociação/unidade), DUAS LENTES:
+//   • Funil = COORTE DE PROCESSO  → "vendido" conta a coorte do período (quem
+//     entrou no período e virou venda), lente de progresso do funil.
+//   • Central/série = FATO POR DATA DA VENDA → série mensal bucketiza pela data
+//     da venda (sale_date → stage_changed_at → created_at), lente temporal.
+// Ambas somam a MESMA fonte; divergem só no recorte. Hoje (sales=0) cada número
+// reduz exatamente à leitura WON anterior — sem mudança. Converge para sales
+// puro conforme a Manu registra, sem migração.
+//
+// Mapeia um card na etapa "venda" (WON) para a lente WON da fonte única. A união
+// injeta as linhas de `sales` da coorte; sem elas (hoje) o resultado é a própria
+// coorte WON — por isso os números não mudam.
+function cardAsWon(c: KanbanCard): SaleTruthWon {
+  return { negotiationId: c.id, unitId: c.unitId, valor: c.valor, stageChangedAt: c.stageChangedAt ?? null, createdAt: c.createdAt };
+}
 
 export type PeriodKey = "30d" | "90d" | "month";
 
@@ -118,6 +137,7 @@ export function computeFunnelMetrics(
   simulations: KanbanCard[],
   thresholdDays: number,
   nowMs: number,
+  cohortSales: SaleTruthSaleRow[] = [],
 ): FunnelMetrics {
   const stageOf = (c: KanbanCard) => columnOfStatusRaw(c.status);
 
@@ -136,9 +156,13 @@ export function computeFunnelMetrics(
   }
   const cicloMedioDias = avg(wonCycle);
 
-  // Vendido no período (coorte vendida).
+  // Vendido no período — fonte única aplicada à COORTE: WON da coorte ∪ linhas de
+  // `sales` da coorte injetadas (dedupe por negociação/unidade). Hoje sales=[] ⇒
+  // = coorte WON (count e vgv idênticos à leitura anterior).
   const vendaCards = cohort.filter((c) => stageOf(c) === "venda");
-  const vendido = { count: vendaCards.length, vgv: vendaCards.reduce((s, c) => s + (c.valor ?? 0), 0) };
+  const vendidoTruth = buildSalesTruth(cohortSales, vendaCards.map(cardAsWon));
+  const vendidoTotals = salesTruthTotals(vendidoTruth);
+  const vendido = { count: vendidoTotals.count, vgv: vendidoTotals.vgv };
 
   const openCards = cohort.filter((c) => OPEN_STAGES.includes(stageOf(c)));
   const openVGV = openCards.reduce((s, c) => s + (c.valor ?? 0), 0);
@@ -214,7 +238,7 @@ function ymLabel(ym: number): string {
  * data de fechamento (wonRefIso: stage_changed_at → created_at, nunca updated_at).
  * INDEPENDENTE do filtro curto do período.
  */
-export function computeMonthlyEvolution(negotiations: KanbanCard[], nowMs: number, cap = 24): MonthlyPoint[] {
+export function computeMonthlyEvolution(negotiations: KanbanCard[], nowMs: number, cap = 24, saleRows: SaleTruthSaleRow[] = []): MonthlyPoint[] {
   const now = new Date(nowMs);
   const nowYm = now.getUTCFullYear() * 12 + now.getUTCMonth();
 
@@ -247,12 +271,12 @@ export function computeMonthlyEvolution(negotiations: KanbanCard[], nowMs: numbe
     if (ym >= startYm) { const b = buckets.get(ym); if (b) fn(b); }
     else if (overflowBucket) fn(overflowBucket);
   };
-  for (const c of negotiations) {
-    put(ymIndex(c.createdAt), (p) => { p.criadas += 1; });
-    if (columnOfStatusRaw(c.status) === "venda") {
-      put(ymIndex(wonRefIso(c)), (p) => { p.vendas += 1; p.vgvVendas += c.valor ?? 0; if (c.valor != null) p.vendasComValor += 1; });
-    }
-  }
+  // Criadas: por negociação (created_at). Vendas: FATO POR DATA DA VENDA — fonte
+  // única (WON ∪ sales) bucketizada por item.dateIso. Sem sales (hoje) = WON por
+  // wonRefIso, idêntico à leitura anterior.
+  const truthAll = buildSalesTruth(saleRows, negotiations.filter((c) => columnOfStatusRaw(c.status) === "venda").map(cardAsWon));
+  for (const c of negotiations) put(ymIndex(c.createdAt), (p) => { p.criadas += 1; });
+  for (const it of truthAll) put(ymIndex(it.dateIso), (p) => { p.vendas += 1; p.vgvVendas += it.amount ?? 0; if (it.hasValue) p.vendasComValor += 1; });
   return pts;
 }
 
@@ -268,20 +292,28 @@ export type BrokerRankingResult = {
  * "Sem corretor" (vendas sem corretor viram rodapé). Prioriza quem tem venda;
  * se restarem <3 com venda, completa por nº de criadas (rotulado semVenda).
  */
-export function computeBrokerRanking(cohort: KanbanCard[], topN = 5): BrokerRankingResult {
+export function computeBrokerRanking(cohort: KanbanCard[], topN = 5, cohortSales: SaleTruthSaleRow[] = []): BrokerRankingResult {
   const map = new Map<string, { name: string; criadas: number; vendas: number; vgv: number }>();
   let semCorretorVendas = 0;
+  // Criadas: por corretor, toda a coorte. Sem corretor não entra no ranking nominal.
   for (const c of cohort) {
-    const isWon = columnOfStatusRaw(c.status) === "venda";
-    if (c.corretorNome == null || c.corretorNome === "") {
-      if (isWon) semCorretorVendas += 1;
-      continue; // sem corretor não entra no ranking nominal
-    }
-    const name = c.corretorNome;
+    if (c.corretorNome == null || c.corretorNome === "") continue;
+    if (!map.has(c.corretorNome)) map.set(c.corretorNome, { name: c.corretorNome, criadas: 0, vendas: 0, vgv: 0 });
+    map.get(c.corretorNome)!.criadas += 1;
+  }
+  // Vendas: fonte única aplicada à COORTE (WON ∪ sales injetadas), reatribuída ao
+  // corretor do card. Sem card/sem corretor → rodapé "sem corretor". Hoje sales=[]
+  // ⇒ = coorte WON por corretor, idêntico à leitura anterior.
+  const cardByNeg = new Map(cohort.map((c) => [c.id, c]));
+  const truth = buildSalesTruth(cohortSales, cohort.filter((c) => columnOfStatusRaw(c.status) === "venda").map(cardAsWon));
+  for (const it of truth) {
+    const card = it.negotiationId ? cardByNeg.get(it.negotiationId) : undefined;
+    const name = card?.corretorNome;
+    if (name == null || name === "") { semCorretorVendas += 1; continue; }
     if (!map.has(name)) map.set(name, { name, criadas: 0, vendas: 0, vgv: 0 });
     const r = map.get(name)!;
-    r.criadas += 1;
-    if (isWon) { r.vendas += 1; r.vgv += c.valor ?? 0; }
+    r.vendas += 1;
+    r.vgv += it.amount ?? 0;
   }
   const named = [...map.values()];
   const mkRow = (r: { name: string; criadas: number; vendas: number; vgv: number }, semVenda: boolean): BrokerRankRow =>
@@ -304,7 +336,7 @@ export function computeBrokerRanking(cohort: KanbanCard[], topN = 5): BrokerRank
 }
 
 /** Séries por sub-bucket do período (para sparklines): criadas e vendas. */
-export function periodSeries(cohort: KanbanCard[], startMs: number, nowMs: number, buckets = 6): { criadas: number[]; vendas: number[] } {
+export function periodSeries(cohort: KanbanCard[], startMs: number, nowMs: number, buckets = 6, cohortSales: SaleTruthSaleRow[] = []): { criadas: number[]; vendas: number[] } {
   const span = Math.max(1, nowMs - startMs);
   const size = span / buckets;
   const criadas = new Array(buckets).fill(0);
@@ -313,10 +345,12 @@ export function periodSeries(cohort: KanbanCard[], startMs: number, nowMs: numbe
   for (const c of cohort) {
     const ct = new Date(c.createdAt).getTime();
     if (Number.isFinite(ct) && ct >= startMs && ct <= nowMs) criadas[idxOf(ct)] += 1;
-    if (columnOfStatusRaw(c.status) === "venda") {
-      const wt = new Date(wonRefIso(c)).getTime();
-      if (Number.isFinite(wt) && wt >= startMs && wt <= nowMs) vendas[idxOf(wt)] += 1;
-    }
+  }
+  // Vendas: fonte única da coorte, por data da venda (item.dateIso).
+  const truth = buildSalesTruth(cohortSales, cohort.filter((c) => columnOfStatusRaw(c.status) === "venda").map(cardAsWon));
+  for (const it of truth) {
+    const wt = new Date(it.dateIso).getTime();
+    if (Number.isFinite(wt) && wt >= startMs && wt <= nowMs) vendas[idxOf(wt)] += 1;
   }
   return { criadas, vendas };
 }

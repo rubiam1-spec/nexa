@@ -9,7 +9,9 @@ export type SalesTruthLabels = {
   unitLabel: Record<string, string>; // key: item.id
 };
 
-export type SalesTruthResult = { items: SaleTruthItem[]; labels: SalesTruthLabels };
+// `saleRows` = as linhas cruas de `sales` (ativas), para a lente de COORTE do
+// Funil aplicar a MESMA união (buildSalesTruth) sobre o cohort do período.
+export type SalesTruthResult = { items: SaleTruthItem[]; saleRows: SaleTruthSaleRow[]; labels: SalesTruthLabels };
 
 function firstRel<T>(v: unknown): T | null {
   return (Array.isArray(v) ? v[0] : v) as T | null;
@@ -72,5 +74,5 @@ export async function getSalesTruth(accountId: string, developmentId: string | n
     };
   });
 
-  return { items: buildSalesTruth(sales, won), labels: { clientName, unitLabel } };
+  return { items: buildSalesTruth(sales, won), saleRows: sales, labels: { clientName, unitLabel } };
 }

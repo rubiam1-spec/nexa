@@ -7,6 +7,7 @@ import {
   journeyConvsForDisplay,
   type PeriodKey, type JourneyStage, type BrokerRankRow,
 } from "../board/funnelMetrics";
+import type { SaleTruthSaleRow } from "../../../domain/venda/salesTruth";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
 import { useIsTouch, MOBILE_BP } from "../../../shared/mobile";
 import {
@@ -44,11 +45,13 @@ function Delta({ v, kind, goodWhen, hideEmpty }: { v: number | null; kind: "pct"
   return <span style={{ fontSize: 10, color, fontFamily: MONO, fontWeight: 700 }}>{arrow} {mag} <span style={{ color: VIZ.muted, fontWeight: 400 }}>vs. anterior</span></span>;
 }
 
-export function FunnelView({ board, thresholdDays, onOpenStage }: {
+export function FunnelView({ board, thresholdDays, onOpenStage, sales = [] }: {
   board: BoardModel;
   thresholdDays: number;
   onOpenNegotiation?: (id: string) => void; // mantido no contrato; Leitura da Operação removida da UI
   onOpenStage: (stage: BoardStage) => void;
+  /** Linhas de `sales` (ativas) da fonte única — injetadas na coorte (E3). */
+  sales?: SaleTruthSaleRow[];
 }) {
   const [period, setPeriod] = useState<PeriodKey>("30d");
   const screen = useScreen();
@@ -67,16 +70,26 @@ export function FunnelView({ board, thresholdDays, onOpenStage }: {
     const cohort = board.negotiations.filter((c) => createdMs(c.createdAt) >= start);
     const prevCohort = board.negotiations.filter((c) => { const t = createdMs(c.createdAt); return t >= prevStart && t < start; });
     const sims = board.simulations.filter((c) => createdMs(c.createdAt) >= start);
-    const m = computeFunnelMetrics(cohort, sims, thresholdDays, nowMs);
-    const mp = computeFunnelMetrics(prevCohort, [], thresholdDays, nowMs);
+    // Fonte única: recorta as linhas de `sales` à coorte (por negociação/unidade),
+    // para o Funil somar a MESMA fonte que a Central. Sem sales → recorte vazio.
+    const salesFor = (cards: typeof cohort): SaleTruthSaleRow[] => {
+      if (sales.length === 0) return [];
+      const negIds = new Set(cards.map((c) => c.id));
+      const unitIds = new Set(cards.map((c) => c.unitId).filter(Boolean) as string[]);
+      return sales.filter((s) => (s.negotiationId != null && negIds.has(s.negotiationId)) || (s.unitId != null && unitIds.has(s.unitId)));
+    };
+    const cohortSales = salesFor(cohort);
+    const prevCohortSales = salesFor(prevCohort);
+    const m = computeFunnelMetrics(cohort, sims, thresholdDays, nowMs, cohortSales);
+    const mp = computeFunnelMetrics(prevCohort, [], thresholdDays, nowMs, prevCohortSales);
     return {
       metrics: m, mPrev: mp,
       journey: computeEndToEndJourney(m.reached, board.leadRows, start),
-      monthly: computeMonthlyEvolution(board.negotiations, nowMs, 24), // FIX: cap 24 (era 12)
-      ranking: computeBrokerRanking(cohort, 5),
-      series: periodSeries(cohort, start, nowMs, 6),
+      monthly: computeMonthlyEvolution(board.negotiations, nowMs, 24, sales), // FIX: cap 24 (era 12) · série = fato por data
+      ranking: computeBrokerRanking(cohort, 5, cohortSales),
+      series: periodSeries(cohort, start, nowMs, 6, cohortSales),
     };
-  }, [board, start, thresholdDays, nowMs]);
+  }, [board, start, thresholdDays, nowMs, sales]);
 
   // KPIs (seguem o filtro) com delta + sparkline.
   const convDeltaPP = mPrev.conversaoGeral == null ? null : (metrics.conversaoGeral ?? 0) - mPrev.conversaoGeral;

@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { useAccount } from "../../../app/contexts/AccountContext";
 import { useDevelopment } from "../../../app/contexts/DevelopmentContext";
 import { useNegotiationsBoard } from "../hooks/useNegotiationsBoard";
+import { useSalesTruth } from "../../../shared/hooks/useSalesTruth";
 import KanbanPage from "./KanbanPage";
 import NegotiationsListPage from "./NegotiationsPage";
 import { FunnelView } from "./FunnelView";
@@ -89,6 +90,9 @@ function FunilTab({ onOpenNegotiation, onOpenStage }: { onOpenNegotiation: (id: 
     accountId: account?.accountId ?? null,
     developmentId: development?.developmentId ?? null,
   });
+  // Fonte única de vendas (E3): as linhas de `sales` alimentam a lente de coorte
+  // do Funil — mesma fonte da Central. Hoje vazio ⇒ Funil = leitura WON.
+  const { saleRows } = useSalesTruth(account?.accountId ?? null, development?.developmentId ?? null);
 
   return (
     <div>
@@ -100,7 +104,7 @@ function FunilTab({ onOpenNegotiation, onOpenStage }: { onOpenNegotiation: (id: 
       </div>
       {loading ? <div style={{ padding: 24, color: "var(--color-slate)", fontFamily: MONO, fontSize: 12 }}>Carregando…</div>
         : error ? <div style={{ padding: 24, color: "#F87171", fontSize: 14 }}>Erro: {error}</div>
-        : <FunnelView board={board} thresholdDays={thresholdDays} onOpenNegotiation={onOpenNegotiation} onOpenStage={onOpenStage} />}
+        : <FunnelView board={board} thresholdDays={thresholdDays} sales={saleRows} onOpenNegotiation={onOpenNegotiation} onOpenStage={onOpenStage} />}
     </div>
   );
 }
