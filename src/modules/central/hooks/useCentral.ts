@@ -169,7 +169,7 @@ export function useCentral(role: string | null, userId: string | null, accountId
         if (isManager) {
           pulse.push({ key: "negs", label: "Negociações ativas", value: activeNegs.length });
           pulse.push({ key: "reservas", label: "Reservas", value: reservedUnits });
-          pulse.push({ key: "vendas", label: "Vendas", value: soldUnits.length });
+          pulse.push({ key: "vendas", label: "Lotes vendidos", value: soldUnits.length });
           const isVgvEstimated = vgv === 0 && effectiveVgv > 0;
           pulse.push({ key: "vgv", label: "VGV vendido (unidades)", value: effectiveVgv > 0 ? fmtV(effectiveVgv) : "—", color: "#4ADE80", sub: isVgvEstimated ? "estimado*" : undefined });
           pulse.push({ key: "ticket", label: "Ticket médio", value: ticketMedio > 0 ? fmtV(ticketMedio) : "—", sub: isVgvEstimated ? "estimado*" : undefined });

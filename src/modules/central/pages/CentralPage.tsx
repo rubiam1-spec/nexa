@@ -12,6 +12,8 @@ import CentralMobile from "../components/CentralMobile";
 import { formatWeekdayLongBRT, formatTimeBRT, formatDateShortBRT, getTodayDateStringBRT } from "../../../shared/utils/dateUtils";
 import { useDailyBriefing, type BriefingHighlight, type BriefingAction } from "../../../shared/hooks/useDailyBriefing";
 import { briefingFreshness } from "../briefingFreshness";
+import { useSalesTruth } from "../../../shared/hooks/useSalesTruth";
+import type { SalesTruthMonth } from "../../../domain/venda/salesTruth";
 import { useIntelligenceAlerts, type IntelligenceAlert } from "../hooks/useIntelligenceAlerts";
 import { Line } from "react-chartjs-2";
 import { VizFrame } from "../../../shared/viz";
@@ -89,7 +91,7 @@ interface KPIConfig { label: string; icon: string; glowColor: string; iconBg: st
 const KPI_CFG: Record<string, KPIConfig> = {
   negs: { label: "NEGOCIAÇÕES ATIVAS", icon: "N", glowColor: "#4ADE80", iconBg: "rgba(74,222,128,0.07)", iconColor: "#4ADE80", progressColor: "#4ADE80" },
   reservas: { label: "RESERVAS", icon: "R", glowColor: "#D97706", iconBg: "rgba(217,119,6,0.07)", iconColor: "#D97706", progressColor: "#D97706" },
-  vendas: { label: "VENDAS", icon: "V", glowColor: "#60A5FA", iconBg: "rgba(96,165,250,0.07)", iconColor: "#60A5FA", progressColor: "#60A5FA" },
+  vendas: { label: "LOTES VENDIDOS", icon: "V", glowColor: "#60A5FA", iconBg: "rgba(96,165,250,0.07)", iconColor: "#60A5FA", progressColor: "#60A5FA" },
   vgv: { label: "VGV vendido (unidades)", icon: "R$", glowColor: "#4ADE80", iconBg: "rgba(74,222,128,0.07)", iconColor: "#4ADE80", isMoney: true, progressColor: "#4ADE80" },
   ticket: { label: "TICKET MÉDIO", icon: "TK", glowColor: "#A78BFA", iconBg: "rgba(167,139,250,0.07)", iconColor: "#A78BFA", isMoney: true, progressColor: "#A78BFA" },
   contatos: { label: "MEUS CONTATOS", icon: "C", glowColor: "#60A5FA", iconBg: "rgba(96,165,250,0.07)", iconColor: "#60A5FA", progressColor: "#60A5FA" },
@@ -162,13 +164,14 @@ function KPICard({ kpi, totalUnits }: { kpi: { key: string; label: string; value
 
 // ── Sales Chart (placeholder data) ──
 
-function SalesChart() {
+function SalesChart({ series }: { series: SalesTruthMonth[] }) {
+  // Série REAL de 12 meses da fonte única (salesTruth) — fim dos dados de exemplo.
   const data = {
-    labels: ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"],
+    labels: series.map((m) => m.label),
     datasets: [
       {
-        label: "Vendas acumuladas",
-        data: [2, 5, 8, 12, 18, 24, 31, 38],
+        label: "Vendas/mês",
+        data: series.map((m) => m.count),
         borderColor: "#4ADE80",
         backgroundColor: "rgba(74,222,128,0.04)",
         fill: true,
@@ -178,15 +181,6 @@ function SalesChart() {
         pointBackgroundColor: "#4ADE80",
         pointBorderColor: "#0B0A08",
         pointBorderWidth: 2,
-      },
-      {
-        label: "Meta",
-        data: [5, 10, 15, 20, 25, 30, 35, 40],
-        borderColor: "rgba(92,86,71,0.3)",
-        borderDash: [4, 4],
-        borderWidth: 1,
-        pointRadius: 0,
-        fill: false,
       },
     ],
   };
@@ -221,7 +215,7 @@ function SalesChart() {
   // chart.js encapsulado no padrão NexaViz (VizFrame): título/subtítulo/estados
   // vêm do frame único; o canvas (interatividade rica) permanece.
   return (
-    <VizFrame title="Vendas por semana" subtitle="últimas 8 semanas · dados de exemplo" height={180}>
+    <VizFrame title="Vendas por mês" subtitle="últimos 12 meses · fonte única (sales ∪ WON)" empty={series.every((m) => m.count === 0)} emptyLabel="Nenhuma venda registrada nos últimos 12 meses." height={180}>
       <div style={{ position: "relative", height: 180 }}>
         <Line data={data} options={options} />
       </div>
@@ -487,6 +481,7 @@ export default function CentralPage() {
   const userName = authenticatedProfile?.fullName?.split(" ")[0] ?? "Usuário";
 
   const { data, loading, error, isManager } = useCentral(role, userId, accountId, developmentId);
+  const salesTruth = useSalesTruth(accountId, developmentId); // fonte única de vendas (E3)
   const { alerts: aiAlerts, criticalCount: aiCritical, warningCount: aiWarning, resolveAlert, generateAlerts, generating: generatingAlerts } = useIntelligenceAlerts(accountId);
   const { visibility, save: savePrefs, resetDefaults } = useCentralPreferences(userId, accountId, role);
   const [showSettings, setShowSettings] = useState(false);
@@ -508,6 +503,7 @@ export default function CentralPage() {
           accountId={accountId}
           developmentId={developmentId}
           aiAlerts={aiAlerts}
+          salesCount={salesTruth.totals.count}
           onOpenSettings={() => setShowSettings(true)}
         />
         {showSettings && (
@@ -527,7 +523,8 @@ export default function CentralPage() {
   const openNegs = data.negStageCounts.open;
   const inProgressNegs = data.negStageCounts.inProgress;
   const lostNegs = data.lostCount;
-  const wonNegs = data.wonCount;
+  // "Vendidas" agora sai da fonte ÚNICA (salesTruth) — não mais max(WON, soldUnits).
+  const wonNegs = salesTruth.totals.count;
   const funnelMax = Math.max(openNegs, inProgressNegs, data.stock.reserved, wonNegs, lostNegs, 1);
   const funnelStages = [
     { label: "Aberta", count: openNegs, widthPercent: Math.max((openNegs / funnelMax) * 100, 8), color: "#60A5FA" },
@@ -709,7 +706,7 @@ export default function CentralPage() {
       {(isVisible("chart") || isVisible("alerts")) && (
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10, marginTop: 20 }}>
         {/* Sales chart */}
-        {isVisible("chart") && isManager && role !== "administrative" && <SalesChart />}
+        {isVisible("chart") && isManager && role !== "administrative" && <SalesChart series={salesTruth.monthly} />}
 
         {/* Alerts */}
         {isVisible("alerts") && data.focus.length > 0 && (

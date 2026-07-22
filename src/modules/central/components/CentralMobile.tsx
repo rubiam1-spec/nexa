@@ -364,14 +364,14 @@ function IntelligenceAlertList({ alerts, onNavigate }: { alerts: IntelligenceAle
   );
 }
 
-function FunnelHorizontal({ data }: { data: CentralData }) {
+function FunnelHorizontal({ data, salesCount }: { data: CentralData; salesCount?: number }) {
   // Contagens reais (base completa) — não o preview capado de data.negotiations.
   const openNegs = data.negStageCounts.open;
   const inProg = data.negStageCounts.inProgress;
   const stages = [
     { label: "Negociações", count: openNegs + inProg, color: "#60A5FA" },
     { label: "Reservas", count: data.stock.reserved, color: "#D97706" },
-    { label: "Vendas", count: data.wonCount, color: T.sprout },
+    { label: "Vendas", count: salesCount ?? data.wonCount, color: T.sprout },
   ];
   const max = Math.max(...stages.map((s) => s.count), 1);
   return (
@@ -852,6 +852,7 @@ function DailyBriefMini({ accountId, developmentId }: { accountId: string | null
 // ── Role-specific mobile layouts ──
 
 interface BaseProps {
+  salesCount?: number; // fonte única (salesTruth) p/ a etapa Vendas do funil
   data: CentralData;
   role: string | null;
   userName: string;
@@ -874,7 +875,7 @@ function CentralMobileDirector(props: BaseProps) {
         <DailyBriefMini accountId={props.accountId} developmentId={props.developmentId} />
       ) : null}
       <IntelligenceAlertList alerts={props.aiAlerts} onNavigate={go} />
-      <FunnelHorizontal data={props.data} />
+      <FunnelHorizontal data={props.data} salesCount={props.salesCount} />
       <AgendaTimeline data={props.data} onNavigate={go} />
       <TeamSummary data={props.data} />
     </div>
