@@ -252,6 +252,9 @@ export default function NegotiationImportWizard({
   const navigate = useNavigate();
   const screen = useScreen();
   const isMobile = !screen.isDesktop;
+  const isSmall = screen.width < 480; // < 480: Revisão vira cards expansíveis
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+  const toggleExpand = (i: number) => setExpandedRows((prev) => { const n = new Set(prev); if (n.has(i)) n.delete(i); else n.add(i); return n; });
   const fileRef = useRef<HTMLInputElement>(null);
   const bufferRef = useRef<ArrayBuffer | null>(null);
   const imp = useNegotiationImport(accountId, developmentId);
@@ -1155,6 +1158,58 @@ export default function NegotiationImportWizard({
                   </select>
                 </label>
               </div>
+              {isSmall ? (
+                /* <480px: cada linha vira um card (resumo + tap expande edição vertical) */
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {rows.filter((r) => (onlyReview ? r.flags.length > 0 : true)).map((r) => {
+                    const expanded = expandedRows.has(r.index);
+                    const ql = r.quadra && r.lote ? `Q${r.quadra}/L${r.lote}` : "—";
+                    const linkCliente = r.clientLinkSuggested;
+                    const escolherUnidade = r.flags.includes("unidade_nao_encontrada") || r.flags.includes("multiplos_lotes");
+                    return (
+                      <div key={r.index} style={{ border: `1px solid ${T.border}`, borderRadius: 10, background: T.layer1, overflow: "hidden" }}>
+                        {/* RESUMO — tap expande */}
+                        <button type="button" onClick={() => toggleExpand(r.index)} style={{ width: "100%", minHeight: 44, textAlign: "left", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px" }}>
+                          <input type="checkbox" checked={r.approved} onClick={(e) => e.stopPropagation()} onChange={(e) => { e.stopPropagation(); setRows((all) => all.map((x) => (x.index === r.index ? { ...x, approved: e.target.checked } : x))); }} style={{ width: 20, height: 20, flexShrink: 0 }} />
+                          <span style={{ flex: 1, minWidth: 0 }}>
+                            <span style={{ display: "block", fontSize: 13, fontWeight: 600, color: r.clientName ? T.bone : T.red, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.index}. {r.clientName || "sem cliente"}</span>
+                            <span style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 3, fontFamily: T.mono, fontSize: 10.5, color: T.fog }}>
+                              <span>{ql}</span><span>· {STATUS_LABELS[r.status]}</span>
+                              {r.permuta && <Tag text="permuta" color={T.terracotta} />}
+                              {r.flags.filter((f) => f !== "permuta").map((f) => <Tag key={f} text={ROW_FLAG_LABELS[f]} color={f === "sem_cliente" ? T.red : T.yellow} />)}
+                            </span>
+                          </span>
+                          <span style={{ color: T.fog, fontSize: 12, flexShrink: 0 }}>{expanded ? "▾" : "▸"}</span>
+                        </button>
+                        {/* EDIÇÃO VERTICAL */}
+                        {expanded && (
+                          <div style={{ display: "grid", gap: 12, padding: "4px 12px 14px", borderTop: `1px solid ${T.border}` }}>
+                            {linkCliente && (
+                              <label style={{ display: "grid", gap: 4, fontSize: 11, color: T.fog }}>Vincular contato
+                                <ImportCombobox options={clientOptions(r)} value={r.clientId ?? NEW_CLIENT} onChange={(id) => setRowClient(r.index, id)} placeholder="Vincular a contato…" closedLabel={r.clientId ? <PickChip tone="blue">Vinculado</PickChip> : <PickChip tone="sprout">Criar novo</PickChip>} ariaLabel={`Vincular cliente linha ${r.index}`} />
+                              </label>
+                            )}
+                            {escolherUnidade && (
+                              <label style={{ display: "grid", gap: 4, fontSize: 11, color: T.fog }}>Unidade
+                                <ImportCombobox options={unitOptions(r)} value={r.unitId} onChange={(id) => setRowUnit(r.index, id)} placeholder="Buscar quadra/lote…" closedLabel={r.unitId ? <PickChip tone="sprout">{unitLabel(r.unitId)}</PickChip> : <span style={{ color: T.yellow, fontFamily: T.mono, fontSize: 11 }}>{ql} ?</span>} ariaLabel={`Escolher unidade linha ${r.index}`} />
+                              </label>
+                            )}
+                            <label style={{ display: "grid", gap: 4, fontSize: 11, color: T.fog }}>Status
+                              <select style={{ ...selectStyle, minHeight: 40 }} value={r.status} onChange={(e) => setRows((all) => all.map((x) => (x.index === r.index ? { ...x, status: e.target.value as NegotiationStatus, statusClass: ["WON", "LOST", "CANCELLED"].includes(e.target.value) ? "arquivada" : "ativa" } : x)))}>
+                                {ALL_STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+                              </select>
+                            </label>
+                            <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontFamily: T.mono, fontSize: 11, color: T.dust }}>
+                              <span>Corretor: {r.brokerName ?? "—"}</span>
+                              <span>Data: {r.createdAt ?? "—"}</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
               <div style={{ overflowX: "auto", border: `1px solid ${T.border}`, borderRadius: 10 }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <thead>
@@ -1290,6 +1345,7 @@ export default function NegotiationImportWizard({
                   </tbody>
                 </table>
               </div>
+              )}
               <div style={{ marginTop: 10, fontSize: 12, color: T.fog }}>Nada é gravado nesta etapa.</div>
             </div>
           )}
