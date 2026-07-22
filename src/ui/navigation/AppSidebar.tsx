@@ -25,7 +25,7 @@ type AccountIdentityRow = {
   cor_primaria: string | null;
 };
 
-export default function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
+export default function AppSidebar({ onNavigate, collapsed = false, onExpand }: { onNavigate?: () => void; collapsed?: boolean; onExpand?: () => void } = {}) {
   const { user, authenticatedProfile } = useAuth();
   const { account } = useAccount();
   const { development } = useDevelopment();
@@ -66,6 +66,64 @@ export default function AppSidebar({ onNavigate }: { onNavigate?: () => void } =
     void loadIdentity();
     return () => { cancelled = true; };
   }, [accountId]);
+
+  // ── Rail de ícones (R1 · faixa tablet 768–1179) ──────────────────────────
+  // Sempre visível (empurra conteúdo, ~64px), só ícones com tooltip nativo
+  // (title), botão de expandir p/ o overlay 240px. Mesma fonte (navRegistry).
+  if (collapsed) {
+    return (
+      <aside style={{ width: 64, height: "100%", background: "var(--sidebar-bg)", borderRight: "1px solid var(--sidebar-border)", display: "flex", flexDirection: "column", flexShrink: 0, overflow: "hidden" }}>
+        {/* Logo NEXA (marca) */}
+        <div style={{ display: "flex", justifyContent: "center", padding: "18px 0 6px" }}>
+          <svg width="28" height="28" viewBox="0 0 512 512" style={{ flexShrink: 0 }}>
+            <path d="M40 0 H370 L512 142 V472 Q512 512 472 512 H40 Q0 512 0 472 V40 Q0 0 40 0 Z" fill="var(--surface-overlay)" />
+            <polygon points="148,380 148,132 200,132 316,308 316,132 364,132 364,380 316,380 200,204 200,380" fill="#4ADE80" />
+          </svg>
+        </div>
+        {/* Expandir */}
+        <div style={{ display: "flex", justifyContent: "center", paddingBottom: 6 }}>
+          <button type="button" onClick={onExpand} title="Expandir menu" aria-label="Expandir menu" style={{ width: 40, height: 30, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "1px solid var(--border-subtle)", borderRadius: 8, color: "var(--text-disabled)", cursor: "pointer" }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+          </button>
+        </div>
+        {/* Navegação — só ícones, tooltip via title */}
+        <nav style={{ flex: 1, overflowY: "auto", padding: "0 8px" }}>
+          {groups.map((group, gi) => (
+            <div key={group.secao}>
+              {gi > 0 && <div style={{ height: 1, background: "var(--border-subtle)", margin: "8px 6px" }} />}
+              {group.modules.map((mod) => (
+                <NavLink
+                  key={mod.id}
+                  to={mod.rota}
+                  onClick={onNavigate}
+                  title={mod.label}
+                  style={({ isActive }) => ({ display: "flex", alignItems: "center", justifyContent: "center", padding: "11px 0", borderRadius: 8, marginBottom: 2, background: isActive ? "rgba(250,249,246,0.03)" : "transparent", position: "relative", textDecoration: "none" })}
+                >
+                  {({ isActive }) => (
+                    <>
+                      {isActive && <div style={{ position: "absolute", left: 0, top: "50%", transform: "translateY(-50%)", width: 2.5, height: 16, background: "var(--interactive-primary)", borderRadius: 2 }} />}
+                      <Ic icone={mod.icone} active={isActive} />
+                    </>
+                  )}
+                </NavLink>
+              ))}
+            </div>
+          ))}
+        </nav>
+        {/* Footer — avatar + tema, empilhados */}
+        <div style={{ borderTop: "1px solid var(--border-subtle)", padding: "10px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <Avatar name={name} avatarUrl={avatarUrl} size={30} />
+          <button type="button" onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")} title={resolvedTheme === "dark" ? "Modo claro" : "Modo escuro"} style={{ background: "transparent", border: "none", cursor: "pointer", padding: 6, borderRadius: 6, color: "var(--text-disabled)", display: "flex", alignItems: "center", justifyContent: "center", minWidth: 40, minHeight: 40 }}>
+            {resolvedTheme === "dark" ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            )}
+          </button>
+        </div>
+      </aside>
+    );
+  }
 
   return (
     <aside style={{ width: 240, height: "100%", background: "var(--sidebar-bg)", borderRight: "1px solid var(--sidebar-border)", display: "flex", flexDirection: "column", flexShrink: 0, overflow: "hidden" }}>

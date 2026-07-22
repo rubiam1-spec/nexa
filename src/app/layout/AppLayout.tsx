@@ -5,6 +5,7 @@ import { useDevelopment } from "../contexts/DevelopmentContext";
 import { useAuth } from "../contexts/AuthContext";
 import AppSidebar from "../../ui/navigation/AppSidebar";
 import { useScreen } from "../../shared/hooks/useIsMobile";
+import { SIDEBAR_RAIL_BP, SIDEBAR_FULL_BP } from "../../shared/mobile";
 import { useOnboarding, OnboardingWelcome } from "../../shared/components/OnboardingWelcome";
 import MobileBottomNav from "../../shared/components/MobileBottomNav";
 
@@ -55,11 +56,21 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { signOut, authenticatedProfile } = useAuth();
   const location = useLocation();
   const screen = useScreen();
-  const isMobile = !screen.isDesktop; // sidebar as drawer below 1024px
-  const isCompact = screen.isMobile; // < 768: bottom nav replaces sidebar entirely
+  // R1 · 3 faixas de navegação (largura só decide o chrome, nunca o conteúdo):
+  //   < 768        → tab bar (M1)
+  //   768–1179     → rail de ícones (64px, empurra) + overlay 240px expansível
+  //   >= 1180      → sidebar completa 240px
+  const isCompact = screen.width < SIDEBAR_RAIL_BP; // < 768: bottom nav
+  const isRail = screen.width >= SIDEBAR_RAIL_BP && screen.width < SIDEBAR_FULL_BP;
   const isHome = HOME_PATHS.has(location.pathname);
   const mobilePageTitle = getMobilePageTitle(location.pathname);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Preferência do rail expandido (overlay) — persistida por usuário.
+  const [railExpanded, setRailExpanded] = useState(() => {
+    try { return localStorage.getItem("nexa:rail_expanded") === "1"; } catch { return false; }
+  });
+  const persistRail = (v: boolean) => { try { localStorage.setItem("nexa:rail_expanded", v ? "1" : "0"); } catch { /* ignore */ } };
+  const toggleRail = useCallback(() => setRailExpanded((v) => { persistRail(!v); return !v; }), []);
+  const closeRail = useCallback(() => setRailExpanded(() => { persistRail(false); return false; }), []);
   const { show: showOnboarding, dismiss: dismissOnboarding } = useOnboarding();
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications(authenticatedProfile?.id ?? null, account?.accountId ?? null);
   useCadenceAlerts(account?.accountId ?? null, authenticatedProfile?.id ?? null, account?.role ?? null);
@@ -121,13 +132,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         overflow: "hidden",
       }}
     >
-      {/* Sidebar — desktop fixed, tablet as drawer, phone replaced by bottom nav */}
-      {isCompact ? null : isMobile ? (
+      {/* Sidebar — >=1180 completa fixa · 768–1179 rail de ícones (empurra) +
+          overlay 240px expansível (não empurra) · <768 substituída por tab bar */}
+      {isCompact ? null : isRail ? (
         <>
-          {sidebarOpen ? <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 90, transition: "opacity 0.25s" }} onClick={() => setSidebarOpen(false)} /> : null}
-          <div style={{ position: "fixed", left: 0, top: 0, bottom: 0, zIndex: 100, transform: sidebarOpen ? "translateX(0)" : "translateX(-100%)", transition: "transform 0.25s ease", width: 280 }}>
-            <AppSidebar onNavigate={() => setSidebarOpen(false)} />
-          </div>
+          <AppSidebar collapsed onExpand={toggleRail} />
+          {railExpanded ? (
+            <>
+              <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 90, transition: "opacity 0.25s" }} onClick={closeRail} />
+              <div style={{ position: "fixed", left: 0, top: 0, bottom: 0, zIndex: 100, width: 240 }}>
+                <AppSidebar onNavigate={closeRail} />
+              </div>
+            </>
+          ) : null}
         </>
       ) : (
         <AppSidebar />
@@ -156,28 +173,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1 }}>
-            {isMobile && !isCompact ? (
-              <button
-                type="button"
-                onClick={() => setSidebarOpen(true)}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  color: "var(--color-bone)",
-                  padding: 8,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexShrink: 0,
-                  width: 44,
-                  height: 44,
-                }}
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
-                </svg>
-              </button>
-            ) : null}
+            {/* Rail (768–1179) tem seu próprio botão de expandir — sem hambúrguer no topo */}
             {isCompact && !isHome ? (
               <>
                 <button
@@ -246,8 +242,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
                 {unreadCount > 0 && <div style={{ position: "absolute", top: 2, right: 2, minWidth: 16, height: 16, borderRadius: 99, background: "#E24B4A", color: "#fff", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px", border: "2px solid var(--surface-base)" }}>{unreadCount > 9 ? "9+" : unreadCount}</div>}
               </button>
-              {bellOpen && (isMobile ? (
-                /* Mobile: fullscreen overlay */
+              {bellOpen && (isCompact ? (
+                /* Mobile (<768): fullscreen overlay */
                 <>
                   <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 998 }} onClick={closeBell} />
                   <div style={{ position: "fixed", inset: 0, zIndex: 999, background: "var(--surface-base, #12110F)", display: "flex", flexDirection: "column" }}>
