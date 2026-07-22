@@ -13,6 +13,8 @@ import type { NegotiationHistoryEvent } from "../../../shared/types/negotiationH
 import type { UserRole } from "../../../shared/types/auth";
 import type { Unidade } from "../../../domain/unidade/Unidade";
 import { ReservationStatus } from "../../../domain/reserva/ReservationStatus";
+import { SaleStatus } from "../../../domain/venda/SaleStatus";
+import { areRequiredDocsApproved } from "../../../infra/repositories/clientDocumentsSupabaseRepository";
 import { converterNegociacaoEmVenda } from "../../../app/venda/ConverterNegociacaoEmVenda";
 import { avancarVendaParaDocumentos } from "../../../app/venda/AvancarVendaParaDocumentos";
 import { avancarVendaParaContrato } from "../../../app/venda/AvancarVendaParaContrato";
@@ -27,6 +29,7 @@ import {
   createSale as createSupabaseSale,
   getSalesByNegotiation as getSupabaseSalesByNegotiation,
   updateSaleStatus as updateSupabaseSaleStatus,
+  logSaleAdvanceOverride,
 } from "../../../infra/repositories/salesSupabaseRepository";
 import {
   updateReservationStatus as updateSupabaseReservationStatus,
@@ -46,6 +49,13 @@ import { updateReservationStatus as updateMockReservationStatus } from "../repos
 
 type SalesStatus = "idle" | "loading" | "mock" | "ready" | "empty" | "error";
 
+export type SaleDocumentsGate = {
+  requiredTotal: number;
+  requiredApproved: number;
+  complete: boolean;
+  pendingLabels: string[];
+};
+
 export function useSales(
   negotiation: Negotiation | null,
   proposals: Proposal[],
@@ -64,6 +74,9 @@ export function useSales(
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [status, setStatus] = useState<SalesStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Gate de documentos: completude dos obrigatórios do comprador, carregada
+  // quando a venda está aguardando documentos (não-mock).
+  const [documentsGate, setDocumentsGate] = useState<SaleDocumentsGate | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -136,6 +149,47 @@ export function useSales(
       isMounted = false;
     };
   }, [negotiation?.id, useMockFallback]);
+
+  // Carrega o gate de documentos quando houver venda aguardando documentos
+  // (só real; em mock não há client_documents e o gate não se aplica).
+  async function loadDocumentsGate() {
+    if (useMockFallback || !negotiation?.clientId) {
+      setDocumentsGate(null);
+      return;
+    }
+    const atDocuments = sales.some((s) => s.status === SaleStatus.AWAITING_DOCUMENTS);
+    if (!atDocuments) {
+      setDocumentsGate(null);
+      return;
+    }
+    try {
+      setDocumentsGate(await areRequiredDocsApproved(negotiation.clientId));
+    } catch {
+      setDocumentsGate(null);
+    }
+  }
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      if (useMockFallback || !negotiation?.clientId) {
+        if (active) setDocumentsGate(null);
+        return;
+      }
+      const atDocuments = sales.some((s) => s.status === SaleStatus.AWAITING_DOCUMENTS);
+      if (!atDocuments) {
+        if (active) setDocumentsGate(null);
+        return;
+      }
+      try {
+        const gate = await areRequiredDocsApproved(negotiation.clientId);
+        if (active) setDocumentsGate(gate);
+      } catch {
+        if (active) setDocumentsGate(null);
+      }
+    })();
+    return () => { active = false; };
+  }, [sales, negotiation?.clientId, useMockFallback]);
 
   async function createSale(performedBy: string | null): Promise<{
     sale: Sale;
@@ -335,14 +389,59 @@ export function useSales(
   }
 
   async function advanceSaleToContract(saleId: string, performedBy: string | null) {
-    return transitionSale(
-      saleId,
-      avancarVendaParaContrato,
-      NegotiationHistoryAction.SALE_ADVANCED,
-      PermissionAction.ADVANCE_SALE,
-      "Perfil sem permissao para avancar status da venda.",
-      performedBy,
-    );
+    const advance = () =>
+      transitionSale(
+        saleId,
+        avancarVendaParaContrato,
+        NegotiationHistoryAction.SALE_ADVANCED,
+        PermissionAction.ADVANCE_SALE,
+        "Perfil sem permissao para avancar status da venda.",
+        performedBy,
+      );
+
+    // Gate de documentos (só fluxo real). "Completo" = todos os obrigatórios do
+    // comprador aprovados. A permissão ADVANCE_SALE continua valendo por cima
+    // (é checada dentro de transitionSale, inclusive no override).
+    if (!useMockFallback && negotiation && negotiation.clientId) {
+      let gate: SaleDocumentsGate;
+      try {
+        gate = await areRequiredDocsApproved(negotiation.clientId);
+      } catch {
+        gate = { requiredTotal: 0, requiredApproved: 0, complete: false, pendingLabels: [] };
+      }
+      if (!gate.complete) {
+        // owner não está no type UserRole (lacuna conhecida; existe em runtime
+        // via account.role) — comparar como string, como o resto do código faz.
+        const role = actorRole as string | null;
+        const canOverride = role === "director" || role === "owner";
+        if (!canOverride) {
+          setErrorMessage(
+            "Faltam documentos obrigatorios do comprador para avançar para contrato.",
+          );
+          return null;
+        }
+        // Override de director/owner: prossegue e registra a exceção na trilha.
+        const result = await advance();
+        if (result) {
+          void logSaleAdvanceOverride({
+            accountId: negotiation.accountId,
+            saleId,
+            actorProfileId: performedBy,
+            details: {
+              forced: true,
+              reason: "documentos obrigatorios incompletos",
+              client_id: negotiation.clientId,
+              required_approved: gate.requiredApproved,
+              required_total: gate.requiredTotal,
+              pending: gate.pendingLabels,
+            },
+          });
+        }
+        return result;
+      }
+    }
+
+    return advance();
   }
 
   async function advanceSaleToPayment(saleId: string, performedBy: string | null) {
@@ -458,6 +557,8 @@ export function useSales(
     isUsingMock: status === "mock",
     status,
     errorMessage,
+    documentsGate,
+    refreshDocumentsGate: loadDocumentsGate,
     createSale,
     advanceSaleToDocuments,
     advanceSaleToContract,
