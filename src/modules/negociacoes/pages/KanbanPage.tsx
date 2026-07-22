@@ -24,6 +24,7 @@ import { useLeads, type LeadView } from "../../leads/useLeads";
 import LeadCard from "../../leads/LeadCard";
 import { AssignModal, DiscardModal } from "../../leads/LeadActionModals";
 import { splitLeadColumns } from "../../leads/leadColumns";
+import { EntityNameLink } from "../../../shared/navigation/EntityLink";
 import { NexaSelect } from "../../../shared/ui/NexaSelect";
 import { NexaModal } from "../../../shared/ui/NexaModal";
 
@@ -436,18 +437,18 @@ export default function KanbanPage() {
         onClick={() => navigate(`/negociacoes/${c.id}`)}
         onMouseEnter={() => setHoveredId(c.id)} onMouseLeave={() => setHoveredId(null)}
         style={{ position: "relative", zIndex: cardMenuOpen === c.id ? 30 : isHovered ? 20 : "auto", background: stage === "venda" ? "linear-gradient(145deg, rgba(52,211,153,0.08) 0%, #16150F 60%)" : "linear-gradient(145deg, #22211C 0%, #16150F 100%)", border: isHovered ? "1px solid rgba(74,222,128,0.18)" : "1px solid var(--border-default)", borderRadius: 9, padding: 11, cursor: "pointer", transition: "border-color 150ms ease, transform 150ms ease", transform: isHovered ? "translateY(-1px)" : "none", opacity: stage === "perdido" ? 0.6 : 1 }}>
-        {/* Linha 1: CLIENTE (título) + Importada + valor à direita */}
+        {/* Linha 1: CLIENTE (título, link p/ o Contato) + Importada + valor */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3, minWidth: 0 }}>
-          <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, color: "var(--color-bone)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <EntityNameLink entity="contact" id={c.clienteId} title="Abrir contato" style={{ flex: 1, minWidth: 0, display: "block", fontSize: 13, fontWeight: 700, color: "var(--color-bone)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {c.clienteNome || <span style={{ color: "var(--color-clay)", fontStyle: "italic", fontWeight: 400 }}>Sem cliente</span>}
-          </span>
+          </EntityNameLink>
           {c.importBatchId ? <span style={{ flexShrink: 0, fontFamily: MONO, fontSize: 8, fontWeight: 700, color: "#7DA7F4", background: "rgba(125,167,244,0.12)", borderRadius: 4, padding: "1px 4px", letterSpacing: "0.03em", textTransform: "uppercase" }}>Importada</span> : null}
           <span style={{ flexShrink: 0, fontFamily: MONO, fontSize: 12, fontWeight: 700, color: stage === "venda" ? "#34D399" : "var(--color-bone)" }}>{fmtBRL(c.valor)}</span>
         </div>
-        {/* Linha 2: unidade como METADADO fraco (nunca título) + fila */}
+        {/* Linha 2: unidade como METADADO fraco (link p/ a Ficha) + fila */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, minWidth: 0 }}>
           <span style={{ width: 7, height: 7, borderRadius: "50%", background: unitDot(c.unitStatus), flexShrink: 0 }} />
-          <span style={{ fontSize: 10.5, color: "var(--color-slate)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{unitLabel(c)}</span>
+          <EntityNameLink entity="unit" id={c.unitId} title="Abrir ficha da unidade" style={{ fontSize: 10.5, color: "var(--color-slate)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "inline-block", maxWidth: "70%" }}>{unitLabel(c)}</EntityNameLink>
           {c.unitId && myQueueMap[c.unitId] ? <span style={{ flexShrink: 0, fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "#7DA7F420", color: "#7DA7F4", fontWeight: 600 }}>Fila #{myQueueMap[c.unitId]}</span> : null}
         </div>
         {/* Linha 3: semáforo (ou motivo, se perdido) */}
@@ -459,7 +460,7 @@ export default function KanbanPage() {
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: SEMA_COLOR[s.level], flexShrink: 0 }} />
             <span style={{ fontSize: 10.5, color: SEMA_COLOR[s.level], fontFamily: MONO }}>{s.label}</span>
-            <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--color-slate)" }}>{c.corretorNome || "—"}</span>
+            <EntityNameLink entity="broker" id={c.corretorId} title="Abrir corretor" style={{ marginLeft: "auto", fontSize: 10, color: "var(--color-slate)" }}>{c.corretorNome || "—"}</EntityNameLink>
           </div>
         )}
         {/* Indicação de solicitação pendente (não muda coluna) */}

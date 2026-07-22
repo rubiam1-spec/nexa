@@ -44,4 +44,19 @@ export function EntityLink({
   );
 }
 
+// Conveniência: nome de entidade que vira link SE houver id (FK presente),
+// senão texto puro. Evita ternário repetido nas listas/cards.
+export function EntityNameLink({
+  entity, id, children, style, title,
+}: {
+  entity: EntityKind;
+  id: string | null | undefined;
+  children: ReactNode;
+  style?: CSSProperties;
+  title?: string;
+}) {
+  if (!id) return <span style={style}>{children}</span>;
+  return <EntityLink entity={entity} id={id} style={style} title={title}>{children}</EntityLink>;
+}
+
 export default EntityLink;

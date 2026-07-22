@@ -11,6 +11,7 @@ import type { NegotiationStatus } from "../../../domain/negociacao/NegotiationSt
 import { getNegotiationStatusLabel } from "../../../domain/negociacao/NegotiationStatusLabel";
 import { parseUnitHistoryAction, unitStatusLabelTolerant } from "../../../domain/unidade/unitHistoryDisplay";
 import { UNIT_STATUS_COLOR, UNIT_STATUS_COLOR_FALLBACK } from "../../../domain/unidade/unitStatusColor";
+import { EntityLink } from "../../../shared/navigation/EntityLink";
 import { bulkBlockReasonLabel } from "../../../domain/unidade/bulkStatusReason";
 import { getUnitDetail, type UnitDetail } from "../../../infra/repositories/unitsSupabaseRepository";
 import { getClientById, getClients, createClient } from "../../../infra/repositories/clientsSupabaseRepository";
@@ -364,7 +365,11 @@ export default function UnitFichaModal({
             {negotiation ? (
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{clientName ?? "Cliente —"}</span>
+                  {negotiation.clientId ? (
+                    <EntityLink entity="contact" id={negotiation.clientId} title="Abrir contato" style={{ display: "inline-block", maxWidth: 180, fontSize: 14, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "bottom" }}>{clientName ?? "Cliente —"}</EntityLink>
+                  ) : (
+                    <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{clientName ?? "Cliente —"}</span>
+                  )}
                   <span style={{ fontFamily: MONO, fontSize: 10.5, fontWeight: 700, color: "var(--text-secondary)", background: "var(--surface-base)", border: "1px solid var(--border-default)", borderRadius: 6, padding: "2px 8px", whiteSpace: "nowrap" }}>{getNegotiationStatusLabel(negotiation.status) ?? negotiation.status}</span>
                 </div>
                 <button type="button" onClick={() => onOpenNegotiation(negotiation.id)} style={{ background: "transparent", border: "none", color: "var(--color-sprout)", fontSize: 13, fontWeight: 600, cursor: "pointer", padding: 4 }}>abrir →</button>
@@ -373,7 +378,11 @@ export default function UnitFichaModal({
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{compradorLabel}</span>
+                    {saleInfo.clientId ? (
+                      <EntityLink entity="contact" id={saleInfo.clientId} title="Abrir contato" style={{ display: "inline-block", maxWidth: 180, fontSize: 14, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "bottom" }}>{compradorLabel}</EntityLink>
+                    ) : (
+                      <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{compradorLabel}</span>
+                    )}
                     {saleInfo.origin === "historical" && <span style={{ fontFamily: MONO, fontSize: 10, fontWeight: 700, color: "var(--text-muted)", background: "var(--surface-base)", border: "1px solid var(--border-default)", borderRadius: 6, padding: "2px 7px" }}>histórica</span>}
                   </div>
                   {saleInfo.origin === "flow" && saleInfo.negotiationId && (
