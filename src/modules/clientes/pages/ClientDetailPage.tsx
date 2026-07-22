@@ -23,6 +23,8 @@ import { fromLeadQualificationDb, isLeadActive } from "../../../domain/status/le
 import { LEAD_STAGE_META } from "../../leads/leadDisplay";
 import { NexaSelect } from "../../../shared/ui/NexaSelect";
 import { NexaModal } from "../../../shared/ui/NexaModal";
+import { useReturnTo } from "../../../shared/navigation/useReturnTo";
+import { ENTITY_LIST_HOME } from "../../../shared/navigation/entityRoutes";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 
@@ -174,6 +176,7 @@ function QuickActivityModal({ clientId, clientName, accountId, developmentId, pr
 export default function ClientDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const returnTo = useReturnTo(ENTITY_LIST_HOME.contact); // "← Leads/Negociações/Contatos" conforme a origem
   const { account } = useAccount();
   const { development } = useDevelopment();
   const { authenticatedProfile } = useAuth();
@@ -453,7 +456,7 @@ export default function ClientDetailPage() {
   }
 
   if (loading) return <div style={{ padding: 32 }}><div style={{ fontSize: 13, color: T.fog, fontFamily: "var(--font-mono)" }}>Carregando...</div></div>;
-  if (!client) return <div style={{ padding: 32 }}><div style={{ fontSize: 14, color: T.red }}>Cliente não encontrado.</div><button type="button" onClick={() => navigate("/contatos")} style={{ marginTop: 16, background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "8px 16px", color: T.bone, fontSize: 13, cursor: "pointer" }}>← Voltar</button></div>;
+  if (!client) return <div style={{ padding: 32 }}><div style={{ fontSize: 14, color: T.red }}>Cliente não encontrado.</div><button type="button" onClick={() => navigate(returnTo.to)} style={{ marginTop: 16, background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 8, padding: "8px 16px", color: T.bone, fontSize: 13, cursor: "pointer" }}>← {returnTo.label}</button></div>;
 
   // Checklist canônico vindo de document_requirements + catálogo (via hook);
   // fallback para a lista mínima caso a conta/empreendimento não tenha requisitos.
@@ -476,7 +479,7 @@ export default function ClientDetailPage() {
       {/* Header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
         <div>
-          <button type="button" onClick={() => navigate("/contatos")} style={{ background: "none", border: "none", color: T.fog, fontSize: 12, cursor: "pointer", padding: 0, marginBottom: 6 }}>← Contatos</button>
+          <button type="button" onClick={() => navigate(returnTo.to)} style={{ background: "none", border: "none", color: T.fog, fontSize: 12, cursor: "pointer", padding: 0, marginBottom: 6 }}>← {returnTo.label}</button>
           <h1 style={{ fontSize: isMobile ? 20 : 24, fontWeight: 700, color: T.chalk, margin: 0 }}>{client.full_name || client.name}</h1>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
             <TempBadge temp={client.temperature} />

@@ -155,8 +155,8 @@ export default function UnitsPage() {
   }
   const exitFocus = useCallback(() => { setFocusIds(null); setFocusLabel(""); }, []);
 
-  // Pre-select from URL
-  const urlUnitId = searchParams.get("unitId");
+  // Pre-select from URL — ?unidade=<id> (deep-link canônico da Ficha) ou ?unitId= (legado)
+  const urlUnitId = searchParams.get("unidade") ?? searchParams.get("unitId");
   useEffect(() => { if (urlUnitId && units.length > 0) setSelectedId(urlUnitId); }, [urlUnitId, units.length]);
   useEffect(() => { if (urlView === "mapa" && temMapaInterativo) setVis("interativo"); }, [urlView, temMapaInterativo]);
 

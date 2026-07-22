@@ -8,6 +8,7 @@ import { LeadQualificationStatus as S, isLeadActive } from "../../domain/status/
 import { CLIENT_SOURCE_LABELS } from "../../shared/types/client";
 import { useScreen } from "../../shared/hooks/useIsMobile";
 import { MOBILE_SMALL_BP } from "../../shared/mobile";
+import { EntityLink } from "../../shared/navigation/EntityLink";
 
 const MONO = "var(--font-mono)";
 
@@ -42,6 +43,9 @@ export default function LeadCard({ lead, canAssign, busy, movedNote, campaignLab
 
   return (
     <div style={{ background: movedNote ? "rgba(74,222,128,0.05)" : "linear-gradient(145deg, var(--surface-raised), var(--surface-base))", border: `1px solid ${movedNote ? "var(--color-sprout)" : "var(--border-default)"}`, boxShadow: movedNote ? "0 0 0 1px var(--color-sprout) inset" : undefined, borderRadius: 10, padding: 11, transition: "border-color 240ms ease, box-shadow 240ms ease" }}>
+      {/* Corpo do card (exceto botões) → casa do Contato (Lei 2). Bloco: sem
+          sublinhado, só cursor; no toque navega, os botões abaixo agem. */}
+      <EntityLink entity="contact" id={c.id} underline={false} title="Abrir contato" style={{ display: "block", color: "inherit" }}>
       {/* Linha 1: nome + origem/campanha (+ nota "movido") */}
       <div style={{ display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
         <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>{c.name || <span style={{ color: "#706B5F", fontStyle: "italic" }}>Sem nome</span>}</span>
@@ -67,6 +71,7 @@ export default function LeadCard({ lead, canAssign, busy, movedNote, campaignLab
           <span style={{ fontFamily: MONO, fontSize: 10, color: SEMAPHORE_COLOR[lead.semaphore.level], whiteSpace: "nowrap" }}>{lead.semaphore.label}</span>
         </div>
       )}
+      </EntityLink>
       {/* Ações — <400px: grid 2×2 (botões full-width, alvo ≥44px) */}
       <div style={{ display: isNarrow ? "grid" : "flex", gridTemplateColumns: isNarrow ? "1fr 1fr" : undefined, gap: 6, flexWrap: isNarrow ? undefined : "wrap", marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(61,58,48,0.12)" }}>
         {canAssign ? <Btn label="Atribuir" busy={busy} full={isNarrow} onClick={actions.onAssign} /> : null}
@@ -74,6 +79,10 @@ export default function LeadCard({ lead, canAssign, busy, movedNote, campaignLab
         {lead.canWork && lead.qualification === S.IN_SERVICE ? <Btn label="Qualificar" cor="#4ADE80" busy={busy} full={isNarrow} onClick={actions.onQualify} /> : null}
         {canConvertOrWork ? <Btn label="Converter" cor="#34D399" busy={busy} full={isNarrow} onClick={actions.onConvert} /> : null}
         {canConvertOrWork ? <Btn label="Descartar" cor="#F87171" busy={busy} full={isNarrow} onClick={actions.onDiscard} /> : null}
+      </div>
+      {/* Ação explícita (paridade com "abrir ficha →" das negociações) */}
+      <div style={{ marginTop: 6, textAlign: "right" }}>
+        <EntityLink entity="contact" id={c.id} style={{ fontFamily: MONO, fontSize: 11, fontWeight: 600, color: "var(--color-sprout)" }}>abrir contato →</EntityLink>
       </div>
     </div>
   );

@@ -15,7 +15,7 @@ const base: CSSProperties = {
 };
 
 export function EntityLink({
-  entity, id, devId, children, title, style, onNavigate,
+  entity, id, devId, children, title, style, onNavigate, underline = true,
 }: {
   entity: EntityKind;
   id: string;
@@ -24,6 +24,8 @@ export function EntityLink({
   title?: string;
   style?: CSSProperties;
   onNavigate?: () => void;
+  /** false p/ link em bloco (card): sem sublinhado no hover, só cursor. */
+  underline?: boolean;
 }) {
   const location = useLocation();
   const to = entityRoute(entity, id, devId);
@@ -33,9 +35,9 @@ export function EntityLink({
       state={{ from: location.pathname + location.search, fromLabel: routeLabel(location.pathname) }}
       title={title}
       onClick={(e) => { e.stopPropagation(); onNavigate?.(); }}
-      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderBottomColor = "currentColor"; }}
-      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderBottomColor = "transparent"; }}
-      style={{ ...base, ...style }}
+      onMouseEnter={underline ? (e) => { (e.currentTarget as HTMLElement).style.borderBottomColor = "currentColor"; } : undefined}
+      onMouseLeave={underline ? (e) => { (e.currentTarget as HTMLElement).style.borderBottomColor = "transparent"; } : undefined}
+      style={{ ...base, ...(underline ? null : { borderBottom: "none" }), ...style }}
     >
       {children}
     </Link>
