@@ -207,6 +207,34 @@ export async function recalcClientDocStatus(
   return { approved, total, status };
 }
 
+// Completude para o gate de avanço da venda: "completo" = todos os documentos
+// OBRIGATÓRIOS (is_required=true) com status='approved'. Opcionais NÃO contam.
+// NÃO confundir com clients.doc_status='approved' (que exige também opcionais).
+export async function areRequiredDocsApproved(
+  clientId: string,
+): Promise<{ requiredTotal: number; requiredApproved: number; complete: boolean; pendingLabels: string[] }> {
+  const empty = { requiredTotal: 0, requiredApproved: 0, complete: false, pendingLabels: [] };
+  if (!supabase) return empty;
+  const { data, error } = await supabase
+    .from("client_documents")
+    .select("status, is_required, label, document_type")
+    .eq("client_id", clientId)
+    .eq("is_required", true);
+  if (error) throw error;
+  const rows = (data ?? []) as { status: string; label: string | null; document_type: string }[];
+  const requiredTotal = rows.length;
+  const requiredApproved = rows.filter((r) => r.status === "approved").length;
+  const pendingLabels = rows
+    .filter((r) => r.status !== "approved")
+    .map((r) => r.label || r.document_type);
+  return {
+    requiredTotal,
+    requiredApproved,
+    complete: requiredTotal > 0 && requiredApproved === requiredTotal,
+    pendingLabels,
+  };
+}
+
 export async function getDocUploader(docId: string): Promise<string | null> {
   if (!supabase) return null;
   const { data } = await supabase
