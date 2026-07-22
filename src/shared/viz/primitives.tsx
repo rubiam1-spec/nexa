@@ -116,7 +116,7 @@ export function FunnelBars({ stages, convs, height = 220, onSelect, onHover, onL
             <div key={s.key}>
               {i > 0 ? (
                 <div style={{ textAlign: "center", padding: "3px 0", fontFamily: VIZ.mono, fontSize: 11, fontWeight: 700, color: VIZ.muted }}>
-                  ↓ {conv == null ? "—" : `${Math.round(conv * 100)}%`}
+                  {conv == null ? "↓" : `↓ ${Math.round(conv * 100)}%`}
                 </div>
               ) : null}
               <div
@@ -160,7 +160,7 @@ export function FunnelBars({ stages, convs, height = 220, onSelect, onHover, onL
         const nx = bars[i + 1];
         const midx = (b.x + barW + nx.x) / 2;
         const c = convs[i];
-        return <text key={`conv-${b.s.key}`} x={midx} y={padTop - 14} textAnchor="middle" fontFamily={VIZ.mono} fontSize={12} fontWeight={700} fill={VIZ.muted}>{c == null ? "—" : `${Math.round(c * 100)}%`}</text>;
+        return <text key={`conv-${b.s.key}`} x={midx} y={padTop - 14} textAnchor="middle" fontFamily={VIZ.mono} fontSize={12} fontWeight={700} fill={VIZ.muted}>{c == null ? "→" : `${Math.round(c * 100)}%`}</text>;
       })}
       {bars.map((b) => (
         <g key={b.s.key} data-viz-tap={interactive ? "" : undefined} style={{ cursor: interactive ? "pointer" : "default" }}

@@ -4,6 +4,7 @@ import { stageMeta, type BoardStage } from "../board/stageColumn";
 import {
   computeFunnelMetrics, computeEndToEndJourney, periodStartMs,
   computeMonthlyEvolution, computeBrokerRanking, periodSeries, pctDelta,
+  journeyConvsForDisplay,
   type PeriodKey, type JourneyStage, type BrokerRankRow,
 } from "../board/funnelMetrics";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
@@ -105,12 +106,13 @@ export function FunnelView({ board, thresholdDays, onOpenStage }: {
     key: s.key, label: s.label, value: s.count, color: journeyStageColor(s),
     secondary: NEG_STAGES.has(s.key) ? (vgvOf(s.key) > 0 ? vgvOrDash(vgvOf(s.key)) : "") : "",
   }));
-  const convs = journey.transitions.map((t) => t.conv);
+  // % honesto: só entre estágios da mesma coorte (fronteira leads→neg e >100% => sem %).
+  const convs = journeyConvsForDisplay(journey.stages, journey.transitions);
   const maxRowCount = Math.max(1, journey.stages[0].count, journey.stages[1].count, ...metrics.stageStats.map((s) => s.count));
   const funnelTip = (s: FunnelStageDatum, i: number) => {
     const isNeg = NEG_STAGES.has(s.key);
     const convIn = i > 0 ? convs[i - 1] : null;
-    return <><VizTipRow label={s.label} value={`${s.value}`} /><VizTipRow label="conversão de entrada" value={percent(convIn)} />{isNeg ? <><VizTipRow label="VGV" value={vgvOrDash(vgvOf(s.key))} /><VizTipRow label="tempo médio" value={daysStr(tempoOf(s.key))} /></> : null}</>;
+    return <><VizTipRow label={s.label} value={`${s.value}`} />{convIn != null ? <VizTipRow label="conversão de entrada" value={percent(convIn)} /> : null}{isNeg ? <><VizTipRow label="VGV" value={vgvOrDash(vgvOf(s.key))} /><VizTipRow label="tempo médio" value={daysStr(tempoOf(s.key))} /></> : null}</>;
   };
 
   return (

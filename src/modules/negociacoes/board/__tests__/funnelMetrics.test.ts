@@ -93,3 +93,36 @@ describe("generateOperationReading (Bloco 2)", () => {
     expect(r.cta?.negotiationId).toBe("stuck");
   });
 });
+
+describe("journeyConvsForDisplay — % honesto entre coortes", () => {
+  const S = (key: string, tone: "lead" | "negotiation", count: number) => ({ key, label: key, tone, count } as unknown as import("../funnelMetrics").JourneyStage);
+  const T2 = (conv: number | null) => ({ fromKey: "x", toKey: "y", conv } as unknown as import("../funnelMetrics").JourneyTransition);
+
+  it("fronteira leads→negociação: sem % (null) mesmo com números", async () => {
+    const { journeyConvsForDisplay } = await import("../funnelMetrics");
+    const stages = [S("atendimento", "lead", 22), S("em_negociacao", "negotiation", 24)];
+    const trans = [T2(24 / 22)];
+    expect(journeyConvsForDisplay(stages, trans)).toEqual([null]);
+  });
+
+  it("mesma coorte com 24/22 (>100%): sem % (coortes distintas)", async () => {
+    const { journeyConvsForDisplay } = await import("../funnelMetrics");
+    const stages = [S("em_negociacao", "negotiation", 22), S("proposta", "negotiation", 24)];
+    const trans = [T2(24 / 22)];
+    expect(journeyConvsForDisplay(stages, trans)).toEqual([null]);
+  });
+
+  it("mesma coorte, <=100%: preserva o %", async () => {
+    const { journeyConvsForDisplay } = await import("../funnelMetrics");
+    const stages = [S("em_negociacao", "negotiation", 24), S("proposta", "negotiation", 12)];
+    const trans = [T2(0.5)];
+    expect(journeyConvsForDisplay(stages, trans)).toEqual([0.5]);
+  });
+
+  it("sem base (from=0 → conv null): permanece null", async () => {
+    const { journeyConvsForDisplay } = await import("../funnelMetrics");
+    const stages = [S("reserva", "negotiation", 0), S("venda", "negotiation", 0)];
+    const trans = [T2(null)];
+    expect(journeyConvsForDisplay(stages, trans)).toEqual([null]);
+  });
+});

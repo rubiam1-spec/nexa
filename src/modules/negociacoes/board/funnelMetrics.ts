@@ -374,3 +374,17 @@ export function computeEndToEndJourney(
   }
   return { stages, transitions, leadsSemResposta: semResposta };
 }
+
+// % HONESTO para exibição: só entre estágios da MESMA coorte. Na fronteira
+// leads→negociação (coortes distintas) e quando conv > 100% (impossível dentro
+// da mesma coorte → coortes distintas) NÃO há %: retorna null (a UI mostra "→").
+export function journeyConvsForDisplay(stages: JourneyStage[], transitions: JourneyTransition[]): (number | null)[] {
+  return transitions.map((t, i) => {
+    const from = stages[i];
+    const to = stages[i + 1];
+    if (!from || !to) return null;
+    if (from.tone !== to.tone) return null; // fronteira entre coortes → sem %
+    if (t.conv != null && t.conv > 1) return null; // cap 100% → coortes distintas
+    return t.conv;
+  });
+}
