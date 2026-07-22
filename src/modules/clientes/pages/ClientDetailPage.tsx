@@ -16,7 +16,7 @@ import SpouseLinkModal from "../components/SpouseLinkModal";
 import SpousePeek from "../components/SpousePeek";
 import type { Client, LegalRegime, MaritalStatus } from "../../../shared/types/client";
 import { getClientWithSpouse, unlinkSpouses, registerContactInteraction } from "../../../infra/repositories/clientsSupabaseRepository";
-import { filterMirroredActivities } from "../timelineMerge";
+import { filterMirroredActivities, simulationTimelineItems } from "../timelineMerge";
 import { ConfirmacaoDestructiva } from "../../../shared/components/ConfirmacaoDestructiva";
 import { isNegotiationActive } from "../../../domain/status/negotiation";
 import { fromLeadQualificationDb, isLeadActive } from "../../../domain/status/leadQualification";
@@ -24,7 +24,10 @@ import { LEAD_STAGE_META } from "../../leads/leadDisplay";
 import { NexaSelect } from "../../../shared/ui/NexaSelect";
 import { NexaModal } from "../../../shared/ui/NexaModal";
 import { useReturnTo } from "../../../shared/navigation/useReturnTo";
-import { ENTITY_LIST_HOME } from "../../../shared/navigation/entityRoutes";
+import { ENTITY_LIST_HOME, simulatorForClient, simulationRoute } from "../../../shared/navigation/entityRoutes";
+import { EntityLink } from "../../../shared/navigation/EntityLink";
+import { listSimulationsByClient } from "../../../infra/repositories/pipelineSimulationsSupabaseRepository";
+import type { PipelineSimulation } from "../../../shared/types/simulation";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 
@@ -190,6 +193,8 @@ export default function ClientDetailPage() {
 
   const [client, setClient] = useState<ClientData | null>(null);
   const [negotiations, setNegotiations] = useState<ClientNeg[]>([]);
+  const [simulations, setSimulations] = useState<PipelineSimulation[]>([]);
+  const [simUnits, setSimUnits] = useState<Record<string, string>>({}); // unitId -> "Q·L"
   const [activities, setActivities] = useState<ClientAct[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -309,6 +314,18 @@ export default function ClientDetailPage() {
       }
       const { data: negs } = await supabase.from("negotiations").select("id, status, score, updated_at, units(quadra, lote, valor), brokers(name)").eq("client_id", id).eq("account_id", accountId).order("created_at", { ascending: false });
       setNegotiations((negs ?? []).map((n: Record<string, unknown>) => { const u = (Array.isArray(n.units) ? n.units[0] : n.units) as Record<string, unknown> | null; const b = (Array.isArray(n.brokers) ? n.brokers[0] : n.brokers) as Record<string, unknown> | null; return { id: n.id as string, status: n.status as string, score: n.score as number | null, updated_at: n.updated_at as string, unit_quadra: u?.quadra as string | null, unit_lote: u?.lote as string | null, unit_valor: u?.valor as number | null, broker_name: b?.name as string | null }; }));
+      // Simulações ativas do cliente (Lei 2: o que existe no banco aparece).
+      try {
+        const sims = await listSimulationsByClient(id);
+        setSimulations(sims);
+        const uids = Array.from(new Set(sims.map((sm) => sm.unitId).filter(Boolean))) as string[];
+        if (uids.length) {
+          const { data: us } = await supabase.from("units").select("id, quadra, lote").in("id", uids);
+          const m: Record<string, string> = {};
+          (us ?? []).forEach((u) => { const r = u as Record<string, unknown>; m[r.id as string] = `Q${r.quadra}·L${r.lote}`; });
+          setSimUnits(m);
+        } else setSimUnits({});
+      } catch { setSimulations([]); setSimUnits({}); }
       const { data: acts } = await supabase.from("activities").select("id, type, title, status, activity_date, outcome, duration_minutes, profile_id, created_at").eq("client_id", id).eq("account_id", accountId).order("activity_date", { ascending: false }).limit(10);
       setActivities((acts ?? []) as ClientAct[]);
       // Documentos e checklist são carregados pelo hook useClientDocuments.
@@ -508,13 +525,14 @@ export default function ClientDetailPage() {
         <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>ATENDIMENTOS</div><div style={{ fontSize: 22, fontWeight: 700, color: T.chalk }}>{activities.length}</div></div>
         <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>ÚLTIMO CONTATO</div><div style={{ fontSize: 14, fontWeight: 600, color: client.last_interaction_at ? T.bone : T.slate }}>{client.last_interaction_at ? timeAgo(client.last_interaction_at) : "Nunca"}</div>{!client.last_interaction_at && <button type="button" onClick={() => setActivityModalOpen(true)} style={{ fontSize: 11, color: T.sprout, background: "none", border: "none", cursor: "pointer", padding: 0, marginTop: 4 }}>+ Registrar agora</button>}</div>
         <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>NEGOCIAÇÕES</div><div style={{ fontSize: 22, fontWeight: 700, color: T.chalk }}>{negotiations.length}</div></div>
+        <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>SIMULAÇÕES</div><div style={{ fontSize: 22, fontWeight: 700, color: T.chalk }}>{simulations.length}</div></div>
         <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>SCORE</div><div style={{ fontSize: 22, fontWeight: 700, color: (client.score ?? 0) >= 70 ? T.sprout : (client.score ?? 0) >= 40 ? T.amber : T.chalk }}>{client.score ?? 0}<span style={{ fontSize: 12, fontWeight: 400, color: T.fog }}>/100</span></div></div>
         <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>INTERESSE</div>{(() => { const INTERESSE_LABELS: Record<string, string> = { lote_urbano: "Lote Urbano", lote_rural: "Lote Rural", terreno: "Terreno", apartamento: "Apartamento", casa: "Casa", outro: "Outro" }; const val = (client as unknown as Record<string, unknown>).interesse as string | null; return <NexaSelect value={val ?? ""} onChange={async (nv) => { if (!supabase) return; const v = nv || null; await supabase.from("clients").update({ interesse: v }).eq("id", client.id); setClient((prev) => prev ? { ...prev, interesse: v } as ClientData : null); setToast("Interesse atualizado"); }} placeholder="— Selecionar" ariaLabel="Interesse" options={Object.entries(INTERESSE_LABELS).map(([k, l]) => ({ value: k, label: l }))} />; })()}</div>
       </div>
 
       {/* Quick actions */}
       <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
-        <button type="button" onClick={() => navigate(`/simulador?clientId=${client.id}`)} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.bone, fontSize: 13, cursor: "pointer" }}>Simular</button>
+        <button type="button" onClick={() => navigate(simulatorForClient(client.id, client.assigned_to), { state: { from: `/contatos/${client.id}`, fromLabel: "Contato" } })} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.bone, fontSize: 13, cursor: "pointer" }}>Simular</button>
       </div>
 
       {/* Engrenagem de Cônjuge v2 — card hero */}
@@ -729,6 +747,40 @@ export default function ClientDetailPage() {
             </div>
           )}
 
+          {/* Simulações ativas do cliente (Lei 2) — entre o registrador e a timeline */}
+          {simulations.length > 0 && (
+            <div style={{ marginTop: 20 }}>
+              <div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 10 }}>SIMULAÇÕES ({simulations.length})</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {simulations.map((sm) => {
+                  const brokerName = teamMembers.find((m) => m.userId === sm.brokerId)?.name ?? null;
+                  const unitLbl = sm.unitId ? (simUnits[sm.unitId] ?? "unidade") : (sm.propertyName ?? null);
+                  const overdue = sm.followUpAt ? new Date(sm.followUpAt) < new Date() : false;
+                  return (
+                    <div key={sm.id} onClick={() => navigate(simulationRoute(sm.id), { state: { from: `/contatos/${id}`, fromLabel: "Contato" } })}
+                      style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px", cursor: "pointer" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 15, fontWeight: 700, color: T.chalk, fontFamily: "var(--font-mono)" }}>{fmtBRL(sm.valorTotal)}</span>
+                        {sm.unitId ? <EntityLink entity="unit" id={sm.unitId} style={{ fontSize: 12, color: T.bone }}>{unitLbl}</EntityLink> : (unitLbl ? <span style={{ fontSize: 12, color: T.bone }}>{unitLbl}</span> : null)}
+                      </div>
+                      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 4, fontFamily: "var(--font-mono)", fontSize: 11, color: T.fog }}>
+                        {sm.entradaPercentual != null ? <span>entrada {Math.round(sm.entradaPercentual)}%</span> : null}
+                        {sm.parcelasQuantidade ? <span>{sm.parcelasQuantidade}x{sm.parcelasValor ? ` ${fmtBRL(sm.parcelasValor)}` : ""}</span> : null}
+                        {brokerName ? <span>{brokerName}</span> : null}
+                      </div>
+                      {sm.followUpAt ? (
+                        <div style={{ marginTop: 6, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontFamily: "var(--font-mono)", color: overdue ? "#F87171" : "#7DA7F4", background: overdue ? "rgba(248,113,113,0.1)" : "rgba(125,167,244,0.1)", padding: "3px 8px", borderRadius: 6 }}>
+                          <span style={{ width: 6, height: 6, borderRadius: "50%", background: overdue ? "#F87171" : "#7DA7F4" }} />
+                          Follow-up: {formatDateBRT(new Date(sm.followUpAt))} {formatTimeBRT(new Date(sm.followUpAt))}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Timeline de interações (merged: contact_interactions + activities) */}
           {(() => {
             // Dedupe determinístico por vínculo (fallback heurístico p/ legado) — função pura.
@@ -738,9 +790,18 @@ export default function ClientDetailPage() {
                 const perfName = teamMembers.find((m) => m.userId === a.profile_id)?.name ?? null;
                 return { id: `act-${a.id}`, type: a.type, direction: null as string | null, title: a.title, description: a.outcome || null, performed_by: a.profile_id, performed_at: a.created_at ?? (a.activity_date + "T12:00:00"), profiles: perfName ? { name: perfName } : null, _source: "activity" as const, _activityId: a.id };
               });
+            // Simulação = evento real na história do contato (posição temporal). A
+            // SEÇÃO acima é a visão acionável (abrir/editar); aqui só o marco "criada
+            // · R$ X" — sobreposição mínima, papéis distintos.
+            const simItems = simulationTimelineItems(
+              simulations,
+              (v) => fmtBRL(v) ?? "—",
+              (uid) => teamMembers.find((m) => m.userId === uid)?.name ?? null,
+            );
             const mergedTimeline = [
               ...contactInteractions.map((ci) => ({ ...ci, _source: "interaction" as const, _activityId: null as string | null })),
               ...activityItems,
+              ...simItems,
             ].sort((a, b) => new Date(b.performed_at).getTime() - new Date(a.performed_at).getTime());
 
             if (mergedTimeline.length === 0) return (

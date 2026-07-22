@@ -119,6 +119,24 @@ export async function listSimulationsByNegotiation(
   );
 }
 
+// Simulações ATIVAS de um cliente (para a seção Simulações da Ficha do Contato).
+// Mesmo mapper/colunas — não duplica a leitura crua do board.
+export async function listSimulationsByClient(
+  clientId: string,
+): Promise<PipelineSimulation[]> {
+  const supabase = getSupabaseClientOrThrow("pipeline simulations repository");
+
+  const { data, error } = await supabase
+    .from("pipeline_simulations")
+    .select(SELECT_COLS)
+    .eq("client_id", clientId)
+    .eq("status", "ativa")
+    .order("created_at", { ascending: false });
+
+  const simulations = ((data ?? []) as PipelineSimulationRow[]).map(mapRowToSimulation);
+  return unwrapSupabaseListResult<PipelineSimulation>(simulations, error, "pipeline_simulations");
+}
+
 export async function linkSimulationToNegotiation(
   simulationId: string,
   negotiationId: string,
