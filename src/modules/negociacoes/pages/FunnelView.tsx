@@ -165,7 +165,7 @@ export function FunnelView({ board, thresholdDays, onOpenStage, sales = [] }: {
       <div style={{ marginBottom: 18 }}>
         <VizFrame
           title="Evolução mensal"
-          subtitle={`histórico completo · não segue o filtro · ${monthRange}`}
+          subtitle={`histórico completo · não segue o filtro · vendas na fonte única · ${monthRange}`}
           legend={<><VizLegendItem color={VIZ.blue} label="criadas" /><VizLegendItem color={VIZ.positiveSolid} label="vendas" /></>}
           empty={monthly.every((m) => m.criadas === 0 && m.vendas === 0)}
           emptyLabel="Sem negociações no histórico para desenhar a evolução."
