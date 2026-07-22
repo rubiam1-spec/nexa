@@ -6,6 +6,10 @@ import { useDevelopment } from "../../../app/contexts/DevelopmentContext";
 import { useAuth } from "../../../app/contexts/AuthContext";
 import { UnidadeStatus } from "../../../domain/unidade/UnidadeStatus";
 import { UNIT_STATUS_COLOR, UNIT_STATUS_COLOR_FALLBACK } from "../../../domain/unidade/unitStatusColor";
+import { useUnitIntegrity } from "../hooks/useUnitIntegrity";
+import { getUnitIntegrityUnits } from "../../../infra/repositories/unitIntegritySupabaseRepository";
+import { isDimmedInFocus, focusBannerLabel } from "../../../domain/unidade/unitIntegrityFocus";
+import { IntegrityPanel } from "../components/IntegrityPanel";
 import UnitFichaModal from "../components/UnitFichaModal";
 import { formatDateBRT } from "../../../shared/utils/dateUtils";
 import { useNegotiations } from "../../negociacoes/hooks/useNegotiations";
@@ -134,6 +138,23 @@ export default function UnitsPage() {
   const [leavingQueue, setLeavingQueue] = useState(false);
   const [queueToast, setQueueToast] = useState<string | null>(null);
 
+  // ── Saúde do dado (U5) — painel + modo foco ──
+  const canSeeIntegrity = ["owner", "director", "manager", "administrative"].includes(role ?? "");
+  const integrity = useUnitIntegrity(canSeeIntegrity ? developmentId : null, useMock);
+  const [integrityOpen, setIntegrityOpen] = useState<boolean>(() => { try { return sessionStorage.getItem("nexa_integrity_collapsed") !== "true"; } catch { return true; } });
+  const toggleIntegrity = () => setIntegrityOpen((p) => { const n = !p; try { sessionStorage.setItem("nexa_integrity_collapsed", String(!n)); } catch { /* ignore */ } return n; });
+  const [focusIds, setFocusIds] = useState<Set<string> | null>(null);
+  const [focusLabel, setFocusLabel] = useState("");
+  const [focusLoading, setFocusLoading] = useState(false);
+  async function enterFocus(issueId: string, label: string) {
+    if (!developmentId) return;
+    setFocusLoading(true);
+    try { const ids = await getUnitIntegrityUnits(developmentId, issueId); setFocusIds(new Set(ids)); setFocusLabel(label); }
+    catch { setFocusIds(new Set()); setFocusLabel(label); }
+    finally { setFocusLoading(false); }
+  }
+  const exitFocus = useCallback(() => { setFocusIds(null); setFocusLabel(""); }, []);
+
   // Pre-select from URL
   const urlUnitId = searchParams.get("unitId");
   useEffect(() => { if (urlUnitId && units.length > 0) setSelectedId(urlUnitId); }, [urlUnitId, units.length]);
@@ -210,6 +231,29 @@ export default function UnitsPage() {
           ))}
         </div>
       </div>
+
+      {/* === Saúde do dado (U5) — topo do módulo, gestão === */}
+      {canSeeIntegrity && integrity.counters && (
+        <IntegrityPanel
+          cards={integrity.cards}
+          consistent={integrity.consistent}
+          isLoading={integrity.isLoading}
+          open={integrityOpen}
+          onToggle={toggleIntegrity}
+          focusBusy={focusLoading}
+          onFocusIssue={(id, label) => { setVis((v) => (v === "interativo" ? "mapa" : v)); void enterFocus(id, label); }}
+          onOpenWonNegotiations={() => navigate("/negociacoes?view=lista&stage=venda")}
+          isMobile={isMobile}
+        />
+      )}
+
+      {/* Banner do modo foco (espelho) */}
+      {focusIds && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 12, padding: "10px 14px", borderRadius: 8, border: "1px solid rgba(232,180,90,0.3)", background: "rgba(232,180,90,0.06)" }}>
+          <span style={{ fontSize: 12.5, color: "#E8B45A", fontWeight: 600 }}>{focusBannerLabel(focusIds.size, focusLabel)}</span>
+          <button type="button" onClick={exitFocus} style={{ minHeight: 44, padding: "0 14px", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-secondary)", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Sair do foco</button>
+        </div>
+      )}
 
       {/* === KPIs + Stock bar + Filters (hidden only on Planta) === */}
       {vis !== "interativo" && (
@@ -307,10 +351,11 @@ export default function UnitsPage() {
                       const hasFila = qs && qs.totalWaiting > 0;
                       const isMyQueue = qs?.myPosition !== null && qs?.myPosition !== undefined;
                       const isSold = u.status === UnidadeStatus.VENDIDO;
+                      const dimmed = isDimmedInFocus(u.id, focusIds); // modo foco: fora do issue esmaece
                       return (
                         <button key={u.id} type="button" onClick={() => (selectMode ? toggleSelect(u.id) : setSelectedId(u.id))}
                           title={`${lblUnidade} ${u.lote}\n${lblGrupo} ${u.quadra}\nValor: R$ ${u.valor.toLocaleString("pt-BR")}\nStatus: ${cfg.label}${(u as unknown as { area?: number }).area ? `\nÁrea: ${(u as unknown as { area: number }).area} m²` : ""}${hasFila ? `\n${qs!.totalWaiting} na fila` : ""}`}
-                          style={{ width: "100%", minHeight: 52, borderRadius: 8, background: cfg.bg, border: isSel ? `2px solid ${cfg.color}` : `1px solid ${cfg.border}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, cursor: "pointer", transition: "transform 0.15s, border-color 0.15s, box-shadow 0.15s", boxShadow: isSel ? `0 0 0 3px ${cfg.color}40` : "none", padding: "6px 4px", position: "relative", opacity: isSold && !isChecked ? 0.55 : 1, zIndex: 1 }}
+                          style={{ width: "100%", minHeight: 52, borderRadius: 8, background: cfg.bg, border: isSel ? `2px solid ${cfg.color}` : `1px solid ${cfg.border}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, cursor: "pointer", transition: "transform 0.15s, border-color 0.15s, box-shadow 0.15s, opacity 0.15s", boxShadow: isSel ? `0 0 0 3px ${cfg.color}40` : "none", padding: "6px 4px", position: "relative", opacity: dimmed ? 0.2 : (isSold && !isChecked ? 0.55 : 1), zIndex: 1 }}
                           onMouseEnter={(e) => { const el = e.currentTarget; el.style.transform = "translateY(-2px)"; el.style.background = cfg.hoverBg; el.style.borderColor = "rgba(74,222,128,0.4)"; el.style.boxShadow = "0 4px 12px rgba(0,0,0,0.3)"; el.style.zIndex = "10"; }}
                           onMouseLeave={(e) => { const el = e.currentTarget; el.style.transform = "none"; el.style.background = cfg.bg; el.style.borderColor = isSel ? cfg.color : cfg.border; el.style.boxShadow = isSel ? `0 0 0 3px ${cfg.color}40` : "none"; el.style.zIndex = "1"; }}>
                           {isChecked && (
@@ -358,9 +403,10 @@ export default function UnitsPage() {
                     const rowBg = u.id === selectedId ? "linear-gradient(145deg, rgba(74,222,128,0.06), #16150F)" : "linear-gradient(145deg, #1F1E1A, #16150F)";
                     const hoverBg = "linear-gradient(145deg, rgba(74,222,128,0.03), #16150F)";
                     const isChecked = selectedIds.has(u.id);
+                    const dimmed = isDimmedInFocus(u.id, focusIds);
                     return (
                       <tr key={u.id} onClick={() => (selectMode ? toggleSelect(u.id) : setSelectedId(u.id))}
-                        style={{ borderBottom: "1px solid rgba(42,40,34,0.15)", cursor: "pointer", background: selectMode && isChecked ? "linear-gradient(145deg, rgba(74,222,128,0.08), #16150F)" : rowBg, transition: "background 0.15s, transform 0.1s" }}
+                        style={{ borderBottom: "1px solid rgba(42,40,34,0.15)", cursor: "pointer", background: selectMode && isChecked ? "linear-gradient(145deg, rgba(74,222,128,0.08), #16150F)" : rowBg, transition: "background 0.15s, transform 0.1s, opacity 0.15s", opacity: dimmed ? 0.25 : 1 }}
                         onMouseEnter={(e) => { if (u.id !== selectedId && !(selectMode && isChecked)) { e.currentTarget.style.background = hoverBg; e.currentTarget.style.transform = "translateX(2px)"; } }}
                         onMouseLeave={(e) => { if (u.id !== selectedId && !(selectMode && isChecked)) { e.currentTarget.style.background = rowBg; e.currentTarget.style.transform = "none"; } }}>
                         {selectMode && (
@@ -400,7 +446,7 @@ export default function UnitsPage() {
             createdByProfileId={userId}
             onClose={() => setSelectedId(null)}
             onOpenNegotiation={(id) => navigate(`/negociacoes/${id}`)}
-            onStatusChanged={() => refetchUnits()}
+            onStatusChanged={() => { refetchUnits(); integrity.refetch(); }}
             queueSection={queueEnabled && sel.status !== UnidadeStatus.DISPONIVEL && sel.status !== UnidadeStatus.VENDIDO ? (
               <div>
                 <div style={{ fontFamily: MONO, fontSize: 8.5, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10 }}>Fila de espera{selQueue.queueCount ? ` (${selQueue.queueCount})` : ""}</div>
@@ -508,7 +554,7 @@ export default function UnitsPage() {
           open={!!statusTargets}
           targets={statusTargets}
           onClose={() => setStatusTargets(null)}
-          onChanged={() => { refetchUnits(); clearSelection(); }}
+          onChanged={() => { refetchUnits(); clearSelection(); integrity.refetch(); }}
         />
       )}
     </div>
