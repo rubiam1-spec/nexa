@@ -10,6 +10,7 @@ import { UnidadeStatus } from "../../../domain/unidade/UnidadeStatus";
 import type { NegotiationStatus } from "../../../domain/negociacao/NegotiationStatus";
 import { getNegotiationStatusLabel } from "../../../domain/negociacao/NegotiationStatusLabel";
 import { parseUnitHistoryAction, unitStatusLabelTolerant } from "../../../domain/unidade/unitHistoryDisplay";
+import { UNIT_STATUS_COLOR, UNIT_STATUS_COLOR_FALLBACK } from "../../../domain/unidade/unitStatusColor";
 import { bulkBlockReasonLabel } from "../../../domain/unidade/bulkStatusReason";
 import { getUnitDetail, type UnitDetail } from "../../../infra/repositories/unitsSupabaseRepository";
 import { getClientById, getClients, createClient } from "../../../infra/repositories/clientsSupabaseRepository";
@@ -24,22 +25,24 @@ export type LinkedNegotiation = { id: string; status: NegotiationStatus; clientI
 
 const MONO = "var(--font-mono)";
 const MIN_REASON = 5;
+// Cores canônicas do status vêm da fonte única (unitStatusColor) — mesmas do
+// espelho/legenda; nunca redeclarar hex aqui.
 const CHIP: Record<string, { c: string; label: string }> = {
-  [UnidadeStatus.DISPONIVEL]: { c: "#4ADE80", label: "Disponível" },
-  [UnidadeStatus.EM_NEGOCIACAO]: { c: "#60A5FA", label: "Em negociação" },
-  [UnidadeStatus.RESERVADO]: { c: "#D97706", label: "Reservada" },
-  [UnidadeStatus.VENDIDO]: { c: "#F87171", label: "Vendida" },
+  [UnidadeStatus.DISPONIVEL]: { c: UNIT_STATUS_COLOR[UnidadeStatus.DISPONIVEL], label: "Disponível" },
+  [UnidadeStatus.EM_NEGOCIACAO]: { c: UNIT_STATUS_COLOR[UnidadeStatus.EM_NEGOCIACAO], label: "Em negociação" },
+  [UnidadeStatus.RESERVADO]: { c: UNIT_STATUS_COLOR[UnidadeStatus.RESERVADO], label: "Reservada" },
+  [UnidadeStatus.VENDIDO]: { c: UNIT_STATUS_COLOR[UnidadeStatus.VENDIDO], label: "Vendida" },
 };
 const DB2ENUM: Record<string, string> = { available: "DISPONIVEL", reserved: "RESERVADO", in_negotiation: "EM_NEGOCIACAO", sold: "VENDIDO" };
 function chipMeta(raw: string | null): { c: string; label: string } {
-  if (!raw) return { c: "#5C5647", label: "—" };
+  if (!raw) return { c: UNIT_STATUS_COLOR_FALLBACK, label: "—" };
   const e = DB2ENUM[raw] ?? raw;
-  return CHIP[e] ?? { c: "#5C5647", label: unitStatusLabelTolerant(raw) };
+  return CHIP[e] ?? { c: UNIT_STATUS_COLOR_FALLBACK, label: unitStatusLabelTolerant(raw) };
 }
 
-function StatusChip({ status }: { status: string }) {
+function StatusChip({ status, dot }: { status: string; dot?: boolean }) {
   const m = chipMeta(status);
-  return <span style={{ fontFamily: MONO, fontSize: 10.5, fontWeight: 700, color: m.c, background: `${m.c}1A`, border: `1px solid ${m.c}40`, borderRadius: 6, padding: "2px 8px", whiteSpace: "nowrap" }}>{m.label}</span>;
+  return <span style={{ fontFamily: MONO, fontSize: 10.5, fontWeight: 700, color: m.c, background: `${m.c}1A`, border: `1px solid ${m.c}40`, borderRadius: 6, padding: "2px 8px", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center" }}>{dot ? <span aria-hidden="true" style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: m.c, marginRight: 6, flexShrink: 0 }} /> : null}{m.label}</span>;
 }
 
 function Overline({ children }: { children: ReactNode }) {
@@ -102,7 +105,7 @@ export default function UnitFichaModal({
   const statusOptions = useMemo(
     () => ([UnidadeStatus.DISPONIVEL, UnidadeStatus.EM_NEGOCIACAO, UnidadeStatus.RESERVADO, UnidadeStatus.VENDIDO] as UnidadeStatus[])
       .filter((s) => s !== unit.status)
-      .map((s) => ({ value: s, label: CHIP[s].label })),
+      .map((s) => ({ value: s, label: CHIP[s].label, color: CHIP[s].c })),
     [unit.status],
   );
 
@@ -266,9 +269,9 @@ export default function UnitFichaModal({
 
             {/* Resumo visual da transição — chips, não string */}
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-              <StatusChip status={unit.status} />
+              <StatusChip status={unit.status} dot />
               <span style={{ color: "var(--text-muted)", fontSize: 14 }}>→</span>
-              {destino ? <StatusChip status={destino} /> : <span style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--text-disabled)", border: "1px dashed var(--border-default)", borderRadius: 6, padding: "2px 8px" }}>destino</span>}
+              {destino ? <StatusChip status={destino} dot /> : <span style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--text-disabled)", border: "1px dashed var(--border-default)", borderRadius: 6, padding: "2px 8px" }}>destino</span>}
             </div>
 
             <div style={{ marginBottom: 16 }}>

@@ -5,6 +5,7 @@ import { useAccount } from "../../../app/contexts/AccountContext";
 import { useDevelopment } from "../../../app/contexts/DevelopmentContext";
 import { useAuth } from "../../../app/contexts/AuthContext";
 import { UnidadeStatus } from "../../../domain/unidade/UnidadeStatus";
+import { UNIT_STATUS_COLOR, UNIT_STATUS_COLOR_FALLBACK } from "../../../domain/unidade/unitStatusColor";
 import UnitFichaModal from "../components/UnitFichaModal";
 import { formatDateBRT } from "../../../shared/utils/dateUtils";
 import { useNegotiations } from "../../negociacoes/hooks/useNegotiations";
@@ -26,12 +27,12 @@ const CARD_BORDER = "1px solid rgba(61,58,48,0.1)";
 const MONO = "var(--font-mono)";
 
 const STATUS_CFG: Record<string, { bg: string; border: string; color: string; label: string; hoverBg: string; hoverBorder: string }> = {
-  [UnidadeStatus.DISPONIVEL]: { bg: "linear-gradient(145deg, rgba(74,222,128,0.18), rgba(22,21,15,0.95))", border: "rgba(74,222,128,0.25)", color: "#4ADE80", label: "Disponível", hoverBg: "linear-gradient(145deg, rgba(74,222,128,0.28), rgba(22,21,15,0.9))", hoverBorder: "rgba(74,222,128,0.5)" },
-  [UnidadeStatus.EM_NEGOCIACAO]: { bg: "linear-gradient(145deg, rgba(96,165,250,0.16), rgba(22,21,15,0.95))", border: "rgba(96,165,250,0.25)", color: "#60A5FA", label: "Em negociação", hoverBg: "linear-gradient(145deg, rgba(96,165,250,0.26), rgba(22,21,15,0.9))", hoverBorder: "rgba(96,165,250,0.5)" },
-  [UnidadeStatus.RESERVADO]: { bg: "linear-gradient(145deg, rgba(217,119,6,0.18), rgba(22,21,15,0.95))", border: "rgba(217,119,6,0.25)", color: "#D97706", label: "Reservada", hoverBg: "linear-gradient(145deg, rgba(217,119,6,0.28), rgba(22,21,15,0.9))", hoverBorder: "rgba(217,119,6,0.5)" },
-  [UnidadeStatus.VENDIDO]: { bg: "linear-gradient(145deg, rgba(248,113,113,0.15), rgba(22,21,15,0.95))", border: "rgba(248,113,113,0.22)", color: "#F87171", label: "Vendida", hoverBg: "linear-gradient(145deg, rgba(248,113,113,0.25), rgba(22,21,15,0.9))", hoverBorder: "rgba(248,113,113,0.45)" },
+  [UnidadeStatus.DISPONIVEL]: { bg: "linear-gradient(145deg, rgba(74,222,128,0.18), rgba(22,21,15,0.95))", border: "rgba(74,222,128,0.25)", color: UNIT_STATUS_COLOR[UnidadeStatus.DISPONIVEL], label: "Disponível", hoverBg: "linear-gradient(145deg, rgba(74,222,128,0.28), rgba(22,21,15,0.9))", hoverBorder: "rgba(74,222,128,0.5)" },
+  [UnidadeStatus.EM_NEGOCIACAO]: { bg: "linear-gradient(145deg, rgba(96,165,250,0.16), rgba(22,21,15,0.95))", border: "rgba(96,165,250,0.25)", color: UNIT_STATUS_COLOR[UnidadeStatus.EM_NEGOCIACAO], label: "Em negociação", hoverBg: "linear-gradient(145deg, rgba(96,165,250,0.26), rgba(22,21,15,0.9))", hoverBorder: "rgba(96,165,250,0.5)" },
+  [UnidadeStatus.RESERVADO]: { bg: "linear-gradient(145deg, rgba(217,119,6,0.18), rgba(22,21,15,0.95))", border: "rgba(217,119,6,0.25)", color: UNIT_STATUS_COLOR[UnidadeStatus.RESERVADO], label: "Reservada", hoverBg: "linear-gradient(145deg, rgba(217,119,6,0.28), rgba(22,21,15,0.9))", hoverBorder: "rgba(217,119,6,0.5)" },
+  [UnidadeStatus.VENDIDO]: { bg: "linear-gradient(145deg, rgba(248,113,113,0.15), rgba(22,21,15,0.95))", border: "rgba(248,113,113,0.22)", color: UNIT_STATUS_COLOR[UnidadeStatus.VENDIDO], label: "Vendida", hoverBg: "linear-gradient(145deg, rgba(248,113,113,0.25), rgba(22,21,15,0.9))", hoverBorder: "rgba(248,113,113,0.45)" },
 };
-const FALLBACK = { bg: "linear-gradient(145deg, rgba(92,86,71,0.1), rgba(22,21,15,0.95))", border: "rgba(92,86,71,0.2)", color: "#5C5647", label: "—", hoverBg: "linear-gradient(145deg, rgba(92,86,71,0.2), rgba(22,21,15,0.9))", hoverBorder: "rgba(92,86,71,0.35)" };
+const FALLBACK = { bg: "linear-gradient(145deg, rgba(92,86,71,0.1), rgba(22,21,15,0.95))", border: "rgba(92,86,71,0.2)", color: UNIT_STATUS_COLOR_FALLBACK, label: "—", hoverBg: "linear-gradient(145deg, rgba(92,86,71,0.2), rgba(22,21,15,0.9))", hoverBorder: "rgba(92,86,71,0.35)" };
 
 function fmtValor(v: number) {
   if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;

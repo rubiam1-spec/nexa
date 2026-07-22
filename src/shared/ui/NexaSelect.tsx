@@ -19,6 +19,8 @@ export interface NexaSelectOption {
   sublabel?: string;
   disabled?: boolean;
   group?: string;
+  /** Dot de cor à esquerda (ex.: cor canônica do status de unidade). */
+  color?: string;
 }
 
 export interface NexaSelectProps {
@@ -177,7 +179,10 @@ export function NexaSelect({
         title={o.label}
       >
         <span className="nexa-select-item-main">
-          <span className="nexa-select-item-label"><Highlight text={o.label} q={q} /></span>
+          <span className="nexa-select-item-label">
+            {o.color ? <span aria-hidden="true" style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: o.color, marginRight: 8, verticalAlign: "middle", flexShrink: 0 }} /> : null}
+            <Highlight text={o.label} q={q} />
+          </span>
           {o.sublabel && <span className="nexa-select-item-sub">{o.sublabel}</span>}
         </span>
         {o.hint && <span className="nexa-select-item-hint">{o.hint}</span>}
@@ -199,7 +204,7 @@ export function NexaSelect({
             className={`nexa-select-trigger${selectedOpt ? "" : " is-placeholder"}`}
             style={{ paddingRight: allowClear && hasValue ? 54 : 34 }}
           >
-            <span className="nexa-select-value">{loading ? "Carregando..." : (selectedOpt ? selectedOpt.label : placeholder)}</span>
+            <span className="nexa-select-value">{loading ? "Carregando..." : selectedOpt ? (<>{selectedOpt.color ? <span aria-hidden="true" style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: selectedOpt.color, marginRight: 8, verticalAlign: "middle" }} /> : null}{selectedOpt.label}</>) : placeholder}</span>
             <Chevron />
           </button>
         </Popover.Trigger>
