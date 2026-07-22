@@ -187,3 +187,29 @@ export async function deleteSalesByDevelopment(developmentId: string): Promise<v
     .eq("development_id", developmentId);
   if (error) throw new Error(error.message);
 }
+
+// Registra a EXCEÇÃO de avanço para contrato com documentos obrigatórios
+// incompletos (override de director/owner). negotiation_history não tem campo
+// de nota/metadata, então usamos a trilha textual canônica activity_logs
+// (entity 'sale'). Fire-and-forget: nunca bloqueia o avanço.
+export async function logSaleAdvanceOverride(opts: {
+  accountId: string;
+  saleId: string;
+  actorProfileId: string | null;
+  details?: Record<string, unknown>;
+}): Promise<void> {
+  try {
+    const sb = getSupabaseClientOrThrow("sales repository");
+    const { error } = await sb.from("activity_logs").insert({
+      account_id: opts.accountId,
+      entity: "sale",
+      entity_id: opts.saleId,
+      action: "sale_advanced_contract_override",
+      actor_profile_id: opts.actorProfileId,
+      details: opts.details ?? {},
+    });
+    if (error) console.warn("[logSaleAdvanceOverride] insert falhou (ignorado):", error.message);
+  } catch (err) {
+    console.warn("[logSaleAdvanceOverride] erro (ignorado):", err);
+  }
+}
