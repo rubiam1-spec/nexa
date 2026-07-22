@@ -7,6 +7,15 @@ export const contactRoute = (id: string): string => `/contatos/${id}`;
 export const negotiationRoute = (id: string): string => `/negociacoes/${id}`;
 export const brokerRoute = (id: string): string => `/corretores/${id}`;
 export const unitRoute = (unitId: string, _devId?: string): string => `/unidades?unidade=${unitId}`;
+// Casa canônica da simulação: o Simulador carregado por id (load-by-id existe).
+export const simulationRoute = (id: string): string => `/simulador?simulationId=${id}`;
+// Atalho com contexto (Lei 5): abre o Simulador com cliente (e corretor default,
+// quando houver) pré-selecionados — editáveis.
+export function simulatorForClient(clientId: string, brokerId?: string | null): string {
+  const q = new URLSearchParams({ clientId });
+  if (brokerId) q.set("brokerId", brokerId);
+  return `/simulador?${q.toString()}`;
+}
 
 export function entityRoute(kind: EntityKind, id: string, devId?: string): string {
   switch (kind) {

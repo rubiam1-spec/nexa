@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { contactRoute, negotiationRoute, brokerRoute, unitRoute, entityRoute, routeLabel, openActionLabel, ENTITY_LIST_HOME } from "../entityRoutes";
+import { contactRoute, negotiationRoute, brokerRoute, unitRoute, entityRoute, routeLabel, openActionLabel, simulationRoute, simulatorForClient, ENTITY_LIST_HOME } from "../entityRoutes";
 import { useReturnTo } from "../useReturnTo";
 
 describe("entityRoutes — builders canônicos", () => {
@@ -28,6 +28,16 @@ describe("entityRoutes — builders canônicos", () => {
     expect(routeLabel("/unidades?unidade=x")).toBe("Unidades");
     expect(routeLabel("/")).toBe("Central");
     expect(routeLabel("/algo-desconhecido")).toBe("Voltar");
+  });
+
+  it("simulationRoute = casa da simulação (load-by-id)", () => {
+    expect(simulationRoute("s1")).toBe("/simulador?simulationId=s1");
+  });
+
+  it("simulatorForClient — prefill de contexto (cliente + corretor default opcional)", () => {
+    expect(simulatorForClient("c1")).toBe("/simulador?clientId=c1");
+    expect(simulatorForClient("c1", "b1")).toBe("/simulador?clientId=c1&brokerId=b1");
+    expect(simulatorForClient("c1", null)).toBe("/simulador?clientId=c1");
   });
 
   it("openActionLabel nomeia a entidade destino (Lei 4)", () => {

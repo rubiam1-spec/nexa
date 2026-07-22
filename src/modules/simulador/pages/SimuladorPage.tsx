@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams, useNavigate, useLocation } from "react-router-dom";
 import { useAccount } from "../../../app/contexts/AccountContext";
 import { useDevelopment } from "../../../app/contexts/DevelopmentContext";
 import { useAuth } from "../../../app/contexts/AuthContext";
@@ -141,6 +141,17 @@ export default function SimuladorPage() {
   const [pdfCorretorId, setPdfCorretorId] = useState("");
   const [gerandoPDF, setGerandoPDF] = useState(false);
 
+  // Ida com contexto (Lei 5): atalho traz ?clientId= / ?brokerId= (ex.: "Simular"
+  // na Ficha do Contato). Pré-seleciona — editável, nunca trava.
+  useEffect(() => {
+    const cid = qp.get("clientId");
+    const bid = qp.get("brokerId");
+    if (cid) setPdfClienteId(cid);
+    if (bid) setPdfCorretorId(bid);
+  }, [qp]);
+  // Voltar preserva a origem (Lei 3): "← Contato" quando veio de um atalho.
+  const origin = (useLocation().state ?? null) as { from?: string; fromLabel?: string } | null;
+
 
   // Quick client creation
   const [showNewClient, setShowNewClient] = useState(false);
@@ -268,6 +279,9 @@ export default function SimuladorPage() {
 
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: isMobile ? "0 16px 100px" : "0", overflowX: "hidden", boxSizing: "border-box" }}>
+      {origin?.from ? (
+        <button type="button" onClick={() => navigate(origin.from!)} style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 12, cursor: "pointer", padding: "6px 0", marginBottom: 4 }}>← {origin.fromLabel ?? "Voltar"}</button>
+      ) : null}
       <div style={{ marginBottom: screen.isMobile ? 16 : 24, display: "flex", alignItems: "center", gap: 14, transition: "opacity 0.2s ease" }}>
         {tipoAtivo === "unidade" && s?.logoEmpreendimentoUrl && !screen.isMobile && (
           <img src={s.logoEmpreendimentoUrl} alt={development?.developmentName ?? ""} style={{ height: isMobile ? 52 : 60, width: "auto", maxWidth: 200, objectFit: "contain", borderRadius: 0, flexShrink: 0 }} />
