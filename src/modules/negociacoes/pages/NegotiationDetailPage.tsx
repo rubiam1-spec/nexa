@@ -14,7 +14,9 @@ import { getReservationStatusLabel } from "../../../domain/reserva/ReservationSt
 import { ReservationStatus } from "../../../domain/reserva/ReservationStatus";
 import { useAuth } from "../../../app/contexts/AuthContext";
 import { NegotiationHistoryAction } from "../../../domain/negociacao/NegotiationHistoryAction";
+import { describeNegotiationHistoryAction } from "../../../domain/negociacao/negotiationHistoryDisplay";
 import { getNegotiationStatusLabel } from "../../../domain/negociacao/NegotiationStatusLabel";
+import { EntityLink } from "../../../shared/navigation/EntityLink";
 import NexaBadge from "../../../shared/components/NexaBadge";
 import { SaleService } from "../../../domain/venda/SaleService";
 import { getSaleStatusLabel } from "../../../domain/venda/SaleStatusLabel";
@@ -729,49 +731,10 @@ export default function NegotiationDetailPage() {
     await transitionFn(saleId, performedBy);
   }
 
+  // Fonte única + tolerante (FIX 1): ação desconhecida vira "Atualização do
+  // registro" com a ação bruta no title, nunca em branco.
   function getHistoryEventLabel(event: (typeof events)[number]) {
-    switch (event.action) {
-      case NegotiationHistoryAction.NEGOTIATION_CREATED:
-        return "Negociação criada";
-      case NegotiationHistoryAction.NEGOTIATION_STARTED:
-        return "Negociação iniciada";
-      case NegotiationHistoryAction.NEGOTIATION_CANCELLED:
-        return "Negociação cancelada";
-      case NegotiationHistoryAction.PROPOSAL_CREATED:
-        return "Proposta criada";
-      case NegotiationHistoryAction.PROPOSAL_SENT:
-        return "Proposta enviada";
-      case NegotiationHistoryAction.PROPOSAL_UNDER_ANALYSIS:
-        return "Proposta em analise";
-      case NegotiationHistoryAction.PROPOSAL_ACCEPTED:
-        return "Proposta aceita";
-      case NegotiationHistoryAction.PROPOSAL_REJECTED:
-        return "Proposta recusada";
-      case NegotiationHistoryAction.QUEUE_ENTERED:
-        return "Entrada na fila";
-      case NegotiationHistoryAction.QUEUE_PROMOTED:
-        return "Fila promovida";
-      case NegotiationHistoryAction.RESERVATION_REQUESTED:
-        return "Reserva solicitada";
-      case NegotiationHistoryAction.RESERVATION_APPROVED:
-        return "Solicitacao aprovada";
-      case NegotiationHistoryAction.RESERVATION_REJECTED:
-        return "Solicitacao recusada";
-      case NegotiationHistoryAction.RESERVATION_CANCELLED:
-        return "Reserva cancelada";
-      case NegotiationHistoryAction.RESERVATION_EXPIRED:
-        return "Reserva expirada";
-      case NegotiationHistoryAction.SALE_CREATED:
-        return "Venda criada";
-      case NegotiationHistoryAction.RESERVATION_CONVERTED:
-        return "Reserva convertida";
-      case NegotiationHistoryAction.SALE_ADVANCED:
-        return "Venda avancada";
-      case NegotiationHistoryAction.SALE_COMPLETED:
-        return "Venda concluida";
-      case NegotiationHistoryAction.SALE_CANCELLED:
-        return "Venda cancelada";
-    }
+    return describeNegotiationHistoryAction(event.action);
   }
 
   function getHistoryEventEntity(event: (typeof events)[number]) {
@@ -904,7 +867,7 @@ export default function NegotiationDetailPage() {
             </div>
             {/* Subtítulo: unidade · valor · corretor */}
             <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "#9C9686", letterSpacing: "0.03em", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-              {subtituloUnidade ? <span>{subtituloUnidade}</span> : null}
+              {subtituloUnidade ? (!isThirdParty && unit?.id ? <EntityLink entity="unit" id={unit.id} style={{ color: "inherit" }}>{subtituloUnidade}</EntityLink> : <span>{subtituloUnidade}</span>) : null}
               {subtituloUnidade && subtituloValor ? <span style={{ color: "#3D3A30" }}>·</span> : null}
               {subtituloValor ? <span style={{ color: "#4ADE80", fontWeight: 600 }}>{subtituloValor}</span> : null}
               {(subtituloUnidade || subtituloValor) && broker?.name ? <span style={{ color: "#3D3A30" }}>·</span> : null}
@@ -1078,7 +1041,7 @@ export default function NegotiationDetailPage() {
           ) : null}
           <div>
             <div style={{ fontFamily: "var(--font-mono)", fontSize: 8, color: "#5C5647", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 4 }}>Cliente</div>
-            <div style={{ fontSize: 14, color: "#E8E5DE", fontWeight: 500 }}>{client?.name ?? "—"}</div>
+            <div style={{ fontSize: 14, color: "#E8E5DE", fontWeight: 500 }}>{client?.id ? <EntityLink entity="contact" id={client.id} style={{ color: "inherit" }}>{client.name ?? "—"}</EntityLink> : (client?.name ?? "—")}</div>
           </div>
           <div>
             <div style={{ fontFamily: "var(--font-mono)", fontSize: 8, color: "#5C5647", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 4 }}>Corretor</div>
@@ -1295,9 +1258,9 @@ export default function NegotiationDetailPage() {
                   <div style={{ width: 1, flex: 1, background: "var(--color-stone)", marginTop: 4 }} />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, color: "var(--color-bone)", fontWeight: 600 }}>
-                    {getHistoryEventLabel(event)}
-                  </div>
+                  {(() => { const h = getHistoryEventLabel(event); return (
+                    <div style={{ fontSize: 13, color: "var(--color-bone)", fontWeight: 600 }} title={h.rawTitle ?? undefined}>{h.label}</div>
+                  ); })()}
                   <div style={{ display: "flex", gap: 8, alignItems: "baseline", marginTop: 2 }}>
                     <span style={{ fontSize: 12, color: "var(--color-fog)" }}>{getHistoryEventEntity(event)}</span>
                     <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--color-slate)" }}>{formatDateTimeBRT(event.createdAt)}</span>
