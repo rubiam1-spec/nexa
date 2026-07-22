@@ -25,6 +25,7 @@ import LeadCard from "../../leads/LeadCard";
 import { AssignModal, DiscardModal } from "../../leads/LeadActionModals";
 import { splitLeadColumns } from "../../leads/leadColumns";
 import { EntityNameLink } from "../../../shared/navigation/EntityLink";
+import { openActionLabel } from "../../../shared/navigation/entityRoutes";
 import { NexaSelect } from "../../../shared/ui/NexaSelect";
 import { NexaModal } from "../../../shared/ui/NexaModal";
 
@@ -353,7 +354,7 @@ export default function KanbanPage() {
         <>
           <div style={{ position: "fixed", inset: 0, zIndex: 9998 }} onClick={closeMenu} />
           <div style={{ position: "fixed", top: cardMenuPos.top, left: cardMenuPos.left, background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 8, padding: 4, minWidth: 180, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", zIndex: 9999 }}>
-            <button type="button" onClick={() => { closeMenu(); navigate(`/negociacoes/${c.id}`); }} style={menuItem}>Abrir ficha</button>
+            <button type="button" onClick={() => { closeMenu(); navigate(`/negociacoes/${c.id}`); }} style={menuItem}>{openActionLabel("negotiation").replace(/^\w/, (m) => m.toUpperCase())}</button>
             {canCancel ? (<><div style={{ height: 1, background: "var(--surface-overlay)", margin: "4px 8px" }} /><button type="button" onClick={() => { closeMenu(); setCancelTarget(c); }} style={{ ...menuItem, color: "#F87171" }}>Cancelar negociação</button></>) : null}
           </div>
         </>, document.body);
@@ -439,7 +440,7 @@ export default function KanbanPage() {
         style={{ position: "relative", zIndex: cardMenuOpen === c.id ? 30 : isHovered ? 20 : "auto", background: stage === "venda" ? "linear-gradient(145deg, rgba(52,211,153,0.08) 0%, #16150F 60%)" : "linear-gradient(145deg, #22211C 0%, #16150F 100%)", border: isHovered ? "1px solid rgba(74,222,128,0.18)" : "1px solid var(--border-default)", borderRadius: 9, padding: 11, cursor: "pointer", transition: "border-color 150ms ease, transform 150ms ease", transform: isHovered ? "translateY(-1px)" : "none", opacity: stage === "perdido" ? 0.6 : 1 }}>
         {/* Linha 1: CLIENTE (título, link p/ o Contato) + Importada + valor */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3, minWidth: 0 }}>
-          <EntityNameLink entity="contact" id={c.clienteId} title="Abrir contato" style={{ flex: 1, minWidth: 0, display: "block", fontSize: 13, fontWeight: 700, color: "var(--color-bone)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <EntityNameLink entity="contact" id={c.clienteId} style={{ flex: 1, minWidth: 0, display: "block", fontSize: 13, fontWeight: 700, color: "var(--color-bone)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {c.clienteNome || <span style={{ color: "var(--color-clay)", fontStyle: "italic", fontWeight: 400 }}>Sem cliente</span>}
           </EntityNameLink>
           {c.importBatchId ? <span style={{ flexShrink: 0, fontFamily: MONO, fontSize: 8, fontWeight: 700, color: "#7DA7F4", background: "rgba(125,167,244,0.12)", borderRadius: 4, padding: "1px 4px", letterSpacing: "0.03em", textTransform: "uppercase" }}>Importada</span> : null}
@@ -448,7 +449,7 @@ export default function KanbanPage() {
         {/* Linha 2: unidade como METADADO fraco (link p/ a Ficha) + fila */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, minWidth: 0 }}>
           <span style={{ width: 7, height: 7, borderRadius: "50%", background: unitDot(c.unitStatus), flexShrink: 0 }} />
-          <EntityNameLink entity="unit" id={c.unitId} title="Abrir ficha da unidade" style={{ fontSize: 10.5, color: "var(--color-slate)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "inline-block", maxWidth: "70%" }}>{unitLabel(c)}</EntityNameLink>
+          <EntityNameLink entity="unit" id={c.unitId} style={{ fontSize: 10.5, color: "var(--color-slate)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "inline-block", maxWidth: "70%" }}>{unitLabel(c)}</EntityNameLink>
           {c.unitId && myQueueMap[c.unitId] ? <span style={{ flexShrink: 0, fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "#7DA7F420", color: "#7DA7F4", fontWeight: 600 }}>Fila #{myQueueMap[c.unitId]}</span> : null}
         </div>
         {/* Linha 3: semáforo (ou motivo, se perdido) */}
@@ -460,7 +461,7 @@ export default function KanbanPage() {
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: SEMA_COLOR[s.level], flexShrink: 0 }} />
             <span style={{ fontSize: 10.5, color: SEMA_COLOR[s.level], fontFamily: MONO }}>{s.label}</span>
-            <EntityNameLink entity="broker" id={c.corretorId} title="Abrir corretor" style={{ marginLeft: "auto", fontSize: 10, color: "var(--color-slate)" }}>{c.corretorNome || "—"}</EntityNameLink>
+            <EntityNameLink entity="broker" id={c.corretorId} style={{ marginLeft: "auto", fontSize: 10, color: "var(--color-slate)" }}>{c.corretorNome || "—"}</EntityNameLink>
           </div>
         )}
         {/* Indicação de solicitação pendente (não muda coluna) */}
@@ -472,7 +473,7 @@ export default function KanbanPage() {
             {stage === "proposta" ? <HoverBtn label="Solicitar reserva" cor="#E8B45A" onClick={() => setModalReserva(c)} /> : null}
             {stage === "reserva" ? <>{perms.canCompleteSale ? <HoverBtn label="Registrar venda" cor="#34D399" onClick={() => setModalVenda(c)} /> : null}{perms.canApproveReservation && pendingReq ? <HoverBtn label="Aprovar" cor="#E8B45A" onClick={() => setModalAprovar(c)} /> : null}</> : null}
             <span style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
-              <button type="button" onClick={(e) => { e.stopPropagation(); navigate(`/negociacoes/${c.id}`); }} style={{ fontSize: 11, color: "var(--color-sprout)", background: "none", border: "none", cursor: "pointer" }}>abrir ficha →</button>
+              <button type="button" onClick={(e) => { e.stopPropagation(); navigate(`/negociacoes/${c.id}`); }} style={{ fontSize: 11, color: "var(--color-sprout)", background: "none", border: "none", cursor: "pointer" }}>{openActionLabel("negotiation")} →</button>
               <button type="button" onClick={(e) => { e.stopPropagation(); if (cardMenuOpen === c.id) { setCardMenuOpen(null); setCardMenuPos(null); return; } const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect(); const top = window.innerHeight - rect.bottom < 120 ? rect.top - 120 : rect.bottom + 4; setCardMenuOpen(c.id); setCardMenuPos({ top, left: Math.max(8, rect.right - 180) }); }} style={{ background: "none", border: "none", color: "var(--color-clay)", fontSize: 16, cursor: "pointer", padding: "0 4px", lineHeight: 1, minWidth: 28, minHeight: 28 }}>⋮</button>
             </span>
           </div>

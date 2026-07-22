@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { contactRoute, negotiationRoute, brokerRoute, unitRoute, entityRoute, routeLabel, ENTITY_LIST_HOME } from "../entityRoutes";
+import { contactRoute, negotiationRoute, brokerRoute, unitRoute, entityRoute, routeLabel, openActionLabel, ENTITY_LIST_HOME } from "../entityRoutes";
 import { useReturnTo } from "../useReturnTo";
 
 describe("entityRoutes — builders canônicos", () => {
@@ -28,6 +28,13 @@ describe("entityRoutes — builders canônicos", () => {
     expect(routeLabel("/unidades?unidade=x")).toBe("Unidades");
     expect(routeLabel("/")).toBe("Central");
     expect(routeLabel("/algo-desconhecido")).toBe("Voltar");
+  });
+
+  it("openActionLabel nomeia a entidade destino (Lei 4)", () => {
+    expect(openActionLabel("contact")).toBe("abrir contato");
+    expect(openActionLabel("negotiation")).toBe("abrir negociação");
+    expect(openActionLabel("unit")).toBe("abrir unidade");
+    expect(openActionLabel("broker")).toBe("abrir corretor");
   });
 
   it("ENTITY_LIST_HOME cobre as 4 entidades", () => {

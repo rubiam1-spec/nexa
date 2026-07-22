@@ -9,6 +9,7 @@ import { CLIENT_SOURCE_LABELS } from "../../shared/types/client";
 import { useScreen } from "../../shared/hooks/useIsMobile";
 import { MOBILE_SMALL_BP } from "../../shared/mobile";
 import { EntityLink } from "../../shared/navigation/EntityLink";
+import { openActionLabel } from "../../shared/navigation/entityRoutes";
 
 const MONO = "var(--font-mono)";
 
@@ -45,7 +46,7 @@ export default function LeadCard({ lead, canAssign, busy, movedNote, campaignLab
     <div style={{ background: movedNote ? "rgba(74,222,128,0.05)" : "linear-gradient(145deg, var(--surface-raised), var(--surface-base))", border: `1px solid ${movedNote ? "var(--color-sprout)" : "var(--border-default)"}`, boxShadow: movedNote ? "0 0 0 1px var(--color-sprout) inset" : undefined, borderRadius: 10, padding: 11, transition: "border-color 240ms ease, box-shadow 240ms ease" }}>
       {/* Corpo do card (exceto botões) → casa do Contato (Lei 2). Bloco: sem
           sublinhado, só cursor; no toque navega, os botões abaixo agem. */}
-      <EntityLink entity="contact" id={c.id} underline={false} title="Abrir contato" style={{ display: "block", color: "inherit" }}>
+      <EntityLink entity="contact" id={c.id} underline={false} style={{ display: "block", color: "inherit" }}>
       {/* Linha 1: nome + origem/campanha (+ nota "movido") */}
       <div style={{ display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
         <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>{c.name || <span style={{ color: "#706B5F", fontStyle: "italic" }}>Sem nome</span>}</span>
@@ -80,9 +81,9 @@ export default function LeadCard({ lead, canAssign, busy, movedNote, campaignLab
         {canConvertOrWork ? <Btn label="Converter" cor="#34D399" busy={busy} full={isNarrow} onClick={actions.onConvert} /> : null}
         {canConvertOrWork ? <Btn label="Descartar" cor="#F87171" busy={busy} full={isNarrow} onClick={actions.onDiscard} /> : null}
       </div>
-      {/* Ação explícita (paridade com "abrir ficha →" das negociações) */}
+      {/* Ação explícita (paridade com "abrir negociação →" das negociações) */}
       <div style={{ marginTop: 6, textAlign: "right" }}>
-        <EntityLink entity="contact" id={c.id} style={{ fontFamily: MONO, fontSize: 11, fontWeight: 600, color: "var(--color-sprout)" }}>abrir contato →</EntityLink>
+        <EntityLink entity="contact" id={c.id} style={{ fontFamily: MONO, fontSize: 11, fontWeight: 600, color: "var(--color-sprout)" }}>{openActionLabel("contact")} →</EntityLink>
       </div>
     </div>
   );

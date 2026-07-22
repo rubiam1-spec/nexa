@@ -25,6 +25,18 @@ export const ENTITY_LIST_HOME: Record<EntityKind, { to: string; label: string }>
   broker: { to: "/corretores", label: "Corretores" },
 };
 
+// Lei 4 (emenda): o rótulo de ABRIR nomeia a entidade destino — nunca "abrir
+// ficha" genérico. Fonte única (a Ficha da Unidade mantém o nome interno
+// "Ficha", mas os links PARA ela dizem "abrir unidade").
+export function openActionLabel(entity: EntityKind): string {
+  switch (entity) {
+    case "contact": return "abrir contato";
+    case "negotiation": return "abrir negociação";
+    case "unit": return "abrir unidade";
+    case "broker": return "abrir corretor";
+  }
+}
+
 // Rótulo curto de uma rota conhecida — usado no "← <origem>" (Lei 3/4).
 export function routeLabel(pathname: string): string {
   if (pathname === "/" || pathname.startsWith("/central")) return "Central";

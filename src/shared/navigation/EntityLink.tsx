@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import type { CSSProperties, ReactNode } from "react";
-import { entityRoute, routeLabel, type EntityKind } from "./entityRoutes";
+import { entityRoute, routeLabel, openActionLabel, type EntityKind } from "./entityRoutes";
 
 // Link canônico para a casa de uma entidade (Lei 2). Estilo ÚNICO: cor neutra
 // (herda — NUNCA azul-web), cursor e sublinhado sutil só no hover. Injeta a
@@ -33,7 +33,7 @@ export function EntityLink({
     <Link
       to={to}
       state={{ from: location.pathname + location.search, fromLabel: routeLabel(location.pathname) }}
-      title={title}
+      title={title ?? openActionLabel(entity)}
       onClick={(e) => { e.stopPropagation(); onNavigate?.(); }}
       onMouseEnter={underline ? (e) => { (e.currentTarget as HTMLElement).style.borderBottomColor = "currentColor"; } : undefined}
       onMouseLeave={underline ? (e) => { (e.currentTarget as HTMLElement).style.borderBottomColor = "transparent"; } : undefined}

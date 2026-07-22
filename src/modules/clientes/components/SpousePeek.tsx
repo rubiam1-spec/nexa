@@ -18,6 +18,7 @@ import { useScreen } from "../../../shared/hooks/useIsMobile";
 import { getNegotiationStatusLabel } from "../../../domain/negociacao/NegotiationStatusLabel";
 import type { Client } from "../../../shared/types/client";
 import type { NegotiationStatus } from "../../../domain/negociacao/NegotiationStatus";
+import { openActionLabel } from "../../../shared/navigation/entityRoutes";
 
 // Token map local — mesmo padrão estabelecido em ClientDetailPage.tsx.
 // T.mono não existe; usar var(--font-mono) inline em fontFamily.
@@ -524,7 +525,7 @@ export default function SpousePeek({ open, principalClient, spouseId, onClose }:
                 gap: 6,
               }}
             >
-              ABRIR FICHA COMPLETA
+              {openActionLabel("contact")}
               <Icon.ArrowRight size={12} color={T.ink} />
             </button>
           </footer>

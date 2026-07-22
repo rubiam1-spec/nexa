@@ -488,7 +488,7 @@ export default function NegotiationsPage() {
                     {/* Andar 1: unidade-dot + cliente ... valor */}
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <span style={{ width: 8, height: 8, borderRadius: "50%", background: boardUnitDot(c.unitStatus), flexShrink: 0 }} />
-                      <EntityNameLink entity="contact" id={c.clienteId} title="Abrir contato" style={{ flex: 1, minWidth: 0, display: "block", fontSize: 14, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <EntityNameLink entity="contact" id={c.clienteId} style={{ flex: 1, minWidth: 0, display: "block", fontSize: 14, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {c.clienteNome ?? <span style={{ color: "#706B5F", fontStyle: "italic" }}>Sem cliente</span>}
                       </EntityNameLink>
                       <span style={{ flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 700, color: "var(--color-bone)" }}>{c.valor ? formatCurrency(c.valor) : "—"}</span>
@@ -496,8 +496,8 @@ export default function NegotiationsPage() {
                     {/* Andar 2: estágio + unidade + corretor + criada + semáforo + IMPORTADA */}
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 7, paddingLeft: 16 }}>
                       <span style={{ fontFamily: "var(--font-mono)", fontSize: 8.5, fontWeight: 700, color: meta.color, background: meta.soft, padding: "2px 7px", borderRadius: 4, letterSpacing: "0.05em", textTransform: "uppercase", whiteSpace: "nowrap" }}>{meta.label}</span>
-                      <EntityNameLink entity="unit" id={c.unitId} title="Abrir ficha da unidade" style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 140, display: "inline-block" }}>{boardUnitLabel(c)}</EntityNameLink>
-                      {c.corretorNome ? <EntityNameLink entity="broker" id={c.corretorId} title="Abrir corretor" style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 100, display: "inline-block" }}>{c.corretorNome}</EntityNameLink> : null}
+                      <EntityNameLink entity="unit" id={c.unitId} style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 140, display: "inline-block" }}>{boardUnitLabel(c)}</EntityNameLink>
+                      {c.corretorNome ? <EntityNameLink entity="broker" id={c.corretorId} style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 100, display: "inline-block" }}>{c.corretorNome}</EntityNameLink> : null}
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                         <span style={{ width: 6, height: 6, borderRadius: "50%", background: SEMA_COLOR[s.level], flexShrink: 0 }} />
                         <span style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: SEMA_COLOR[s.level] }}>{SEMA_SHORT[s.level]}</span>
@@ -521,16 +521,16 @@ export default function NegotiationsPage() {
                     <span style={{ width: 8, height: 8, borderRadius: "50%", background: boardUnitDot(c.unitStatus), flexShrink: 0 }} />
                     <div style={{ minWidth: 0 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                        <EntityNameLink entity="contact" id={c.clienteId} title="Abrir contato" style={{ display: "block", minWidth: 0, fontSize: 13, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <EntityNameLink entity="contact" id={c.clienteId} style={{ display: "block", minWidth: 0, fontSize: 13, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {c.clienteNome ?? <span style={{ color: "#706B5F", fontStyle: "italic" }}>Sem cliente</span>}
                         </EntityNameLink>
                         {importadaBadge}
                       </div>
-                      <EntityNameLink entity="unit" id={c.unitId} title="Abrir ficha da unidade" style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{boardUnitLabel(c)}</EntityNameLink>
+                      <EntityNameLink entity="unit" id={c.unitId} style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{boardUnitLabel(c)}</EntityNameLink>
                     </div>
                   </div>
                   {/* Corretor */}
-                  <EntityNameLink entity="broker" id={c.corretorId} title="Abrir corretor" style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-muted)", minWidth: 90, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.corretorNome ?? "—"}</EntityNameLink>
+                  <EntityNameLink entity="broker" id={c.corretorId} style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-muted)", minWidth: 90, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.corretorNome ?? "—"}</EntityNameLink>
                   {/* Estágio */}
                   <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 700, color: meta.color, background: meta.soft, padding: "3px 8px", borderRadius: 4, letterSpacing: "0.05em", whiteSpace: "nowrap", textTransform: "uppercase", minWidth: 92, textAlign: "center" }}>{meta.label}</div>
                   {/* Valor */}
