@@ -140,7 +140,7 @@ export function useCadenceAlerts(
           const notifs = expiring.map((r: Record<string, unknown>) => {
             const neg = r.negotiations as Record<string, unknown> | null; const cl = neg?.clients as Record<string, unknown> | null; const un = neg?.units as Record<string, unknown> | null;
             const subject = notificationSubject({ clientName: cl?.name as string | null, quadra: un?.quadra as string | number | null, lote: un?.lote as string | number | null, negotiationId: r.negotiation_id as string | null });
-            return { account_id: accountId, recipient_id: userId, sender_id: null, type: "reservation_expiring", title: "Reserva expirando", message: `Reserva de ${subject} expira em menos de 24h.`, read: false, action_url: "/pipeline" };
+            return { account_id: accountId, recipient_id: userId, sender_id: null, type: "reservation_expiring", title: "Reserva expirando", message: `Reserva de ${subject} expira em menos de 24h.`, read: false, action_url: "/negociacoes" };
           });
           if (notifs.length > 0) await supabase.from("notifications").insert(notifs);
         }

@@ -522,7 +522,7 @@ export default function BrokersPage() {
 
       {/* Table */}
       {visibleBrokers.length === 0 && allBrokers.length === 0 ? (
-        <EmptyState icone={"\uD83D\uDC64"} titulo="Nenhum corretor cadastrado" descricao={canCreate ? "Adicione corretores para vincular a negociações e acompanhar o pipeline." : "Nenhum corretor cadastrado nesta conta."} ctaLabel={canCreate ? "Novo corretor" : undefined} onCta={canCreate ? () => setShowForm(true) : undefined} />
+        <EmptyState icone={"\uD83D\uDC64"} titulo="Nenhum corretor cadastrado" descricao={canCreate ? "Adicione corretores para vincular a negociações e acompanhar as negociações." : "Nenhum corretor cadastrado nesta conta."} ctaLabel={canCreate ? "Novo corretor" : undefined} onCta={canCreate ? () => setShowForm(true) : undefined} />
       ) : visibleBrokers.length === 0 ? (
         <div className="nexa-card" style={{ textAlign: "center", padding: 24 }}>
           <p style={{ color: "var(--color-fog)", fontSize: 13 }}>Nenhum corretor ativo. Ative o filtro acima para ver corretores inativos.</p>

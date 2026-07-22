@@ -190,7 +190,7 @@ export function usePipelineActions(accountId: string | null, developmentId: stri
     if (!supabase || !accountId || !developmentId) throw new Error("Contexto invalido");
     // Check if unit is already in a negotiation
     const { data: existing } = await supabase.from("negotiations").select("id").eq("unit_id", input.unitId).eq("account_id", accountId).not("status", "in", '("WON","LOST","CANCELLED")').limit(1);
-    if (existing && existing.length > 0) throw new Error("Esta unidade já está em negociação. Acesse os detalhes no pipeline.");
+    if (existing && existing.length > 0) throw new Error("Esta unidade já está em negociação. Acesse os detalhes nas negociações.");
     const effectiveBrokerId = isBroker ? brokerId : input.brokerId;
     await createNegotiationForConversion({ accountId, developmentId, unitId: input.unitId, clientId: input.clientId, brokerId: effectiveBrokerId, ownerProfileId: userId, thirdPartyPropertyId: input.thirdPartyPropertyId ?? null });
     await updateSimulationStatus(input.simulationId, PipelineSimulationStatus.CONVERTIDA);

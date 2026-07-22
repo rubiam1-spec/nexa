@@ -113,7 +113,7 @@ export function useCentral(role: string | null, userId: string | null, accountId
               sub: clientName + (profileMap.get(neg?.broker_id as string)?.name ? ` · ${profileMap.get(neg?.broker_id as string)?.name}` : ""),
               priority: hoursLeft < 0 ? 1 : hoursLeft < 12 ? 1 : hoursLeft < 24 ? 2 : 3,
               color: hoursLeft < 24 ? "#F87171" : "#FBBF24",
-              link: neg ? `/negociacoes/${neg.id}` : "/pipeline",
+              link: neg ? `/negociacoes/${neg.id}` : "/negociacoes",
             });
           }
         });
@@ -204,7 +204,7 @@ export function useCentral(role: string | null, userId: string | null, accountId
           inProgress: myNegs.filter((n) => (n.status as string) === NegotiationStatus.IN_PROGRESS).length,
         };
         const negotiationsTotal = myNegs.reduce((s, n) => { const un = (Array.isArray(n.units) ? n.units[0] : n.units) as Record<string, unknown> | null; return s + Number(un?.valor ?? 0); }, 0);
-        const negotiationsPreview = myNegs.length > 0 ? `${myNegs.length} em andamento${negotiationsTotal > 0 ? ` · ${negotiationsTotal >= 1e6 ? `R$ ${(negotiationsTotal / 1e6).toFixed(1)}M` : `R$ ${(negotiationsTotal / 1e3).toFixed(0)}k`} em pipeline` : ""}` : "Nenhuma negociação ativa";
+        const negotiationsPreview = myNegs.length > 0 ? `${myNegs.length} em andamento${negotiationsTotal > 0 ? ` · ${negotiationsTotal >= 1e6 ? `R$ ${(negotiationsTotal / 1e6).toFixed(1)}M` : `R$ ${(negotiationsTotal / 1e3).toFixed(0)}k`} em negociação` : ""}` : "Nenhuma negociação ativa";
 
         // ── AGENDA ──
         const todayActs = activities.filter((a) => (a.activity_date as string) === today);

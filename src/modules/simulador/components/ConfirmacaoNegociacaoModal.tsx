@@ -37,7 +37,7 @@ export function ConfirmacaoNegociacaoModal({ open, neg, onUsarExistente, onCriar
             </button>
             <button type="button" onClick={onCancelar} disabled={enviando} style={{ padding: "10px", borderRadius: 8, border: "1px solid var(--border-strong)", background: "transparent", color: "var(--text-muted)", fontSize: 13, cursor: "pointer" }}>Cancelar</button>
           </div>
-          {enviando ? <div style={{ fontSize: 12, color: "#4ADE80", textAlign: "center", marginTop: 12, fontFamily: "var(--font-mono)" }}>Enviando para o pipeline...</div> : null}
+          {enviando ? <div style={{ fontSize: 12, color: "#4ADE80", textAlign: "center", marginTop: 12, fontFamily: "var(--font-mono)" }}>Enviando para as negociações...</div> : null}
         </div>
       </div>
     </>,

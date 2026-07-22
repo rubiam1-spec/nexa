@@ -1478,7 +1478,7 @@ export default function NegotiationImportWizard({
                 <button
                   onClick={() => {
                     doClose();
-                    navigate("/pipeline");
+                    navigate("/negociacoes");
                   }}
                   style={btnPrimary}
                 >

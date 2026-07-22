@@ -306,7 +306,7 @@ export default function BrokerDashboard() {
         </p>
         <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
           <button type="button" onClick={() => navigate("/simulador")} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid var(--border-strong)", background: "transparent", color: "var(--text-muted)", fontSize: 13, cursor: "pointer" }}>Simular condição</button>
-          <button type="button" onClick={() => navigate("/pipeline")} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "var(--interactive-primary)", color: "var(--interactive-on-primary)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Ver pipeline →</button>
+          <button type="button" onClick={() => navigate("/negociacoes")} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "var(--interactive-primary)", color: "var(--interactive-on-primary)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Ver negociações →</button>
         </div>
       </div>
 
@@ -391,8 +391,8 @@ export default function BrokerDashboard() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <div style={TITLE}>Minhas negociações recentes</div>
           {m.recentNegotiations.length > 0 ? (
-            <button type="button" onClick={() => navigate("/pipeline")} style={{ fontSize: 11, fontWeight: 600, color: "var(--color-sprout)", background: "none", border: "none", cursor: "pointer" }}>
-              Ver todas no pipeline →
+            <button type="button" onClick={() => navigate("/negociacoes")} style={{ fontSize: 11, fontWeight: 600, color: "var(--color-sprout)", background: "none", border: "none", cursor: "pointer" }}>
+              Ver todas nas negociações →
             </button>
           ) : null}
         </div>

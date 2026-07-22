@@ -93,7 +93,7 @@ export default function DashboardPage() {
         .limit(3);
       (reservas ?? []).forEach((r: Record<string, unknown>) => {
         const dias = Math.max(0, Math.ceil((new Date(r.expires_at as string).getTime() - Date.now()) / 86400000));
-        acoes.push({ id: `res-${r.id}`, tipo: dias <= 2 ? "urgente" : "atencao", texto: `Reserva vence ${dias === 0 ? "hoje" : `em ${dias} dia${dias > 1 ? "s" : ""}`}`, cta: "Ver pipeline", rota: "/pipeline" });
+        acoes.push({ id: `res-${r.id}`, tipo: dias <= 2 ? "urgente" : "atencao", texto: `Reserva vence ${dias === 0 ? "hoje" : `em ${dias} dia${dias > 1 ? "s" : ""}`}`, cta: "Ver negociações", rota: "/negociacoes" });
       });
       // Negociações sem atividade há mais de 7 dias
       const { data: paradas } = await supabase
@@ -109,7 +109,7 @@ export default function DashboardPage() {
         const dias = Math.floor((Date.now() - new Date(n.updated_at as string).getTime()) / 86400000);
         const cl = Array.isArray(n.clients) ? n.clients[0] : n.clients;
         const nome = (cl as Record<string, unknown>)?.name as string | null;
-        acoes.push({ id: `neg-${n.id}`, tipo: "atencao", texto: `${nome || "Negociação"} parada há ${dias} dias`, cta: "Retomar", rota: "/pipeline" });
+        acoes.push({ id: `neg-${n.id}`, tipo: "atencao", texto: `${nome || "Negociação"} parada há ${dias} dias`, cta: "Retomar", rota: "/negociacoes" });
       });
     } catch { /* silently ignore */ }
     setAcoesHoje(acoes.slice(0, 4));
@@ -186,7 +186,7 @@ export default function DashboardPage() {
         {/* Atalhos rápidos */}
         <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
           <button type="button" onClick={() => navigate("/simulador")} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid var(--border-strong)", background: "transparent", color: "var(--text-muted)", fontSize: 13, cursor: "pointer" }}>Simular condição</button>
-          <button type="button" onClick={() => navigate("/pipeline")} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "var(--interactive-primary)", color: "var(--interactive-on-primary)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Ver pipeline →</button>
+          <button type="button" onClick={() => navigate("/negociacoes")} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "var(--interactive-primary)", color: "var(--interactive-on-primary)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Ver negociações →</button>
           <button type="button" onClick={() => setModalAberto(true)} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid var(--border-strong)", background: "transparent", color: "var(--text-disabled)", fontSize: 13, cursor: "pointer" }}>Personalizar</button>
         </div>
       </div>

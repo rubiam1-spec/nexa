@@ -605,7 +605,7 @@ export default function CentralPage() {
           {isVisible("funnel") && (data.negotiations.length > 0 || data.lostCount > 0 || data.wonCount > 0) && (
             <div style={{ background: CARD_BG, borderRadius: 12, padding: "20px 22px", border: CARD_BORDER }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#E8E5DE", marginBottom: 2 }}>Funil comercial</div>
-              <div style={{ fontFamily: MONO, fontSize: 8.5, color: "#3D3A30", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 14 }}>PIPELINE ATIVO</div>
+              <div style={{ fontFamily: MONO, fontSize: 8.5, color: "#3D3A30", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 14 }}>NEGOCIAÇÕES ATIVAS</div>
               {funnelStages.map((stage) => (
                 <div key={stage.label} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
                   <span style={{ fontFamily: MONO, fontSize: 10, color: "#5C5647", width: 72, textAlign: "right", fontWeight: 500 }}>{stage.label}</span>

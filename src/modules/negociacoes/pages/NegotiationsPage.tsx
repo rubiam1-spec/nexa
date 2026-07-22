@@ -464,7 +464,7 @@ export default function NegotiationsPage() {
         const pageCount = Math.ceil(filtered.length / PAGE_SIZE);
         const safePage = Math.min(page, Math.max(0, pageCount - 1));
         return filtered.length === 0 ? (
-          <EmptyState icone={"\u2197"} titulo="Nenhuma negociação ainda" descricao="Comece simulando uma condição comercial para um cliente e envie para o pipeline." ctaLabel="Abrir Simulador" onCta={() => navigateToSimulador("/simulador")} />
+          <EmptyState icone={"\u2197"} titulo="Nenhuma negociação ainda" descricao="Comece simulando uma condição comercial para um cliente e envie para as negociações." ctaLabel="Abrir Simulador" onCta={() => navigateToSimulador("/simulador")} />
         ) : (
           <>
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>

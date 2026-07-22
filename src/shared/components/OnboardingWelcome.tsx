@@ -14,7 +14,7 @@ export function useOnboarding() {
 
 const steps = [
   { icone: "\uD83C\uDFE0", titulo: "Empreendimentos", desc: "Cadastre seus empreendimentos e unidades para começar a vender." },
-  { icone: "\uD83D\uDCCA", titulo: "Pipeline Comercial", desc: "Acompanhe negociações, propostas, reservas e vendas em tempo real." },
+  { icone: "\uD83D\uDCCA", titulo: "Funil Comercial", desc: "Acompanhe negociações, propostas, reservas e vendas em tempo real." },
   { icone: "\uD83D\uDCB0", titulo: "Simulador", desc: "Simule condições de pagamento e envie propostas profissionais." },
 ];
 
