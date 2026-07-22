@@ -11,6 +11,7 @@ import { useBrokers } from "../../corretores/hooks/useBrokers";
 import { useCommercialSettings } from "../../configuracoes/hooks/useCommercialSettings";
 import { UnidadeStatus } from "../../../domain/unidade/UnidadeStatus";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
+import { useContainerWidth } from "../../../shared/responsive";
 import { SearchableSelect } from "../../../shared/components/SearchableSelect";
 import { formatPhone } from "../../../shared/utils/masks";
 import { useSimulador } from "../hooks/useSimulador";
@@ -37,7 +38,13 @@ export default function SimuladorPage() {
   const { development } = useDevelopment();
   const { authenticatedProfile } = useAuth();
   const screen = useScreen();
-  const isMobile = !screen.isDesktop; // below 1024: single column + floating bar
+  const isMobile = !screen.isDesktop; // usado só p/ cosméticos (fontes/paddings)
+  // R1 · o SPLIT (form + resumo lateral) responde ao ESPAÇO do próprio container,
+  // não ao viewport: painel lateral só quando cabem form(≥380) + painel(360) + gap;
+  // abaixo disso, coluna única + barra flutuante. Mata o colapso do form a 356px
+  // que acontecia em 1024 (paisagem, o mais estreito) pelo antigo !isDesktop.
+  const [splitRef, splitW] = useContainerWidth<HTMLDivElement>();
+  const wide = splitW === 0 ? !isMobile : splitW >= 760;
 
   const accountId = account?.accountId ?? null;
   const developmentId = development?.developmentId ?? null;
@@ -300,7 +307,7 @@ export default function SimuladorPage() {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 360px", gap: 20, alignItems: "start" }}>
+      <div ref={splitRef} style={{ display: "grid", gridTemplateColumns: wide ? "1fr 360px" : "1fr", gap: 20, alignItems: "start" }}>
         {/* Controls */}
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
@@ -644,8 +651,8 @@ export default function SimuladorPage() {
           </SC>
         </div>
 
-        {/* Desktop summary */}
-        {!isMobile ? (
+        {/* Resumo lateral — só quando o container comporta (wide) */}
+        {wide ? (
           <div style={{ position: "sticky", top: 24, display: "flex", flexDirection: "column", gap: 10 }}>
             {valorUnidade > 0 ? (
               <>
@@ -776,8 +783,8 @@ export default function SimuladorPage() {
       </div>
 
       {/* Mobile bottom bar — via createPortal to escape stacking context */}
-      {isMobile && (selectedUnit || selectedProperty) && (c.parcelaValor > 0 || sim.numeroParcelas === 0) ? <div style={{ height: 100 }} /> : null}
-      {isMobile && (selectedUnit || selectedProperty) && (c.parcelaValor > 0 || sim.numeroParcelas === 0) && createPortal(
+      {!wide && (selectedUnit || selectedProperty) && (c.parcelaValor > 0 || sim.numeroParcelas === 0) ? <div style={{ height: 100 }} /> : null}
+      {!wide && (selectedUnit || selectedProperty) && (c.parcelaValor > 0 || sim.numeroParcelas === 0) && createPortal(
         <div style={{ position: "fixed", bottom: screen.isMobile ? "calc(56px + env(safe-area-inset-bottom))" : 0, left: 0, right: 0, zIndex: 950, background: "rgba(18,17,15,0.92)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", borderTop: "1px solid var(--border-default)", padding: "12px 18px", paddingBottom: screen.isMobile ? 12 : "max(12px, env(safe-area-inset-bottom))", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
             {sim.numeroParcelas > 0 ? (<>
