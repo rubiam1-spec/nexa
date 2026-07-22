@@ -4,6 +4,7 @@ import { useAuth } from "../../../app/contexts/AuthContext";
 import { useAccount } from "../../../app/contexts/AccountContext";
 import { useDevelopment } from "../../../app/contexts/DevelopmentContext";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
+import { fluidGrid } from "../../../shared/responsive";
 import { useCentral } from "../hooks/useCentral";
 import { supabase } from "../../../infra/supabase/supabaseClient";
 import CentralAgenda from "../components/CentralAgenda";
@@ -535,7 +536,7 @@ export default function CentralPage() {
   ];
 
   return (
-    <div style={{ maxWidth: 840, margin: "0 auto" }}>
+    <div style={{ maxWidth: 1040, margin: "0 auto" }}>
       {/* ═══ 1. Greeting + gear ═══ */}
       <div style={{ marginBottom: 24, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
         <div>
@@ -581,13 +582,13 @@ export default function CentralPage() {
       {/* ═══ 3. KPIs ═══ */}
       {isVisible("kpis") && <>
       <SectionLabel>Indicadores</SectionLabel>
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : `repeat(${Math.min(data.pulse.length, 4)}, 1fr)`, gap: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: fluidGrid(180), gap: 10 }}>
         {data.pulse.slice(0, 4).map((kpi) => (
           <KPICard key={kpi.key} kpi={kpi} totalUnits={data.stock.total} />
         ))}
       </div>
       {data.pulse.length > 4 && (
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : `repeat(${data.pulse.length - 4}, 1fr)`, gap: 10, marginTop: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: fluidGrid(180, "fill"), gap: 10, marginTop: 10 }}>
           {data.pulse.slice(4).map((kpi) => (
             <KPICard key={kpi.key} kpi={kpi} totalUnits={data.stock.total} />
           ))}
@@ -597,7 +598,7 @@ export default function CentralPage() {
 
       {/* ═══ 4. Funnel + Stock (2-col grid) ═══ */}
       {(isVisible("funnel") || isVisible("stock")) && (data.stock.total > 0 || data.negotiations.length > 0) && (
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10, marginTop: 20 }}>
+        <div style={{ display: "grid", gridTemplateColumns: fluidGrid(300), gap: 10, marginTop: 20 }}>
           {/* Funnel */}
           {isVisible("funnel") && (data.negotiations.length > 0 || data.lostCount > 0 || data.wonCount > 0) && (
             <div style={{ background: CARD_BG, borderRadius: 12, padding: "20px 22px", border: CARD_BORDER }}>
@@ -704,7 +705,7 @@ export default function CentralPage() {
 
       {/* ═══ 5. Chart + Alerts (2-col grid) ═══ */}
       {(isVisible("chart") || isVisible("alerts")) && (
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10, marginTop: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: fluidGrid(300), gap: 10, marginTop: 20 }}>
         {/* Sales chart */}
         {isVisible("chart") && isManager && role !== "administrative" && <SalesChart series={salesTruth.monthly} />}
 
@@ -788,7 +789,7 @@ export default function CentralPage() {
           {isVisible("internal_team") && data.internalTeam.length > 0 && (
             <>
               <SectionLabel count={data.internalTeam.length}>Equipe interna</SectionLabel>
-              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : `repeat(${Math.min(data.internalTeam.length, 3)}, 1fr)`, gap: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: fluidGrid(220, "fill"), gap: 10 }}>
                 {data.internalTeam.map((m) => <TeamCard key={m.id} m={m} />)}
               </div>
             </>
@@ -808,7 +809,7 @@ export default function CentralPage() {
                   <span style={{ fontSize: 12, color: T.fog }}>{data.externalTeam.length} corretor{data.externalTeam.length !== 1 ? "es" : ""} · Sem atividade recente</span>
                 </div>
               ) : (
-                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : `repeat(${Math.min(data.externalTeam.length, 3)}, 1fr)`, gap: 10 }}>
+                <div style={{ display: "grid", gridTemplateColumns: fluidGrid(220, "fill"), gap: 10 }}>
                   {data.externalTeam.map((m) => <TeamCard key={m.id} m={m} />)}
                 </div>
               )}
