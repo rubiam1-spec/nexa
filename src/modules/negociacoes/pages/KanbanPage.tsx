@@ -13,6 +13,7 @@ import { PROPOSAL_CLOSED_DB_VALUES } from "../../../domain/status/proposal";
 import { usePipelineActions } from "../hooks/usePipelineActions";
 import { CriarPropostaModal, SolicitarReservaModal, AprovarReservaModal, RegistrarVendaModal } from "../components/PipelineActionModals";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
+import { clampSize } from "../../../shared/responsive";
 import { useCelebration, CelebrationToasts } from "../../../shared/components/Celebration";
 import { getPermissions } from "../../../shared/utils/permissoes";
 import { supabase } from "../../../infra/supabase/supabaseClient";
@@ -58,6 +59,10 @@ export default function KanbanPage() {
   const navigate = useNavigate();
   const screen = useScreen();
   const isMobile = screen.isMobile;
+  // R1 · coluna do Kanban com largura FLUIDA 300–360px (era flex:1 min 168 →
+  // ~180px espremido). 300 no retrato tablet, crescendo a 360; o board rola na
+  // horizontal (padrão de kanban) em vez de comprimir as colunas.
+  const kanbanColW = clampSize(300, 360, { minVw: 768, maxVw: 1180 });
   const { account, brokerId, isBroker, isBrokerManager, brokerageId, isConsultant, ownerProfileId } = useAccount();
   const { development } = useDevelopment();
   const { authenticatedProfile } = useAuth();
@@ -282,7 +287,7 @@ export default function KanbanPage() {
         </>
       ) : (
         <div ref={boardRef} style={{ overflowX: "auto", overflowY: "hidden", paddingBottom: 16, height: boardH ?? undefined }}>
-          <div style={{ display: "flex", gap: 10, alignItems: "stretch", minWidth: 1260, height: "100%" }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "stretch", height: "100%" }}>
             {renderLeadColumn("Leads", novosLeads, "#7DA7F4")}
             {renderLeadColumn("Em atendimento", atendLeads, "#9DB8E8")}
             {STAGES.map((est) => {
@@ -294,7 +299,7 @@ export default function KanbanPage() {
               const visible = isDense ? cs.slice(0, DENSE_VISIBLE) : cs;
               const hidden = cs.length - visible.length;
               return (
-                <div key={est.id} style={{ flex: 1, minWidth: 168, height: "100%", display: "flex", flexDirection: "column" }}>
+                <div key={est.id} style={{ width: kanbanColW, flexShrink: 0, height: "100%", display: "flex", flexDirection: "column" }}>
                   <div style={{ flexShrink: 0, padding: "12px 14px", background: "var(--surface-raised)", borderRadius: "10px 10px 0 0", border: "1px solid var(--border-default)", borderBottom: "none" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
                       <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--color-dust)" }}>{est.label}{isDense ? <span style={{ fontFamily: MONO, fontSize: 8.5, fontWeight: 600, color: "var(--color-slate)", marginLeft: 6 }}>· denso</span> : null}</span>
@@ -407,7 +412,7 @@ export default function KanbanPage() {
     const visible = isDense ? list.slice(0, DENSE_VISIBLE) : list;
     const hidden = list.length - visible.length;
     return (
-      <div style={{ flex: 1, minWidth: 176, height: "100%", display: "flex", flexDirection: "column" }}>
+      <div style={{ width: kanbanColW, flexShrink: 0, height: "100%", display: "flex", flexDirection: "column" }}>
         <div style={{ flexShrink: 0, padding: "12px 14px", background: "var(--surface-raised)", borderRadius: "10px 10px 0 0", border: "1px solid var(--border-default)", borderBottom: "none" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
             <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--color-dust)" }}>{title}</span>
