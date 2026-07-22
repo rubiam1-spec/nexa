@@ -240,7 +240,7 @@ export default function UnitFichaModal({
 
   const panelStyle: React.CSSProperties = isMobile
     ? { position: "fixed", inset: 0, width: "100%", height: "100%", maxHeight: "100%", overflowY: "auto", background: "var(--surface-raised, #1C1B18)", padding: "max(18px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom))", outline: "none" }
-    : { width: "100%", maxWidth: 540, maxHeight: "88vh", overflowY: "auto", background: "var(--surface-raised, #1C1B18)", border: "1px solid var(--border-default, #3D3A30)", borderRadius: 16, padding: 28, outline: "none", boxShadow: "0 24px 64px rgba(0,0,0,0.6)", opacity: shown ? 1 : 0, transform: shown ? "scale(1)" : "scale(0.98)", transition: "opacity 120ms ease, transform 120ms ease" };
+    : { width: "min(100%, 620px)", maxWidth: 620, maxHeight: "88vh", overflowY: "auto", background: "var(--surface-raised, #1C1B18)", border: "1px solid var(--border-default, #3D3A30)", borderRadius: 16, padding: 28, outline: "none", boxShadow: "0 24px 64px rgba(0,0,0,0.6)", opacity: shown ? 1 : 0, transform: shown ? "scale(1)" : "scale(0.98)", transition: "opacity 120ms ease, transform 120ms ease" };
 
   return createPortal(
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 9000, display: "flex", alignItems: isMobile ? "stretch" : "center", justifyContent: "center", padding: isMobile ? 0 : 16, background: "rgba(0,0,0,0.6)", opacity: shown ? 1 : 0, transition: "opacity 120ms ease" }}>

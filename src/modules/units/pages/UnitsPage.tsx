@@ -17,6 +17,7 @@ import { useUnits } from "../hooks/useUnits";
 import { useUnitQueue, fetchQueueSummary, type QueueSummary } from "../hooks/useUnitQueue";
 import { useCommercialSettings } from "../../configuracoes/hooks/useCommercialSettings";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
+import { fluidGrid } from "../../../shared/responsive";
 import { useMapaPins } from "../hooks/useMapaPins";
 import MapaInterativo from "../components/MapaInterativo";
 import QueueEntryModal from "../../../shared/components/QueueEntryModal";
@@ -53,7 +54,7 @@ function KpiBar({ availableCount, soldCount, reservedCount, totalUnits, soldPct,
   ];
   return (
     <>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: fluidGrid(180), gap: 10, marginBottom: 12 }}>
         {kpis.map((item) => (
           <div key={item.key} style={{
             padding: "14px 16px", borderRadius: 10,
