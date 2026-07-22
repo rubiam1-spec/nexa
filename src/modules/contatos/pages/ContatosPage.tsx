@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAccount } from "../../../app/contexts/AccountContext";
 import { useAuth } from "../../../app/contexts/AuthContext";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
+import { fluidGrid } from "../../../shared/responsive";
 import { useContatos, type ContatoFilters } from "../hooks/useContatos";
 import { useClientFilter } from "../../../shared/hooks/useClientFilter";
 import { podeVerTodasNegociacoes } from "../../../shared/utils/permissoes";
@@ -49,7 +50,11 @@ export default function ContatosPage() {
   const { account } = useAccount();
   const { authenticatedProfile } = useAuth();
   const screen = useScreen();
-  const isMobile = !screen.isDesktop;
+  // R1 · "compacto" = TELEFONE real (<768), não <1024. Antes `!isDesktop`
+  // invertia vs espaço: 1024 paisagem (o mais estreito) mostrava MAIS colunas
+  // que 834 retrato. Agora o tablet inteiro recebe a lista cheia; filtros
+  // reflowam por espaço (fluidGrid). Só o telefone compacta.
+  const isMobile = screen.isMobile;
   const accountId = account?.accountId ?? null;
   const userRole = authenticatedProfile?.role ?? null;
   const userId = authenticatedProfile?.id ?? null;
@@ -245,7 +250,7 @@ export default function ContatosPage() {
       {/* Filter panel */}
       {showFilters && (
         <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: 12, padding: 20, marginBottom: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, 1fr)", gap: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: fluidGrid(220), gap: 16 }}>
             {/* Row 1 */}
             <div>
               <label style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)", letterSpacing: "0.1em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Status</label>

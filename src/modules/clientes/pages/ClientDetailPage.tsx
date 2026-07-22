@@ -7,6 +7,7 @@ import { useAuth } from "../../../app/contexts/AuthContext";
 import { supabase } from "../../../infra/supabase/supabaseClient";
 import { createNegotiationFromClient, markClientActiveNegotiationsLost } from "../../../infra/repositories/negotiationsSupabaseRepository";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
+import { fluidGrid } from "../../../shared/responsive";
 import { useClientDocuments, type ClientDoc } from "../hooks/useClientDocuments";
 import { getNegotiationStatusLabel } from "../../../domain/negociacao/NegotiationStatusLabel";
 import { timeAgo } from "../../../shared/utils/timeAgo";
@@ -489,7 +490,7 @@ export default function ClientDetailPage() {
   const allRequiredApproved = effectiveDocTypes.filter((dt) => dt.required).every((dt) => docsByType[dt.key]?.status === "approved");
 
   return (
-    <div style={{ maxWidth: 780, margin: "0 auto", padding: isMobile ? "16px 12px" : "24px 0" }}>
+    <div style={{ maxWidth: 1040, margin: "0 auto", padding: isMobile ? "16px 12px" : "24px 0" }}>
       {/* CSS animations for temperature badge */}
       <style>{`@keyframes tempShimmer{0%{box-shadow:0 0 6px rgba(255,75,0,0.3)}50%{box-shadow:0 0 14px rgba(255,75,0,0.6)}100%{box-shadow:0 0 6px rgba(255,75,0,0.3)}}@keyframes tempPulse{0%,100%{box-shadow:0 0 4px rgba(245,158,11,0.2)}50%{box-shadow:0 0 10px rgba(245,158,11,0.5)}}@keyframes nxSpin{to{transform:rotate(360deg)}}@keyframes nxPulse{0%,100%{opacity:1}50%{opacity:0.4}}`}</style>
 
@@ -521,7 +522,7 @@ export default function ClientDetailPage() {
       </div>
 
       {/* KPIs */}
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(5, 1fr)", gap: 10, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: fluidGrid(150, "fill"), gap: 10, marginBottom: 16 }}>
         <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>ATENDIMENTOS</div><div style={{ fontSize: 22, fontWeight: 700, color: T.chalk }}>{activities.length}</div></div>
         <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>ÚLTIMO CONTATO</div><div style={{ fontSize: 14, fontWeight: 600, color: client.last_interaction_at ? T.bone : T.slate }}>{client.last_interaction_at ? timeAgo(client.last_interaction_at) : "Nunca"}</div>{!client.last_interaction_at && <button type="button" onClick={() => setActivityModalOpen(true)} style={{ fontSize: 11, color: T.sprout, background: "none", border: "none", cursor: "pointer", padding: 0, marginTop: 4 }}>+ Registrar agora</button>}</div>
         <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>NEGOCIAÇÕES</div><div style={{ fontSize: 22, fontWeight: 700, color: T.chalk }}>{negotiations.length}</div></div>
@@ -866,8 +867,8 @@ export default function ClientDetailPage() {
 
       {/* Tab: Dados */}
       {tab === "dados" && (
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 14 }}>
-          <div style={{ gridColumn: isMobile ? "1" : "1 / 3" }}><label style={LBL}>Nome completo</label>{editing ? <input style={IS} value={f("full_name") || f("name")} onChange={(e) => setF("full_name", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.full_name || client.name || "—"}</div>}</div>
+        <div style={{ display: "grid", gridTemplateColumns: fluidGrid(230), gap: 14 }}>
+          <div style={{ gridColumn: "span 2" }}><label style={LBL}>Nome completo</label>{editing ? <input style={IS} value={f("full_name") || f("name")} onChange={(e) => setF("full_name", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.full_name || client.name || "—"}</div>}</div>
           <div><label style={LBL}>CPF</label>{editing ? <input style={IS} value={maskCPF(f("cpf"))} onChange={(e) => setF("cpf", e.target.value.replace(/\D/g, "").slice(0, 11))} maxLength={14} /> : <SensitiveField label="CPF" maskedValue={secureMaskCPF(client.cpf)} fullValue={client.cpf ? maskCPF(client.cpf) : ""} entityType="client" entityId={client.id} field="cpf" />}</div>
           <div><label style={LBL}>RG</label>{editing ? <input style={IS} value={maskRG(f("rg"))} onChange={(e) => setF("rg", maskRG(e.target.value))} maxLength={12} /> : <SensitiveField label="RG" maskedValue={secureMaskRG(client.rg)} fullValue={client.rg || ""} entityType="client" entityId={client.id} field="rg" />}</div>
           <div><label style={LBL}>Órgão emissor</label>{editing ? <input style={IS} value={f("rg_orgao")} onChange={(e) => setF("rg_orgao", e.target.value)} placeholder="SSP/PR" /> : <div style={{ fontSize: 14, color: T.bone }}>{client.rg_orgao || "—"}</div>}</div>
@@ -885,7 +886,7 @@ export default function ClientDetailPage() {
 
       {/* Tab: Interesse */}
       {tab === "interesse" && (
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: fluidGrid(230), gap: 14 }}>
           <div><label style={LBL}>Perfil de comprador</label>{editing ? <NexaSelect value={(form.buyer_profile as string) ?? client.buyer_profile ?? ""} onChange={(v) => setForm((p) => ({ ...p, buyer_profile: v }))} placeholder="Selecione" ariaLabel="Perfil de comprador" options={[{ value: "investor", label: "Investidor" }, { value: "resident", label: "Morador" }, { value: "both", label: "Ambos" }]} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.buyer_profile === "investor" ? "Investidor" : client.buyer_profile === "resident" ? "Morador" : client.buyer_profile === "both" ? "Ambos" : "—"}</div>}</div>
           <div><label style={LBL}>Tipo de imóvel</label>{editing ? <NexaSelect value={(form.interested_unit_type as string) ?? client.interested_unit_type ?? ""} onChange={(v) => setForm((p) => ({ ...p, interested_unit_type: v }))} placeholder="Selecione" ariaLabel="Tipo de imóvel" options={[{ value: "lote", label: "Lote" }, { value: "casa", label: "Casa" }, { value: "apartamento", label: "Apartamento" }, { value: "comercial", label: "Comercial" }]} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.interested_unit_type || "—"}</div>}</div>
           <div><label style={LBL}>Prazo de compra</label>{editing ? <NexaSelect value={(form.purchase_timeline as string) ?? client.purchase_timeline ?? ""} onChange={(v) => setForm((p) => ({ ...p, purchase_timeline: v }))} placeholder="Selecione" ariaLabel="Prazo de compra" options={[{ value: "immediate", label: "Imediato" }, { value: "1_to_3_months", label: "1-3 meses" }, { value: "3_to_6_months", label: "3-6 meses" }, { value: "6_to_12_months", label: "6-12 meses" }, { value: "over_12_months", label: "+12 meses" }]} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.purchase_timeline || "—"}</div>}</div>
@@ -897,12 +898,12 @@ export default function ClientDetailPage() {
 
       {/* Tab: Endereço */}
       {tab === "endereco" && (
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: fluidGrid(230), gap: 14 }}>
           <div style={{ display: "flex", gap: 8 }}>
             <div style={{ flex: 1 }}><label style={LBL}>CEP</label>{editing ? <input style={IS} value={maskCEP(f("cep"))} onChange={(e) => { const masked = maskCEP(e.target.value); setF("cep", masked.replace(/\D/g, "")); if (masked.replace(/\D/g, "").length === 8) buscarCep(); }} maxLength={9} placeholder="00000-000" /> : <div style={{ fontSize: 14, color: T.bone }}>{client.cep ? maskCEP(client.cep) : "—"}</div>}</div>
             {editing && <button type="button" onClick={buscarCep} style={{ alignSelf: "flex-end", padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 12, cursor: "pointer", marginBottom: 0 }}>🔍</button>}
           </div>
-          <div style={{ gridColumn: isMobile ? "1" : "1 / 3" }}><label style={LBL}>Endereço</label>{editing ? <input style={IS} value={f("endereco")} onChange={(e) => setF("endereco", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.endereco || "—"}</div>}</div>
+          <div style={{ gridColumn: "span 2" }}><label style={LBL}>Endereço</label>{editing ? <input style={IS} value={f("endereco")} onChange={(e) => setF("endereco", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.endereco || "—"}</div>}</div>
           <div><label style={LBL}>Número</label>{editing ? <input style={IS} value={f("numero")} onChange={(e) => setF("numero", e.target.value.slice(0, 10))} maxLength={10} placeholder="123 ou S/N" /> : <div style={{ fontSize: 14, color: T.bone }}>{client.numero || "—"}</div>}</div>
           <div><label style={LBL}>Complemento</label>{editing ? <input style={IS} value={f("complemento")} onChange={(e) => setF("complemento", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.complemento || "—"}</div>}</div>
           <div><label style={LBL}>Bairro</label>{editing ? <input style={IS} value={f("bairro")} onChange={(e) => setF("bairro", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.bairro || "—"}</div>}</div>
