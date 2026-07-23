@@ -18,6 +18,7 @@ import SpousePeek from "../components/SpousePeek";
 import type { Client, LegalRegime, MaritalStatus } from "../../../shared/types/client";
 import { getClientWithSpouse, unlinkSpouses, registerContactInteraction } from "../../../infra/repositories/clientsSupabaseRepository";
 import { buildFichaTimeline } from "../timelineMerge";
+import { deriveInterestFromSimulation, planInterestSuggestion, declareField, interestSourceOf, type InterestSources } from "../interestDerivation";
 import { ConfirmacaoDestructiva } from "../../../shared/components/ConfirmacaoDestructiva";
 import { isNegotiationActive } from "../../../domain/status/negotiation";
 import { fromLeadQualificationDb, isLeadActive } from "../../../domain/status/leadQualification";
@@ -52,6 +53,7 @@ interface ClientData {
   status: string | null; qualification_status: string | null; score: number | null; origin: string | null; origin_detail: string | null;
   buyer_profile: string | null; budget_min: number | null; budget_max: number | null;
   purchase_timeline: string | null; payment_preference: string | null; interested_unit_type: string | null;
+  interesse: string | null; interest_sources: import("../interestDerivation").InterestSources | null;
   lost_at: string | null; lost_reason: string | null; lost_reason_detail: string | null;
   reactivated_at: string | null; reactivation_count: number | null;
   assigned_to: string | null; assigned_at: string | null; assigned_by: string | null;
@@ -70,6 +72,17 @@ interface ClientAct { id: string; type: string; title: string; status: string; a
 
 const T = { ink: "var(--surface-base)", carbon: "var(--surface-raised)", stone: "var(--border-default)", chalk: "var(--text-primary)", bone: "var(--text-secondary)", fog: "var(--text-muted)", slate: "var(--text-disabled)", sprout: "var(--interactive-primary)", blue: "#60A5FA", red: "#F87171", amber: "#FBBF24", purple: "#A78BFA" };
 const TYPE_LABELS: Record<string, string> = { visit_broker: "Visita corretor", visit_client: "Visita cliente", visit_development: "Visita empreend.", training: "Treinamento", phone_call: "Ligação", follow_up: "Follow-up", meeting_internal: "Reunião interna", meeting_external: "Reunião externa", other: "Outro" };
+
+// Ficha Viva · vocabulário canônico do TIPO (campo `interesse`). Urbano×rural é
+// linguagem do mercado de urbanizadoras — mantido. `interested_unit_type` está
+// DEPRECATED (a UI não lê/escreve mais; coluna preservada, nada destrutivo).
+const INTERESSE_LABELS: Record<string, string> = { lote_urbano: "Lote Urbano", lote_rural: "Lote Rural", terreno: "Terreno", apartamento: "Apartamento", casa: "Casa", outro: "Outro" };
+
+// Badge de origem: campo derivado (não declarado) leva "sugerido · simulação de DD/MM".
+function SuggestedBadge({ at }: { at: string }) {
+  const d = at && at.length >= 10 ? `${at.slice(8, 10)}/${at.slice(5, 7)}/${at.slice(0, 4)}` : at;
+  return <span title="Valor sugerido pela simulação — edite para confirmar (vira declarado)" style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "#F5A623", background: "rgba(245,166,35,0.12)", padding: "1px 6px", borderRadius: 4, marginLeft: 6, whiteSpace: "nowrap", verticalAlign: "middle" }}>sugerido · simulação de {d}</span>;
+}
 const DOC_TYPES = [
   { key: "rg_frente", label: "RG (frente)" }, { key: "rg_verso", label: "RG (verso)" },
   { key: "cpf", label: "CPF" }, { key: "comprovante_renda", label: "Comprovante de renda" },
@@ -293,7 +306,7 @@ export default function ClientDetailPage() {
         current_spouse_client_id,
         observations, temperature, last_interaction_at, doc_status, created_at,
         status, qualification_status, score, origin, origin_detail, buyer_profile, budget_min, budget_max,
-        purchase_timeline, payment_preference, interested_unit_type,
+        purchase_timeline, payment_preference, interested_unit_type, interesse, interest_sources,
         lost_at, lost_reason, lost_reason_detail, reactivated_at, reactivation_count,
         assigned_to, assigned_at, assigned_by
       `).eq("id", id).single();
@@ -327,6 +340,24 @@ export default function ClientDetailPage() {
           setSimUnits(m);
         } else setSimUnits({});
       } catch { setSimulations([]); setSimUnits({}); }
+      // Ficha Viva · FASE 2 — irriga o Interesse a partir da simulação ATIVA (loop):
+      // grava SUGERIDO só onde está vazio e não declarado; badge some ao editar.
+      try {
+        const sims = await listSimulationsByClient(id);
+        const activeSim = sims[0]; // repo traz só ativas, mais recente primeiro
+        if (activeSim && loaded) {
+          const curSources = ((loaded as unknown as Record<string, unknown>).interest_sources as InterestSources) ?? {};
+          const derived = deriveInterestFromSimulation({ id: activeSim.id, valorTotal: activeSim.valorTotal, entradaPercentual: activeSim.entradaPercentual ?? null, parcelasQuantidade: activeSim.parcelasQuantidade ?? null, createdAt: activeSim.createdAt });
+          const plan = planInterestSuggestion(
+            { interesse: loaded.interesse ?? null, budget_max: loaded.budget_max ?? null, payment_preference: loaded.payment_preference ?? null },
+            curSources, derived,
+          );
+          if (plan) {
+            await supabase.from("clients").update({ ...plan.values, interest_sources: plan.sources }).eq("id", id);
+            setClient((prev) => (prev ? ({ ...prev, ...plan.values, interest_sources: plan.sources } as ClientData) : prev));
+          }
+        }
+      } catch (e) { console.error("[FichaViva] derivação de interesse falhou", e); }
       const { data: acts } = await supabase.from("activities").select("id, type, title, status, activity_date, outcome, duration_minutes, profile_id, created_at").eq("client_id", id).eq("account_id", accountId).order("activity_date", { ascending: false }).limit(50);
       setActivities((acts ?? []) as ClientAct[]);
       // Documentos e checklist são carregados pelo hook useClientDocuments.
@@ -350,6 +381,14 @@ export default function ClientDetailPage() {
     try {
       const payload: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(form)) { if (v !== undefined && v !== (client as unknown as Record<string, unknown>)[k]) payload[k] = v || null; }
+      // Ficha Viva · FASE 2 — editar um campo derivado o torna DECLARADO: remove a
+      // origem (badge "sugerido" some). Só toca `interest_sources` se algo mudou.
+      let nextSources = (client.interest_sources ?? {}) as InterestSources;
+      let sourcesChanged = false;
+      for (const f of ["interesse", "budget_max", "payment_preference"]) {
+        if (f in payload && nextSources[f]) { nextSources = declareField(nextSources, f); sourcesChanged = true; }
+      }
+      if (sourcesChanged) payload.interest_sources = nextSources;
       if (Object.keys(payload).length > 0) {
         // Bug primário corrigido: Supabase retorna { error } em vez de throw.
         // Validar explicitamente para não aplicar update otimista em caso de
@@ -528,7 +567,20 @@ export default function ClientDetailPage() {
         <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>NEGOCIAÇÕES</div><div style={{ fontSize: 22, fontWeight: 700, color: T.chalk }}>{negotiations.length}</div></div>
         <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>SIMULAÇÕES</div><div style={{ fontSize: 22, fontWeight: 700, color: T.chalk }}>{simulations.length}</div></div>
         <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>SCORE</div><div style={{ fontSize: 22, fontWeight: 700, color: (client.score ?? 0) >= 70 ? T.sprout : (client.score ?? 0) >= 40 ? T.amber : T.chalk }}>{client.score ?? 0}<span style={{ fontSize: 12, fontWeight: 400, color: T.fog }}>/100</span></div></div>
-        <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>INTERESSE</div>{(() => { const INTERESSE_LABELS: Record<string, string> = { lote_urbano: "Lote Urbano", lote_rural: "Lote Rural", terreno: "Terreno", apartamento: "Apartamento", casa: "Casa", outro: "Outro" }; const val = (client as unknown as Record<string, unknown>).interesse as string | null; return <NexaSelect value={val ?? ""} onChange={async (nv) => { if (!supabase) return; const v = nv || null; await supabase.from("clients").update({ interesse: v }).eq("id", client.id); setClient((prev) => prev ? { ...prev, interesse: v } as ClientData : null); setToast("Interesse atualizado"); }} placeholder="— Selecionar" ariaLabel="Interesse" options={Object.entries(INTERESSE_LABELS).map(([k, l]) => ({ value: k, label: l }))} />; })()}</div>
+        {/* Ficha Viva · FASE 2 — KPI vira RESUMO clicável (não editor). Fim dos
+            dois editores: edição do tipo/budget vive na aba Interesse. */}
+        {(() => {
+          const tipo = client.interesse ? (INTERESSE_LABELS[client.interesse] ?? client.interesse) : null;
+          const teto = client.budget_max ? fmtBRL(client.budget_max) : null;
+          const resumo = tipo && teto ? `${tipo} · até ${teto}` : tipo || (teto ? `até ${teto}` : "—");
+          const sugerido = !!interestSourceOf(client.interest_sources, "interesse") || !!interestSourceOf(client.interest_sources, "budget_max");
+          return (
+            <div onClick={() => setTab("interesse")} title="Abrir Interesse" style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px", cursor: "pointer" }}>
+              <div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4, display: "flex", alignItems: "center", gap: 4 }}>INTERESSE {sugerido && <span title="sugerido pela simulação" style={{ width: 5, height: 5, borderRadius: "50%", background: "#F5A623", display: "inline-block" }} />}<span style={{ marginLeft: "auto", color: T.slate }}>›</span></div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: resumo === "—" ? T.slate : T.bone, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{resumo}</div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Quick actions */}
@@ -892,11 +944,12 @@ export default function ClientDetailPage() {
       {tab === "interesse" && (
         <div style={{ display: "grid", gridTemplateColumns: fluidGrid(230), gap: 14 }}>
           <div><label style={LBL}>Perfil de comprador</label>{editing ? <NexaSelect value={(form.buyer_profile as string) ?? client.buyer_profile ?? ""} onChange={(v) => setForm((p) => ({ ...p, buyer_profile: v }))} placeholder="Selecione" ariaLabel="Perfil de comprador" options={[{ value: "investor", label: "Investidor" }, { value: "resident", label: "Morador" }, { value: "both", label: "Ambos" }]} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.buyer_profile === "investor" ? "Investidor" : client.buyer_profile === "resident" ? "Morador" : client.buyer_profile === "both" ? "Ambos" : "—"}</div>}</div>
-          <div><label style={LBL}>Tipo de imóvel</label>{editing ? <NexaSelect value={(form.interested_unit_type as string) ?? client.interested_unit_type ?? ""} onChange={(v) => setForm((p) => ({ ...p, interested_unit_type: v }))} placeholder="Selecione" ariaLabel="Tipo de imóvel" options={[{ value: "lote", label: "Lote" }, { value: "casa", label: "Casa" }, { value: "apartamento", label: "Apartamento" }, { value: "comercial", label: "Comercial" }]} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.interested_unit_type || "—"}</div>}</div>
+          {/* Tipo canônico = `interesse` (vocabulário completo). interested_unit_type DEPRECATED. */}
+          <div><label style={LBL}>Tipo{interestSourceOf(client.interest_sources, "interesse") && <SuggestedBadge at={interestSourceOf(client.interest_sources, "interesse")!.at} />}</label>{editing ? <NexaSelect value={(form.interesse as string) ?? client.interesse ?? ""} onChange={(v) => setForm((p) => ({ ...p, interesse: v }))} placeholder="Selecione" ariaLabel="Tipo de interesse" options={Object.entries(INTERESSE_LABELS).map(([k, l]) => ({ value: k, label: l }))} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.interesse ? (INTERESSE_LABELS[client.interesse] ?? client.interesse) : "—"}</div>}</div>
           <div><label style={LBL}>Prazo de compra</label>{editing ? <NexaSelect value={(form.purchase_timeline as string) ?? client.purchase_timeline ?? ""} onChange={(v) => setForm((p) => ({ ...p, purchase_timeline: v }))} placeholder="Selecione" ariaLabel="Prazo de compra" options={[{ value: "immediate", label: "Imediato" }, { value: "1_to_3_months", label: "1-3 meses" }, { value: "3_to_6_months", label: "3-6 meses" }, { value: "6_to_12_months", label: "6-12 meses" }, { value: "over_12_months", label: "+12 meses" }]} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.purchase_timeline || "—"}</div>}</div>
           <div><label style={LBL}>Budget mínimo</label>{editing ? <input type="number" style={IS} value={String((form as Record<string, unknown>).budget_min ?? client.budget_min ?? "")} onChange={(e) => setForm((p) => ({ ...p, budget_min: Number(e.target.value) || null } as Partial<ClientData>))} placeholder="0" /> : <div style={{ fontSize: 14, color: T.bone }}>{client.budget_min ? fmtBRL(client.budget_min) : "—"}</div>}</div>
-          <div><label style={LBL}>Budget máximo</label>{editing ? <input type="number" style={IS} value={String((form as Record<string, unknown>).budget_max ?? client.budget_max ?? "")} onChange={(e) => setForm((p) => ({ ...p, budget_max: Number(e.target.value) || null } as Partial<ClientData>))} placeholder="0" /> : <div style={{ fontSize: 14, color: T.bone }}>{client.budget_max ? fmtBRL(client.budget_max) : "—"}</div>}</div>
-          <div><label style={LBL}>Preferência pagamento</label>{editing ? <NexaSelect value={(form.payment_preference as string) ?? client.payment_preference ?? ""} onChange={(v) => setForm((p) => ({ ...p, payment_preference: v }))} placeholder="Selecione" ariaLabel="Preferência de pagamento" options={[{ value: "cash", label: "À vista" }, { value: "installment", label: "Parcelado" }, { value: "financing", label: "Financiamento" }, { value: "fgts", label: "FGTS" }]} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.payment_preference || "—"}</div>}</div>
+          <div><label style={LBL}>Budget máximo{interestSourceOf(client.interest_sources, "budget_max") && <SuggestedBadge at={interestSourceOf(client.interest_sources, "budget_max")!.at} />}</label>{editing ? <input type="number" style={IS} value={String((form as Record<string, unknown>).budget_max ?? client.budget_max ?? "")} onChange={(e) => setForm((p) => ({ ...p, budget_max: Number(e.target.value) || null } as Partial<ClientData>))} placeholder="0" /> : <div style={{ fontSize: 14, color: T.bone }}>{client.budget_max ? fmtBRL(client.budget_max) : "—"}</div>}</div>
+          <div><label style={LBL}>Preferência pagamento{interestSourceOf(client.interest_sources, "payment_preference") && <SuggestedBadge at={interestSourceOf(client.interest_sources, "payment_preference")!.at} />}</label>{editing ? <NexaSelect value={(form.payment_preference as string) ?? client.payment_preference ?? ""} onChange={(v) => setForm((p) => ({ ...p, payment_preference: v }))} placeholder="Selecione" ariaLabel="Preferência de pagamento" options={[{ value: "cash", label: "À vista" }, { value: "installment", label: "Parcelado" }, { value: "financing", label: "Financiamento" }, { value: "fgts", label: "FGTS" }]} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.payment_preference || "—"}</div>}</div>
         </div>
       )}
 
