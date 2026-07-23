@@ -19,6 +19,7 @@ import type { Client, LegalRegime, MaritalStatus } from "../../../shared/types/c
 import { getClientWithSpouse, unlinkSpouses, registerContactInteraction } from "../../../infra/repositories/clientsSupabaseRepository";
 import { buildFichaTimeline, timelineCategory } from "../timelineMerge";
 import { deriveInterestFromSimulation, planInterestSuggestion, declareField, interestSourceOf, type InterestSources } from "../interestDerivation";
+import { computeLastTouch, resolveLastTouch } from "../lastTouch";
 import { ConfirmacaoDestructiva } from "../../../shared/components/ConfirmacaoDestructiva";
 import { isNegotiationActive } from "../../../domain/status/negotiation";
 import { fromLeadQualificationDb, isLeadActive } from "../../../domain/status/leadQualification";
@@ -612,7 +613,18 @@ export default function ClientDetailPage() {
       {/* KPIs */}
       <div style={{ display: "grid", gridTemplateColumns: fluidGrid(150, "fill"), gap: 10, marginBottom: 16 }}>
         <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>ATENDIMENTOS</div><div style={{ fontSize: 22, fontWeight: 700, color: T.chalk }}>{activities.length}</div></div>
-        <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>ÚLTIMO CONTATO</div><div style={{ fontSize: 14, fontWeight: 600, color: client.last_interaction_at ? T.bone : T.slate }}>{client.last_interaction_at ? timeAgo(client.last_interaction_at) : "Nunca"}</div>{!client.last_interaction_at && <button type="button" onClick={() => setActivityModalOpen(true)} style={{ fontSize: 11, color: T.sprout, background: "none", border: "none", cursor: "pointer", padding: 0, marginTop: 4 }}>+ Registrar agora</button>}</div>
+        {/* N2 · "Último contato" = lastTouch canônico. Coluna (verdade de produção)
+            reconciliada com o cálculo local (interações + atividades CONCLUÍDAS) →
+            reflete na hora um toque recém-concluído, sem retroceder. */}
+        {(() => {
+          const lastTouchIso = resolveLastTouch(client.last_interaction_at, computeLastTouch(
+            contactInteractions.map((ci) => ({ performedAt: ci.performed_at })),
+            activities.map((a) => ({ status: a.status, activityDate: a.activity_date, startTime: null })),
+          ));
+          return (
+            <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>ÚLTIMO CONTATO</div><div style={{ fontSize: 14, fontWeight: 600, color: lastTouchIso ? T.bone : T.slate }}>{lastTouchIso ? timeAgo(lastTouchIso) : "Nunca"}</div>{!lastTouchIso && <button type="button" onClick={() => setActivityModalOpen(true)} style={{ fontSize: 11, color: T.sprout, background: "none", border: "none", cursor: "pointer", padding: 0, marginTop: 4 }}>+ Registrar agora</button>}</div>
+          );
+        })()}
         <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>NEGOCIAÇÕES</div><div style={{ fontSize: 22, fontWeight: 700, color: T.chalk }}>{negotiations.length}</div></div>
         <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>SIMULAÇÕES</div><div style={{ fontSize: 22, fontWeight: 700, color: T.chalk }}>{simulations.length}</div></div>
         <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>SCORE</div><div style={{ fontSize: 22, fontWeight: 700, color: (client.score ?? 0) >= 70 ? T.sprout : (client.score ?? 0) >= 40 ? T.amber : T.chalk }}>{client.score ?? 0}<span style={{ fontSize: 12, fontWeight: 400, color: T.fog }}>/100</span></div></div>

@@ -4,6 +4,7 @@ import { useAccount } from "../../../app/contexts/AccountContext";
 import { useAuth } from "../../../app/contexts/AuthContext";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
 import { fluidGrid } from "../../../shared/responsive";
+import { timeAgo } from "../../../shared/utils/timeAgo";
 import { useContatos, type ContatoFilters } from "../hooks/useContatos";
 import { useClientFilter } from "../../../shared/hooks/useClientFilter";
 import { podeVerTodasNegociacoes } from "../../../shared/utils/permissoes";
@@ -325,6 +326,9 @@ export default function ContatosPage() {
                     Lead · {LEAD_STAGE_META[leadStage].label} →
                   </button>
                 )}
+                {/* N2 · último contato = lastTouch canônico (coluna last_interaction_at,
+                    já reflete atividade concluída via trigger). A lista lê a coluna. */}
+                {!isMobile && <div title="Último contato" style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: c.lastInteractionAt ? "var(--text-muted)" : "var(--text-disabled)", minWidth: 52, textAlign: "right", whiteSpace: "nowrap" }}>{c.lastInteractionAt ? timeAgo(c.lastInteractionAt) : "—"}</div>}
                 {!isMobile && c.score > 0 && <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 600, color: c.score >= 70 ? "#4ADE80" : c.score >= 40 ? "#FBBF24" : "var(--text-muted)", minWidth: 32, textAlign: "center" }}>{c.score}</div>}
                 {!isMobile && <div style={{ fontSize: 12, color: c.assignedToName ? "var(--text-muted)" : "var(--text-disabled)", minWidth: 80, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.assignedToName ?? c.brokerName ?? "—"}</div>}
                 {isOverdue && <span title="Follow-up atrasado" style={{ fontSize: 14, flexShrink: 0 }}>⚠</span>}
