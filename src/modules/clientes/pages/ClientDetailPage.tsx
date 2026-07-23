@@ -78,6 +78,27 @@ const TYPE_LABELS: Record<string, string> = { visit_broker: "Visita corretor", v
 // DEPRECATED (a UI não lê/escreve mais; coluna preservada, nada destrutivo).
 const INTERESSE_LABELS: Record<string, string> = { lote_urbano: "Lote Urbano", lote_rural: "Lote Rural", terreno: "Terreno", apartamento: "Apartamento", casa: "Casa", outro: "Outro" };
 
+// Ficha Viva · FASE 3 — convite inline "Doc aprovado — preencher número?".
+// Input rápido (sem OCR nesta onda — OCR/cookbook fica como evolução futura:
+// ler o número do documento aprovado e pré-preencher). Módulo-escopo → identidade
+// estável (não remonta e perde foco no re-render da ficha).
+function QuickFillInvite({ docLabel, mask, maxLen, inputStyle, onSave }: { docLabel: string; mask: (v: string) => string; maxLen: number; inputStyle: React.CSSProperties; onSave: (raw: string) => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [v, setV] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (!open) return (
+    <button type="button" onClick={() => setOpen(true)} style={{ marginTop: 5, fontSize: 11, color: "#F5A623", background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.3)", borderRadius: 6, padding: "4px 9px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 }}>
+      <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#F5A623" }} />{docLabel} aprovado nos documentos — preencher número?
+    </button>
+  );
+  return (
+    <div style={{ marginTop: 6, display: "flex", gap: 6 }}>
+      <input autoFocus value={mask(v)} onChange={(e) => setV(e.target.value.replace(/\D/g, "").slice(0, maxLen))} placeholder="Digite o número" style={{ ...inputStyle, flex: 1 }} />
+      <button type="button" disabled={busy || !v} onClick={async () => { setBusy(true); try { await onSave(v); } finally { setBusy(false); setOpen(false); } }} style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: "#F5A623", color: "#12110F", fontSize: 12, fontWeight: 700, cursor: busy || !v ? "default" : "pointer", opacity: busy || !v ? 0.5 : 1 }}>Salvar</button>
+    </div>
+  );
+}
+
 // Badge de origem: campo derivado (não declarado) leva "sugerido · simulação de DD/MM".
 function SuggestedBadge({ at }: { at: string }) {
   const d = at && at.length >= 10 ? `${at.slice(8, 10)}/${at.slice(5, 7)}/${at.slice(0, 4)}` : at;
@@ -925,8 +946,8 @@ export default function ClientDetailPage() {
       {tab === "dados" && (
         <div style={{ display: "grid", gridTemplateColumns: fluidGrid(230), gap: 14 }}>
           <div style={{ gridColumn: "span 2" }}><label style={LBL}>Nome completo</label>{editing ? <input style={IS} value={f("full_name") || f("name")} onChange={(e) => setF("full_name", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.full_name || client.name || "—"}</div>}</div>
-          <div><label style={LBL}>CPF</label>{editing ? <input style={IS} value={maskCPF(f("cpf"))} onChange={(e) => setF("cpf", e.target.value.replace(/\D/g, "").slice(0, 11))} maxLength={14} /> : <SensitiveField label="CPF" maskedValue={secureMaskCPF(client.cpf)} fullValue={client.cpf ? maskCPF(client.cpf) : ""} entityType="client" entityId={client.id} field="cpf" />}</div>
-          <div><label style={LBL}>RG</label>{editing ? <input style={IS} value={maskRG(f("rg"))} onChange={(e) => setF("rg", maskRG(e.target.value))} maxLength={12} /> : <SensitiveField label="RG" maskedValue={secureMaskRG(client.rg)} fullValue={client.rg || ""} entityType="client" entityId={client.id} field="rg" />}</div>
+          <div><label style={LBL}>CPF</label>{editing ? <input style={IS} value={maskCPF(f("cpf"))} onChange={(e) => setF("cpf", e.target.value.replace(/\D/g, "").slice(0, 11))} maxLength={14} /> : <SensitiveField label="CPF" maskedValue={secureMaskCPF(client.cpf)} fullValue={client.cpf ? maskCPF(client.cpf) : ""} entityType="client" entityId={client.id} field="cpf" />}{!editing && !client.cpf && docsByType["cpf"]?.status === "approved" && <QuickFillInvite docLabel="CPF" mask={maskCPF} maxLen={11} inputStyle={IS} onSave={async (raw) => { if (!supabase) return; await supabase.from("clients").update({ cpf: raw }).eq("id", client.id); setClient((prev) => prev ? ({ ...prev, cpf: raw } as ClientData) : prev); setToast("CPF preenchido"); }} />}</div>
+          <div><label style={LBL}>RG</label>{editing ? <input style={IS} value={maskRG(f("rg"))} onChange={(e) => setF("rg", maskRG(e.target.value))} maxLength={12} /> : <SensitiveField label="RG" maskedValue={secureMaskRG(client.rg)} fullValue={client.rg || ""} entityType="client" entityId={client.id} field="rg" />}{!editing && !client.rg && docsByType["rg_frente"]?.status === "approved" && <QuickFillInvite docLabel="RG" mask={maskRG} maxLen={12} inputStyle={IS} onSave={async (raw) => { if (!supabase) return; const val = maskRG(raw); await supabase.from("clients").update({ rg: val }).eq("id", client.id); setClient((prev) => prev ? ({ ...prev, rg: val } as ClientData) : prev); setToast("RG preenchido"); }} />}</div>
           <div><label style={LBL}>Órgão emissor</label>{editing ? <input style={IS} value={f("rg_orgao")} onChange={(e) => setF("rg_orgao", e.target.value)} placeholder="SSP/PR" /> : <div style={{ fontSize: 14, color: T.bone }}>{client.rg_orgao || "—"}</div>}</div>
           <div><label style={LBL}>Data nascimento</label>{editing ? <input type="date" style={IS} value={f("data_nascimento")} onChange={(e) => setF("data_nascimento", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.data_nascimento ? formatDateBRT(client.data_nascimento + "T12:00:00") : "—"}</div>}</div>
           <div><label style={LBL}>Estado civil</label>{editing ? <NexaSelect value={f("marital_status")} onChange={(v) => setF("marital_status", v)} placeholder="Selecione" ariaLabel="Estado civil" options={ESTADO_CIVIL_OPTS.map((o) => ({ value: o.v, label: o.l }))} /> : <div style={{ fontSize: 14, color: T.bone }}>{ESTADO_CIVIL_OPTS.find((o) => o.v === client.marital_status)?.l || client.marital_status || "—"}</div>}</div>
