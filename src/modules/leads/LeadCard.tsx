@@ -9,6 +9,7 @@ import { CLIENT_SOURCE_LABELS } from "../../shared/types/client";
 import { useScreen } from "../../shared/hooks/useIsMobile";
 import { MOBILE_SMALL_BP } from "../../shared/mobile";
 import { EntityLink } from "../../shared/navigation/EntityLink";
+import { ScoreBadge } from "../clientes/components/ScoreBadge";
 import { openActionLabel } from "../../shared/navigation/entityRoutes";
 
 const MONO = "var(--font-mono)";
@@ -50,6 +51,8 @@ export default function LeadCard({ lead, canAssign, busy, movedNote, campaignLab
       {/* Linha 1: nome + origem/campanha (+ nota "movido") */}
       <div style={{ display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
         <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>{c.name || <span style={{ color: "#706B5F", fontStyle: "italic" }}>Sem nome</span>}</span>
+        {/* N3-UI · badge discreto do score (≥40) — linha 1, antes do selo de estágio. */}
+        <ScoreBadge score={c.score} />
         <span style={{ fontFamily: MONO, fontSize: 9, fontWeight: 700, color: meta.color, background: meta.soft, padding: "2px 6px", borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap" }}>{meta.label}</span>
       </div>
       <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 3, flexWrap: "wrap" }}>
