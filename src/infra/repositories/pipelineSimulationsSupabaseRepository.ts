@@ -14,6 +14,7 @@
 import type { PipelineSimulation } from "../../shared/types/simulation";
 import { PipelineSimulationStatus } from "../../domain/status/pipelineSimulation";
 import { getSupabaseClientOrThrow, unwrapSupabaseListResult } from "./baseRepository";
+import { buildProtocolo } from "../../shared/documents/documentTheme";
 
 type PipelineSimulationRow = {
   id: string;
@@ -272,4 +273,25 @@ export async function deleteSimulation(simulationId: string): Promise<void> {
     .delete()
     .eq("id", simulationId);
   if (error) throw new Error(`Failed to delete simulation ${simulationId}: ${error.message}`);
+}
+
+// Documentos Temáveis v3 · protocolo CP-AAAAMMDD-LxxQxx GRAVADO na 1ª emissão e
+// REUSADO nas seguintes (mesmo documento). Índice único no banco impede duplicata.
+export async function getOrCreateProtocolo(
+  simulationId: string,
+  lote: string | number | null | undefined,
+  quadra: string | number | null | undefined,
+): Promise<string> {
+  const supabase = getSupabaseClientOrThrow("pipeline simulations repository");
+  const { data } = await supabase
+    .from("pipeline_simulations")
+    .select("protocolo, created_at")
+    .eq("id", simulationId)
+    .maybeSingle();
+  const existing = (data as { protocolo?: string | null } | null)?.protocolo;
+  if (existing) return existing; // re-emissão reusa
+  const createdAt = (data as { created_at?: string } | null)?.created_at ?? new Date().toISOString();
+  const proto = buildProtocolo(createdAt, lote ?? null, quadra ?? null);
+  await supabase.from("pipeline_simulations").update({ protocolo: proto }).eq("id", simulationId);
+  return proto;
 }

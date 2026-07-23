@@ -1,18 +1,22 @@
+// Documentos Temáveis v3 · renderer da Simulação · 100% por tokens do
+// documentTheme. NENHUM hex/logo/slogan de cliente aqui (Lei multi-tenant): a
+// pele vem do tema; a anatomia é fixa. Offline-safe (fontes embedadas; só a
+// rede de dados/logos). Sem travessão em texto visível (separadores "·"/"/").
 import jsPDF from "jspdf";
 import type { PermutaItem } from "../hooks/useSimulador";
 import { getSaldoLabel } from "./getSaldoLabel";
 import { formatDateBRT } from "../../../shared/utils/dateUtils";
+import type { DocumentTheme } from "../../../shared/documents/documentTheme";
+import { hexToRgb, buildProtocolo, resolveDocumentTheme } from "../../../shared/documents/documentTheme";
+import { registerDocumentFonts } from "../../../shared/documents/documentFonts";
+import { formatValidadeAbsoluta, carenciaText } from "../../../shared/documents/documentLayout";
 
 const PL: Record<string, string> = { veiculo: "Veículo", terreno: "Terreno", imovel: "Imóvel" };
 const PERIODICIDADE_LABEL: Record<string, string> = { semestral: "semestrais", anual: "anuais", trimestral: "trimestrais", mensal: "mensais" };
-
+const PERIODICIDADE_MESES: Record<string, number> = { mensal: 1, trimestral: 3, semestral: 6, anual: 12 };
 function fmtBRL(v: number): string { return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
 
-function hexRGB(hex: string | null | undefined): [number, number, number] {
-  const h = (hex || "#D97706").replace("#", "");
-  if (!/^[0-9A-Fa-f]{6}$/.test(h)) return [217, 119, 6];
-  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
-}
+type RGB = [number, number, number];
 
 async function loadImg(url: string): Promise<{ data: string; fmt: "PNG" | "JPEG"; w: number; h: number } | null> {
   try {
@@ -25,22 +29,6 @@ async function loadImg(url: string): Promise<{ data: string; fmt: "PNG" | "JPEG"
     return { data: b64, fmt: ext === "jpg" || ext === "jpeg" ? "JPEG" : "PNG", w: iw, h: ih };
   } catch { return null; }
 }
-
-async function loadFont(url: string): Promise<string | null> {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const buf = await res.arrayBuffer();
-    const uint8 = new Uint8Array(buf);
-    let binary = '';
-    const chunk = 8192;
-    for (let i = 0; i < uint8.length; i += chunk) {
-      binary += String.fromCharCode(...uint8.subarray(i, i + chunk));
-    }
-    return btoa(binary);
-  } catch { return null; }
-}
-
 function contain(nw: number, nh: number, mw: number, mh: number) { const r = nw / nh; let w = mw, h = w / r; if (h > mh) { h = mh; w = h * r; } return { w, h }; }
 
 export interface PdfData {
@@ -53,256 +41,212 @@ export interface PdfData {
   permutaAtiva: boolean; permutaItens: PermutaItem[]; totalPermuta: number; saldoFinanciar: number;
   tipoSaldo: string; textoSaldoPersonalizado: string | null;
   clienteNome?: string; corretorNome?: string;
+  area?: number; balaoPeriodicidade?: string;
+  pdfValidadeHoras?: number;
+  protocolo?: string | null; // gravado na 1ª emissão, reusado depois
+  // Campos legados de tema (account_settings) ficam no tipo por compat mas NÃO
+  // são usados: a pele vem SÓ do documentTheme.
   logoUrl?: string | null; corPrimaria?: string; corSecundaria?: string; fraseImpactoPdf?: string;
   logoEmpreendimentoUrl?: string | null; tituloProposta?: string | null;
   bulletPdf1?: string | null; bulletPdf2?: string | null; bulletPdf3?: string | null;
-  pdfDisclaimer?: string | null; pdfValidadeHoras?: number;
-  textoParcelamento?: string | null;
-  area?: number;
-  balaoPeriodicidade?: string;
+  pdfDisclaimer?: string | null; textoParcelamento?: string | null;
 }
 
-export async function gerarPdfSimulacao(d: PdfData) {
+export type PdfMode = "save" | "bloburl";
+
+// Retorna a bloburl quando mode="bloburl" (preview vivo); senão salva e retorna void.
+export async function gerarPdfSimulacao(d: PdfData, theme: DocumentTheme = resolveDocumentTheme(null), mode: PdfMode = "save"): Promise<string | void> {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const F = await registerDocumentFonts(doc, theme.fontPair);
 
-  // ── FONT LOADING ──
-  let fontFamily = "helvetica";
-  try {
-    const [base64Regular, base64Medium] = await Promise.all([
-      loadFont("https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/fonts/Roboto/Roboto-Regular.ttf"),
-      loadFont("https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/fonts/Roboto/Roboto-Medium.ttf"),
-    ]);
-    if (base64Regular && base64Medium) {
-      doc.addFileToVFS('Roboto-Regular.ttf', base64Regular);
-      doc.addFont('Roboto-Regular.ttf', 'Roboto', 'normal');
-      doc.addFileToVFS('Roboto-Medium.ttf', base64Medium);
-      doc.addFont('Roboto-Medium.ttf', 'Roboto', 'bold');
-      doc.setFont('Roboto');
-      fontFamily = "Roboto";
-    }
-  } catch { /* fall back to helvetica */ }
+  const W = 210, H = 297, mg = 18, cw = W - mg * 2;
+  const emissaoIso = new Date().toISOString();
+  const protocolo = d.protocolo || buildProtocolo(emissaoIso, d.lote, d.quadra);
 
-  const t = (text: string) => text;
+  // Tokens → RGB (jsPDF). NENHUM hex hardcoded de cliente.
+  const c = {
+    pageBg: hexToRgb(theme.pageBg) as RGB, text: hexToRgb(theme.textPrimary) as RGB,
+    text2: hexToRgb(theme.textSecondary) as RGB, muted: hexToRgb(theme.textMuted) as RGB,
+    accent: hexToRgb(theme.accent) as RGB, cardBg: hexToRgb(theme.cardBg) as RGB,
+    cardBorder: hexToRgb(theme.cardBorder) as RGB, divider: hexToRgb(theme.divider) as RGB,
+  };
+  const setFill = (rgb: RGB) => doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+  const setText = (rgb: RGB) => doc.setTextColor(rgb[0], rgb[1], rgb[2]);
+  const setDraw = (rgb: RGB) => doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
 
-  const W = 210, mg = 18, cw = W - mg * 2;
-  const [cR, cG, cB] = hexRGB(d.corPrimaria);
-  const lum = (cR * 0.299 + cG * 0.587 + cB * 0.114) / 255;
-  const boost = lum < 0.4 ? 1.8 : 1;
-  const cRL = Math.min(255, Math.round(cR * boost + (boost > 1 ? 60 : 0)));
-  const cGL = Math.min(255, Math.round(cG * boost + (boost > 1 ? 60 : 0)));
-  const cBL = Math.min(255, Math.round(cB * boost + (boost > 1 ? 60 : 0)));
-  const DK: [number, number, number] = [30, 27, 24];
-  const MD: [number, number, number] = [112, 107, 95];
-  const LT: [number, number, number] = [196, 191, 179];
-  const WH: [number, number, number] = [250, 249, 246];
-  const BG: [number, number, number] = [18, 17, 15];
-  const CR: [number, number, number] = [253, 248, 242];
-  let y = 0;
+  const logoPrimary = theme.logoPrimary ? await loadImg(theme.logoPrimary) : null;
+  const logoProduct = theme.logoProduct ? await loadImg(theme.logoProduct) : null;
 
-  const logo = d.logoUrl ? await loadImg(d.logoUrl) : null;
-  const logoE = d.logoEmpreendimentoUrl ? await loadImg(d.logoEmpreendimentoUrl) : null;
+  const pageBg = () => { setFill(c.pageBg); doc.rect(0, 0, W, H, "F"); };
+  const drawLogo = (img: typeof logoPrimary, x: number, yTop: number, maxW: number, maxH: number, align: "left" | "center" = "left") => {
+    if (!img) return false;
+    try { const s = contain(img.w, img.h, maxW, maxH); const dx = align === "center" ? x - s.w / 2 : x; doc.addImage(img.data, img.fmt, dx, yTop, s.w, s.h, undefined, "FAST"); return true; }
+    catch (e) { console.warn("[docs-v3] logo fallback:", e); return false; }
+  };
+  const overline = (label: string, x: number, y: number, accent: boolean) => {
+    doc.setFont(F.mono, "normal"); doc.setFontSize(7.5); setText(accent ? c.accent : c.muted);
+    doc.text(label.toUpperCase(), x, y);
+  };
 
-  // ── HEADER (52mm) ──
-  const HH = 52;
-  doc.setFillColor(...BG); doc.rect(0, 0, W, HH, "F");
-  let ok = false;
-  if (logo) { try { const s = contain(logo.w, logo.h, 50, 26); doc.addImage(logo.data, logo.fmt, mg, (HH - 26) / 2 + (26 - s.h) / 2, s.w, s.h, undefined, "FAST"); ok = true; } catch (e) { console.warn("[PDF] Logo conta fallback:", e); } }
-  if (!ok) { doc.setFont(fontFamily, "bold"); doc.setFontSize(15); doc.setTextColor(...WH); doc.text(t(d.contaNome), mg, HH / 2 + 3); }
-  const SX = mg + 58;
-  doc.setDrawColor(61, 58, 48); doc.setLineWidth(0.4); doc.line(SX, 10, SX, HH - 10);
-  const EX = SX + 8;
-  let eOk = false;
-  if (logoE) { try { const s = contain(logoE.w, logoE.h, 34, 18); doc.addImage(logoE.data, logoE.fmt, EX, (HH - 18) / 2 + (18 - s.h) / 2, s.w, s.h, undefined, "FAST"); eOk = true; } catch (e) { console.warn("[PDF] Logo empreendimento fallback:", e); } }
-  if (!eOk) { doc.setFont(fontFamily, "bold"); doc.setFontSize(11); doc.setTextColor(...WH); doc.text(t(d.empreendimentoNome), EX, HH / 2); }
-  doc.setFont(fontFamily, "normal"); doc.setFontSize(10); doc.setTextColor(...LT);
-  doc.text(formatDateBRT(new Date()), W - mg, HH / 2 + 2, { align: "right" });
-  doc.setFillColor(cRL, cGL, cBL); doc.rect(0, HH - 2.5, W, 2.5, "F");
-  y = HH + 20;
+  // ═══════════ PÁGINA 1 ═══════════
+  pageBg();
+  let y = 16;
 
-  // ── TÍTULO ──
-  const titulo = d.tituloProposta || "Simulação Comercial";
-  doc.setFont(fontFamily, "bold"); doc.setFontSize(11); doc.setTextColor(cR, cG, cB);
-  doc.text(t(titulo).toUpperCase(), mg, y); y += 4;
-  doc.setFont(fontFamily, "normal"); doc.setFontSize(10); doc.setTextColor(...MD);
-  doc.text(t(d.empreendimentoNome), mg, y); y += 10;
+  // CABEÇALHO · logoPrimary à esquerda · protocolo + data mono à direita
+  if (!drawLogo(logoPrimary, mg, y, 46, 11)) { doc.setFont(F.sans, "bold"); doc.setFontSize(13); setText(c.text); doc.text(d.contaNome, mg, y + 8); }
+  doc.setFont(F.mono, "normal"); doc.setFontSize(7.5); setText(c.muted);
+  doc.text(protocolo, W - mg, y + 3, { align: "right" });
+  doc.text(formatDateBRT(new Date()).toUpperCase(), W - mg, y + 8, { align: "right" });
+  y += 18;
+  setDraw(c.divider); doc.setLineWidth(0.4); doc.line(mg, y, W - mg, y); y += 12;
 
-  // ── SEU TERRENO ──
-  doc.setFont(fontFamily, "bold"); doc.setFontSize(8); doc.setTextColor(...MD);
-  doc.text(t("SEU TERRENO"), mg, y); y += 4;
-  doc.setDrawColor(cR, cG, cB); doc.setLineWidth(0.5); doc.line(mg, y, mg + cw, y); y += 8;
-  doc.setFont(fontFamily, "bold"); doc.setFontSize(18); doc.setTextColor(...DK);
-  const qT = t("Quadra " + d.quadra); doc.text(qT, mg, y);
-  const qW = doc.getTextWidth(qT);
-  doc.setTextColor(cR, cG, cB); doc.text("  /  ", mg + qW, y);
-  const sW = doc.getTextWidth("  /  ");
-  doc.setTextColor(...DK); doc.text(t("Lote " + d.lote), mg + qW + sW, y);
-  y += 8;
-  doc.setFont(fontFamily, "normal"); doc.setFontSize(10); doc.setTextColor(...MD);
-  if (d.area && d.area > 0) { doc.text(t("Área: " + d.area.toLocaleString("pt-BR") + " m²"), mg, y); y += 5; }
-  doc.text(t("Valor do terreno: " + fmtBRL(d.valorOriginal)), mg, y); y += 12;
+  // IDENTIFICAÇÃO · selo do produto + título serifado · CLIENTE/CORRETOR à direita
+  const idTop = y;
+  const productDrawn = drawLogo(logoProduct, mg, idTop, 16, 16);
+  const titleX = productDrawn ? mg + 20 : mg;
+  doc.setFont(F.serif, "bold"); doc.setFontSize(23); setText(c.text);
+  doc.text("Simulação comercial", titleX, idTop + 11);
+  const idRightX = W - mg;
+  let ry = idTop + 1;
+  const idField = (label: string, value: string | undefined, size: number) => {
+    if (!value || !value.trim()) return;
+    doc.setFont(F.mono, "normal"); doc.setFontSize(7.5); setText(c.muted); doc.text(label, idRightX, ry, { align: "right" }); ry += 4;
+    doc.setFont(F.sans, "normal"); doc.setFontSize(size); setText(c.text); doc.text(value, idRightX, ry, { align: "right" }); ry += 7;
+  };
+  idField("CLIENTE", d.clienteNome, 11);
+  idField("CORRETOR(A)", d.corretorNome, 10);
+  y = Math.max(idTop + 20, ry) + 8;
 
-  // ── HERO — SUA SIMULAÇÃO (38mm) ──
-  const heroH = 38;
-  doc.setFillColor(...CR); doc.roundedRect(mg, y, cw, heroH, 5, 5, "F");
-  doc.setDrawColor(cR, cG, cB); doc.setLineWidth(1.5); doc.roundedRect(mg, y, cw, heroH, 5, 5, "S");
-  doc.setFont(fontFamily, "bold"); doc.setFontSize(8); doc.setTextColor(cR, cG, cB);
-  doc.text(t(d.numeroParcelas > 0 ? "SUA SIMULAÇÃO DE PAGAMENTO" : "PAGAMENTO À VISTA"), mg + 10, y + 10);
-  doc.setFont(fontFamily, "bold"); doc.setFontSize(38); doc.setTextColor(...DK);
-  doc.text(t(d.numeroParcelas > 0 ? fmtBRL(d.parcelaValor) : fmtBRL(d.valorNegociado)), mg + 10, y + 26);
-  doc.setFont(fontFamily, "normal"); doc.setFontSize(13); doc.setTextColor(...MD);
-  doc.text(t(d.numeroParcelas > 0 ? "/mês" : "valor negociado"), W - mg - 10, y + 26, { align: "right" });
-  const sub: string[] = [];
-  if (d.numeroParcelas > 0) sub.push(d.numeroParcelas + " parcelas");
-  if (d.numeroParcelas > 0 && d.textoParcelamento) sub.push(d.textoParcelamento);
-  else if (d.numeroParcelas > 0 && d.indiceLabel) sub.push(d.indiceLabel.split(" → ")[0]);
-  if (d.numeroParcelas > 0 && d.carenciaAtiva && d.carenciaMeses > 0) sub.push(t("carência " + d.carenciaMeses + " meses"));
-  sub.push(t("sem banco"));
-  doc.setFont(fontFamily, "normal"); doc.setFontSize(9); doc.setTextColor(...MD);
-  doc.text(t(sub.join("  ·  ")), W - mg - 8, y + heroH - 6, { align: "right" });
+  // BLOCO-HERÓI · card + overline · 01 + parcela grande + contexto + carência
+  const heroH = 50;
+  setFill(c.cardBg); doc.roundedRect(mg, y, cw, heroH, 2, 2, "F");
+  setDraw(c.cardBorder); doc.setLineWidth(0.4); doc.roundedRect(mg, y, cw, heroH, 2, 2, "S");
+  const hx = mg + 12; let hy = y + 12;
+  overline(d.numeroParcelas > 0 ? "· 01 / SUA PARCELA" : "· 01 / PAGAMENTO", hx, hy, true); hy += 12;
+  const heroValor = d.numeroParcelas > 0 ? d.parcelaValor : d.valorNegociado;
+  doc.setFont(F.sans, "normal"); doc.setFontSize(15); setText(c.text2); doc.text("R$", hx, hy);
+  const rsW = doc.getTextWidth("R$ ");
+  doc.setFont(F.serif, "bold"); doc.setFontSize(38); setText(c.text);
+  const valorStr = heroValor.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  doc.text(valorStr, hx + rsW, hy);
+  const vW = doc.getTextWidth(valorStr);
+  doc.setFont(F.sans, "normal"); doc.setFontSize(13); setText(c.text2);
+  doc.text(d.numeroParcelas > 0 ? " /mês" : " à vista", hx + rsW + vW, hy);
+  hy += 9;
+  const ctx: string[] = [];
+  if (d.quadra || d.lote) ctx.push(`Quadra ${d.quadra || "00"} / Lote ${d.lote || "00"}`);
+  if (d.numeroParcelas > 0) ctx.push(`${d.numeroParcelas} parcelas`);
+  ctx.push("direto com a incorporadora · sem banco");
+  doc.setFont(F.sans, "normal"); doc.setFontSize(9); setText(c.muted); doc.text(ctx.join(" · "), hx, hy);
+  const car = carenciaText(emissaoIso, d.carenciaAtiva ? d.carenciaMeses : 0);
+  if (car) {
+    hy += 7;
+    doc.setFont(F.sans, "normal"); doc.setFontSize(9); setText(c.muted);
+    const pre = "1ª parcela em ";
+    doc.text(pre, hx, hy);
+    const preW = doc.getTextWidth(pre);
+    doc.setFont(F.sans, "bold"); setText(c.accent); doc.text(car.monthLabel, hx + preW, hy); // mês em accent
+    const mW = doc.getTextWidth(car.monthLabel);
+    doc.setFont(F.sans, "normal"); setText(c.muted); doc.text(`  ·  ${d.carenciaMeses} meses de carência`, hx + preW + mW, hy);
+  }
   y += heroH + 12;
 
-  // ── RESUMO DO INVESTIMENTO ──
-  doc.setFont(fontFamily, "bold"); doc.setFontSize(8); doc.setTextColor(...MD);
-  doc.text(t("RESUMO DO INVESTIMENTO"), mg, y); y += 4;
-  doc.setDrawColor(cR, cG, cB); doc.setLineWidth(0.5); doc.line(mg, y, mg + cw, y); y += 8;
-
-  function row(label: string, value: string, sub2?: string, isDiscount?: boolean) {
-    doc.setFont(fontFamily, "normal"); doc.setFontSize(11); doc.setTextColor(...DK); doc.text(t(label), mg, y);
-    doc.setFont(fontFamily, "bold"); if (isDiscount) doc.setTextColor(220, 38, 38); else doc.setTextColor(...DK); doc.text(t(value), W - mg, y, { align: "right" }); y += 5;
-    if (sub2) { doc.setFont(fontFamily, "normal"); doc.setFontSize(8.5); doc.setTextColor(...MD); doc.text(t("  " + sub2), mg + 3, y); y += 5; }
-    doc.setDrawColor(240, 237, 232); doc.setLineWidth(0.2); doc.line(mg, y, mg + cw, y); y += 4;
-  }
-
-  // Entrada
+  // RESUMO DO INVESTIMENTO · overline · 02 (muted) + linhas com divisores
+  overline("· 02 / RESUMO DO INVESTIMENTO", mg, y, false); y += 6;
+  const resumoRow = (label: string, value: string) => {
+    doc.setFont(F.sans, "normal"); doc.setFontSize(10.5); setText(c.text2); doc.text(label, mg, y);
+    doc.setFont(F.sans, "normal"); doc.setFontSize(10.5); setText(c.text); doc.text(value, W - mg, y, { align: "right" }); y += 5.5;
+    setDraw(c.divider); doc.setLineWidth(0.5); doc.line(mg, y, W - mg, y); y += 4.5;
+  };
+  resumoRow("Valor do lote", fmtBRL(d.valorOriginal));
+  if (d.desconto > 0) resumoRow(`Desconto (${d.descontoPct}%)`, `- ${fmtBRL(d.desconto)}`);
   if (d.entradaValor > 0) {
-    const entLabel = d.entradaPct > 0 && d.entradaPct < 100 ? "Entrada (" + d.entradaPct + "%)" : "Entrada";
-    const entSub = d.entradaParcelada ? t(d.entradaParceladaVezes + "x de " + fmtBRL(d.entradaParceladaValor)) : t("À vista");
-    row(t(entLabel), fmtBRL(d.entradaValor), entSub);
+    const pct = d.entradaPct > 0 && d.entradaPct < 100 ? ` (${d.entradaPct}%)` : "";
+    resumoRow(`Entrada${pct}`, d.entradaParcelada ? `${d.entradaParceladaVezes}x de ${fmtBRL(d.entradaParceladaValor)}` : `${fmtBRL(d.entradaValor)} · à vista`);
   }
-
-  // Parcelamento
-  if (d.numeroParcelas > 0) {
-    const textoParc = d.textoParcelamento || (d.indiceLabel ? "Correção pelo " + d.indiceLabel.split(" → ")[0] + " · sem juros bancários" : "Com correção monetária · sem juros bancários");
-    const parcSub = d.carenciaAtiva && d.carenciaMeses > 0 ? textoParc + " · carência de " + d.carenciaMeses + " meses" : textoParc;
-    row(t("Parcelamento"), d.numeroParcelas + "x de " + fmtBRL(d.parcelaValor), parcSub);
-  } else {
-    const saldoAVistaCalc = Math.max(0, d.valorNegociado - d.entradaValor - (d.permutaAtiva ? d.permutaItens.reduce((s: number, p: { valor: number }) => s + p.valor, 0) : 0));
-    if (saldoAVistaCalc > 0) row(t("Saldo à vista"), fmtBRL(saldoAVistaCalc), t("Pagamento integral sem parcelas"));
-  }
-
-  // Balões
-  if (d.balaoAtivo && d.totalBalaos > 0) {
-    const perioLabel = PERIODICIDADE_LABEL[d.balaoPeriodicidade || "semestral"] || "semestrais";
-    row(t("Balões (" + d.balaoQuantidade + "x " + perioLabel + ")"), fmtBRL(d.totalBalaos), d.balaoQuantidade + "x " + perioLabel + " de " + fmtBRL(d.balaoValor));
-  }
-
-  // Permuta
-  const pv = d.permutaAtiva ? d.permutaItens.filter((p) => p.valor > 0) : [];
-  if (pv.length > 0) {
-    pv.forEach((p) => {
-      const pLabel = (PL[p.tipo] ?? p.tipo) + (p.descricao ? " — " + p.descricao : "");
-      row(t("Permuta: " + pLabel), fmtBRL(p.valor));
-    });
-    if (pv.length > 1) row(t("Total permuta"), fmtBRL(d.totalPermuta));
-  }
-
-  // Desconto
-  if (d.desconto > 0) {
-    row(t("Desconto (" + d.descontoPct + "%)"), "- " + fmtBRL(d.desconto), undefined, true);
-  }
-
-  // ── TOTAL ──
-  y += 2;
-  doc.setDrawColor(...DK); doc.setLineWidth(0.8); doc.line(mg, y, mg + cw, y); y += 8;
+  if (d.numeroParcelas > 0) resumoRow("Parcelamento", `${d.numeroParcelas}x de ${fmtBRL(d.parcelaValor)}`);
+  if (d.balaoAtivo && d.totalBalaos > 0) { const per = PERIODICIDADE_LABEL[d.balaoPeriodicidade || "semestral"] || "semestrais"; resumoRow(`Balões ${per}`, `${d.balaoQuantidade}x de ${fmtBRL(d.balaoValor)}`); }
+  const permutas = d.permutaAtiva ? d.permutaItens.filter((p) => p.valor > 0) : [];
+  if (permutas.length > 0) resumoRow("Permuta", fmtBRL(d.totalPermuta));
   const saldoInfo = getSaldoLabel({ tipoSaldo: d.tipoSaldo, textoSaldoPersonalizado: d.textoSaldoPersonalizado });
-  doc.setFont(fontFamily, "bold"); doc.setFontSize(11); doc.setTextColor(...DK);
-  doc.text(t(saldoInfo.titulo || "TOTAL DO INVESTIMENTO"), mg, y);
-  doc.setFontSize(13); doc.setTextColor(cR, cG, cB);
-  doc.text(fmtBRL(d.saldoFinanciar), W - mg, y, { align: "right" }); y += 5;
-  if (saldoInfo.subtitulo) {
-    doc.setFont(fontFamily, "normal"); doc.setFontSize(9); doc.setTextColor(...MD);
-    doc.text(t(saldoInfo.subtitulo), mg, y); y += 5;
-  }
-  y += 10;
+  resumoRow(saldoInfo.titulo || "Saldo a financiar", fmtBRL(d.saldoFinanciar));
 
-  // ── CLIENTE / CORRETOR ──
-  if (d.clienteNome && d.clienteNome.trim()) {
-    doc.setFont(fontFamily, "bold"); doc.setFontSize(8); doc.setTextColor(...MD);
-    doc.text(t("CLIENTE"), mg, y); y += 5;
-    doc.setFont(fontFamily, "normal"); doc.setFontSize(11); doc.setTextColor(...DK);
-    doc.text(t(d.clienteNome), mg, y); y += 7;
-  }
-  if (d.corretorNome && d.corretorNome.trim()) {
-    doc.setFont(fontFamily, "bold"); doc.setFontSize(8); doc.setTextColor(...MD);
-    doc.text(t("CORRETOR"), mg, y); y += 5;
-    doc.setFont(fontFamily, "normal"); doc.setFontSize(11); doc.setTextColor(...DK);
-    doc.text(t(d.corretorNome), mg, y); y += 7;
-  }
-  y += 3;
+  // RODAPÉ-ASSINATURA (página 1)
+  drawSignature(doc, { W, H, mg, F, c, theme, logoPrimary, emissaoIso, validadeHoras: d.pdfValidadeHoras ?? 48, setFill, setText, setDraw, drawLogo });
 
-  // ── VALIDADE ──
-  const validadeHoras = d.pdfValidadeHoras ?? 48;
-  doc.setFont(fontFamily, "normal"); doc.setFontSize(7.5); doc.setTextColor(...LT);
-  doc.text(t("Simulação válida por " + validadeHoras + "h a partir da emissão · " + formatDateBRT(new Date())), mg, y);
-  y += 10;
-
-  // ── DISCLAIMER ──
-  const disclaimerText = d.pdfDisclaimer || "Esta simulação é meramente ilustrativa e não constitui proposta formal.\nCondições sujeitas à análise e aprovação da incorporadora.";
-  doc.setFont(fontFamily, 'normal'); doc.setFontSize(8); doc.setTextColor(...MD);
-  disclaimerText.split("\n").forEach((line) => { doc.text(t(line), mg, y); y += 4; });
+  // ═══════════ PÁGINA 2 · cronograma + condições ═══════════
+  doc.addPage(); pageBg(); y = 20;
+  overline("· 03 / CRONOGRAMA DO FLUXO", mg, y, false); y += 8;
+  const stepRow = (title: string, detail: string) => {
+    doc.setFont(F.sans, "bold"); doc.setFontSize(10.5); setText(c.text); doc.text(title, mg, y);
+    doc.setFont(F.sans, "normal"); doc.setFontSize(10); setText(c.muted); doc.text(detail, W - mg, y, { align: "right" }); y += 5.5;
+    setDraw(c.divider); doc.setLineWidth(0.5); doc.line(mg, y, W - mg, y); y += 5;
+  };
+  if (d.entradaValor > 0) stepRow("Entrada", d.entradaParcelada ? `${d.entradaParceladaVezes}x · ${fmtBRL(d.entradaValor)}` : `${fmtBRL(d.entradaValor)} · à vista`);
+  if (car) stepRow("Carência", `${d.carenciaMeses} meses · 1ª parcela em ${car.monthLabel}`);
+  if (d.numeroParcelas > 0) stepRow("Parcelas", `${d.numeroParcelas}x de ${fmtBRL(d.parcelaValor)}`);
+  if (d.balaoAtivo && d.totalBalaos > 0) {
+    const stepM = PERIODICIDADE_MESES[d.balaoPeriodicidade || "semestral"] || 6;
+    const per = PERIODICIDADE_LABEL[d.balaoPeriodicidade || "semestral"] || "semestrais";
+    stepRow(`Balões ${per}`, `${d.balaoQuantidade}x a cada ${stepM} meses · ${fmtBRL(d.balaoValor)}`);
+  }
+  if (permutas.length > 0) permutas.forEach((p) => stepRow("Permuta", `${PL[p.tipo] ?? p.tipo}${p.descricao ? ` · ${p.descricao}` : ""} · ${fmtBRL(p.valor)}`));
   y += 6;
 
-  // ── BULLETS ──
-  const bullets = [
-    t(d.bulletPdf1 || "Simulação meramente ilustrativa, sem caráter de proposta comercial"),
-    t(d.bulletPdf2 || "Valores e condições sujeitos à análise e aprovação da incorporadora"),
-    t(d.bulletPdf3 || "Simulação válida por " + validadeHoras + " horas"),
-  ];
+  // CONDIÇÕES · correção SEM destaque (muted), disclaimer do tema (1 linha)
+  overline("· 04 / CONDIÇÕES", mg, y, false); y += 7;
+  doc.setFont(F.sans, "normal"); doc.setFontSize(9); setText(c.muted);
+  const corr = d.indiceLabel ? `Correção monetária pelo ${d.indiceLabel.split(" → ")[0]} · sem juros bancários.` : "Correção monetária conforme índice contratado · sem juros bancários.";
+  doc.text(corr, mg, y); y += 6;
+  const discLines = doc.splitTextToSize(theme.disclaimer, cw) as string[];
+  discLines.forEach((ln) => { doc.text(ln, mg, y); y += 4.5; });
+  y += 6;
+  if (d.contaNome) { doc.setFont(F.mono, "normal"); doc.setFontSize(7.5); setText(c.muted); doc.text("CORRETORA", mg, y); y += 4; doc.setFont(F.sans, "normal"); doc.setFontSize(10); setText(c.text2); doc.text(d.contaNome, mg, y); y += 6; }
 
-  // Check if bullets + footer fit, otherwise new page
-  if (y + 40 > 280) { doc.addPage(); y = 20; }
+  drawSignature(doc, { W, H, mg, F, c, theme, logoPrimary, emissaoIso, validadeHoras: d.pdfValidadeHoras ?? 48, setFill, setText, setDraw, drawLogo });
 
-  bullets.forEach((b) => {
-    doc.setFillColor(cR, cG, cB); doc.rect(mg, y - 2.5, 3, 3, "F");
-    doc.setFont(fontFamily, "normal"); doc.setFontSize(10); doc.setTextColor(...MD); doc.text(b, mg + 6, y); y += 7;
-  });
-  y += 5;
+  if (mode === "bloburl") return doc.output("bloburl") as unknown as string;
+  doc.save(`simulacao_${protocolo}.pdf`);
+}
 
-  // ── RODAPÉ MOTIVACIONAL ──
-  // Safe zone: footer starts at y=285, need motivational block (~20mm) above it
-  // So motivational must fit between current y and y=265 at most
-  const FOOTER_Y = 285;
-  const MOTIV_MAX_Y = FOOTER_Y - 8;
-  const frase = d.fraseImpactoPdf || "Patrimônio não se constrói esperando o momento certo. O momento certo é quando você age.";
-  const fl = doc.splitTextToSize('"' + t(frase) + '"', cw);
-  const quoteLines = Array.isArray(fl) ? fl.length : 1;
-  const motivBlockHeight = 7 + (d.corretorNome ? 5 : 0) + quoteLines * 4 + 4;
+// ── Assinatura (mesma nas duas páginas): divisor fino, logoPrimary centrado,
+// slogan com SÓ a sloganAccentWord em itálico accent (sem slogan → sem linha),
+// "POWERED BY NEXA · VÁLIDA POR 48H · ATÉ ...". ──
+type SigCtx = {
+  W: number; H: number; mg: number; F: { serif: string; sans: string; mono: string };
+  c: { accent: RGB; muted: RGB; divider: RGB; text2: RGB };
+  theme: DocumentTheme; logoPrimary: { data: string; fmt: "PNG" | "JPEG"; w: number; h: number } | null;
+  emissaoIso: string; validadeHoras: number;
+  setFill: (r: RGB) => void; setText: (r: RGB) => void; setDraw: (r: RGB) => void;
+  drawLogo: (img: SigCtx["logoPrimary"], x: number, yTop: number, mw: number, mh: number, align?: "left" | "center") => boolean;
+};
+function drawSignature(doc: jsPDF, s: SigCtx) {
+  const cx = s.W / 2;
+  let y = s.H - 34;
+  s.setDraw(s.c.divider); doc.setLineWidth(0.3); doc.line(s.mg, y, s.W - s.mg, y); y += 8;
+  if (s.drawLogo(s.logoPrimary, cx, y, 34, 9, "center")) y += 12; else y += 2;
 
-  if (y + motivBlockHeight > MOTIV_MAX_Y) { doc.addPage(); y = 20; }
-  doc.setDrawColor(...LT); doc.setLineWidth(0.25); doc.line(mg, y, mg + cw, y); y += 7;
-  if (d.corretorNome) { doc.setFont(fontFamily, "bold"); doc.setFontSize(10); doc.setTextColor(...DK); doc.text(t("Elaborado por: " + d.corretorNome), mg, y); y += 5; }
-  doc.setFont(fontFamily, "italic"); doc.setFontSize(9); doc.setTextColor(...LT);
-  doc.text(fl, W / 2, y, { align: "center" });
-
-  // ── COLOR BAR at very bottom ──
-  doc.setFillColor(cRL, cGL, cBL); doc.rect(0, 294, W, 3, "F");
-
-  // ── FOOTER NEXA (all pages) — 3 elements only: powered by NEXA | confidencial | página ──
-  const np = doc.getNumberOfPages();
-  for (let p = 1; p <= np; p++) {
-    doc.setPage(p);
-    const fy = FOOTER_Y;
-    // Left: powered by NEXA (text only, takes ~25mm max)
-    doc.setFont(fontFamily, "normal"); doc.setFontSize(7); doc.setTextColor(156, 150, 134);
-    doc.text("powered by", mg, fy);
-    doc.setFont(fontFamily, "bold"); doc.setFontSize(8); doc.setTextColor(28, 27, 24);
-    doc.text("NEXA", mg + 17, fy);
-    // Center: Documento Confidencial
-    doc.setFont(fontFamily, "normal"); doc.setFontSize(7); doc.setTextColor(180, 178, 172);
-    doc.text("Documento Confidencial", W / 2, fy, { align: "center" });
-    // Right: Página X/Y
-    doc.text(`Página ${p}/${np}`, W - mg, fy, { align: "right" });
+  if (s.theme.slogan && s.theme.slogan.trim()) {
+    doc.setFont(s.F.serif, "normal"); doc.setFontSize(10); s.setText(s.c.muted);
+    const slogan = s.theme.slogan.trim();
+    const accentW = (s.theme.sloganAccentWord || "").trim();
+    if (accentW && slogan.toLowerCase().includes(accentW.toLowerCase())) {
+      // desenha a frase centralizada com só a palavra-accent em itálico accent
+      const idx = slogan.toLowerCase().indexOf(accentW.toLowerCase());
+      const before = slogan.slice(0, idx), word = slogan.slice(idx, idx + accentW.length), after = slogan.slice(idx + accentW.length);
+      const wb = doc.getTextWidth(before);
+      doc.setFont(s.F.serif, "italic"); const ww = doc.getTextWidth(word);
+      doc.setFont(s.F.serif, "normal"); const wa = doc.getTextWidth(after);
+      const total = wb + ww + wa; let x = cx - total / 2;
+      doc.setFont(s.F.serif, "normal"); s.setText(s.c.muted); doc.text(before, x, y); x += wb;
+      doc.setFont(s.F.serif, "italic"); s.setText(s.c.accent); doc.text(word, x, y); x += ww; // palavra-accent
+      doc.setFont(s.F.serif, "normal"); s.setText(s.c.muted); doc.text(after, x, y);
+    } else {
+      doc.text(slogan, cx, y, { align: "center" });
+    }
+    y += 8;
   }
 
-  doc.save(`simulacao_Q${d.quadra}_L${d.lote}_${Date.now()}.pdf`);
+  doc.setFont(s.F.mono, "normal"); doc.setFontSize(7); s.setText(s.c.muted);
+  doc.text(`POWERED BY NEXA · ${formatValidadeAbsoluta(s.emissaoIso, s.validadeHoras)}`, cx, y, { align: "center" });
 }

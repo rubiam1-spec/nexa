@@ -16,6 +16,9 @@ import { SearchableSelect } from "../../../shared/components/SearchableSelect";
 import { formatPhone } from "../../../shared/utils/masks";
 import { useSimulador } from "../hooks/useSimulador";
 import { gerarPdfSimulacao } from "../utils/gerarPdfSimulacao";
+import { getDocumentThemeRow } from "../../../infra/repositories/accountDocumentThemeSupabaseRepository";
+import { getOrCreateProtocolo } from "../../../infra/repositories/pipelineSimulationsSupabaseRepository";
+import { resolveDocumentTheme, buildProtocolo } from "../../../shared/documents/documentTheme";
 import { useEnviarParaPipeline } from "../hooks/useEnviarParaPipeline";
 import FollowUpModal from "../../../shared/components/FollowUpModal";
 import { createClient } from "../../../infra/repositories/clientsSupabaseRepository";
@@ -203,7 +206,13 @@ export default function SimuladorPage() {
       const cl = clients.find((x) => x.id === pdfClienteId);
       const br = brokers.find((x) => x.id === pdfCorretorId);
       const as_ = ss?.accountSettings;
+      // Documentos Temáveis v3 · a PELE vem do documentTheme (não de account_settings).
+      const theme = resolveDocumentTheme(accountId ? await getDocumentThemeRow(accountId) : null);
+      const protocolo = editingSimulationId
+        ? await getOrCreateProtocolo(editingSimulationId, selectedUnit?.lote, selectedUnit?.quadra)
+        : buildProtocolo(new Date().toISOString(), selectedUnit?.lote ?? null, selectedUnit?.quadra ?? null);
       await gerarPdfSimulacao({
+        protocolo,
         contaNome: as_?.nomeComercial || account?.accountName || "NEXA",
         empreendimentoNome: selectedProperty ? (selectedProperty.titulo ?? "") : (development?.developmentName ?? ""),
         quadra: selectedUnit?.quadra ?? "", lote: selectedUnit?.lote ?? (selectedProperty?.titulo ?? ""),
@@ -224,9 +233,9 @@ export default function SimuladorPage() {
         textoParcelamento: s?.pdfTextoParcelamento,
         area: selectedUnit ? Number((selectedUnit as Record<string, unknown>).area || 0) : 0,
         balaoPeriodicidade: s?.balaoPeriodicidade || "semestral",
-      });
+      }, theme);
     } finally { setGerandoPDF(false); }
-  }, [selectedUnit, selectedProperty, c, sim, s, ss, account, development, clients, brokers, pdfClienteId, pdfCorretorId]);
+  }, [selectedUnit, selectedProperty, c, sim, s, ss, account, development, clients, brokers, pdfClienteId, pdfCorretorId, accountId, editingSimulationId]);
 
   // Engrenagem Comercial v1 — quando vindo de /negociacoes/:id?→/simulador,
   // a negociação-alvo é passada via query param e grava o vínculo na simulação.
