@@ -20,6 +20,8 @@ import { getClientWithSpouse, unlinkSpouses, registerContactInteraction } from "
 import { buildFichaTimeline, timelineCategory } from "../timelineMerge";
 import { deriveInterestFromSimulation, planInterestSuggestion, declareField, interestSourceOf, type InterestSources } from "../interestDerivation";
 import { computeLastTouch, resolveLastTouch } from "../lastTouch";
+import { scoreBand, scoreBreakdownRows, type ScoreBand } from "../scoreDisplay";
+import { MobileSheet } from "../../../shared/mobile";
 import { ConfirmacaoDestructiva } from "../../../shared/components/ConfirmacaoDestructiva";
 import { isNegotiationActive } from "../../../domain/status/negotiation";
 import { fromLeadQualificationDb, isLeadActive } from "../../../domain/status/leadQualification";
@@ -52,6 +54,7 @@ interface ClientData {
   current_spouse_client_id: string | null;
   // Extended fields from unification
   status: string | null; qualification_status: string | null; score: number | null; origin: string | null; origin_detail: string | null;
+  score_breakdown: Record<string, number> | null; score_updated_at: string | null;
   buyer_profile: string | null; budget_min: number | null; budget_max: number | null;
   purchase_timeline: string | null; payment_preference: string | null; interested_unit_type: string | null;
   interesse: string | null; interest_sources: import("../interestDerivation").InterestSources | null;
@@ -98,6 +101,37 @@ function QuickFillInvite({ prompt, placeholder, mask, maxLen, inputStyle, onSave
     <div style={{ marginTop: 6, display: "flex", gap: 6 }}>
       <input autoFocus value={mask(v)} onChange={(e) => setV(e.target.value.replace(/\D/g, "").slice(0, maxLen))} placeholder={placeholder} style={{ ...inputStyle, flex: 1 }} />
       <button type="button" disabled={busy || !v} onClick={async () => { setBusy(true); try { await onSave(v); } finally { setBusy(false); setOpen(false); } }} style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: "#F5A623", color: "#12110F", fontSize: 12, fontWeight: 700, cursor: busy || !v ? "default" : "pointer", opacity: busy || !v ? 0.5 : 1 }}>Salvar</button>
+    </div>
+  );
+}
+
+// N3-UI · o "por quê" do score: 5 fatores (rótulo PT-BR + barra proporcional +
+// N/máx) + rodapé com a data da avaliação. Cor de acento pela faixa (Sprout SÓ
+// na alta); barras neutras. O front NUNCA recalcula — só lê o breakdown.
+const scoreBandColor = (b: ScoreBand) => (b === "high" ? T.sprout : b === "mid" ? T.amber : T.fog);
+function ScoreBreakdownContent({ score, band, breakdown, updatedAt }: { score: number; band: ScoreBand; breakdown: Record<string, number> | null; updatedAt: string | null }) {
+  const rows = scoreBreakdownRows(breakdown);
+  const accent = scoreBandColor(band);
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 12 }}>
+        <span style={{ fontSize: 26, fontWeight: 800, color: accent, fontFamily: "var(--font-mono)", lineHeight: 1 }}>{score}</span>
+        <span style={{ fontSize: 12, color: T.fog }}>/100</span>
+      </div>
+      {rows.map((r) => (
+        <div key={r.key} style={{ marginBottom: 9 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 3, gap: 8 }}>
+            <span style={{ fontSize: 12, color: T.bone }}>{r.label}</span>
+            <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: T.fog, flexShrink: 0 }}>{r.value}/{r.max}</span>
+          </div>
+          <div style={{ height: 5, borderRadius: 3, background: T.stone, overflow: "hidden" }}>
+            <div style={{ width: `${Math.round(r.pct * 100)}%`, height: "100%", borderRadius: 3, background: T.fog }} />
+          </div>
+        </div>
+      ))}
+      <div style={{ marginTop: 12, fontSize: 10.5, color: T.slate, fontFamily: "var(--font-mono)", lineHeight: 1.4 }}>
+        {updatedAt ? `avaliado ${timeAgo(updatedAt)} · ` : ""}recalculado em dias úteis às 07:05
+      </div>
     </div>
   );
 }
@@ -261,6 +295,7 @@ export default function ClientDetailPage() {
   const [form, setForm] = useState<Partial<ClientData>>({});
   const fileRef = useRef<HTMLInputElement>(null);
   const [activityModalOpen, setActivityModalOpen] = useState(false);
+  const [scoreOpen, setScoreOpen] = useState(false); // N3-UI · popover/sheet do "por quê"
   const [rejectTarget, setRejectTarget] = useState<ClientDoc | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; onConfirm: () => void; variant?: "default" | "danger" } | null>(null);
@@ -339,7 +374,7 @@ export default function ClientDetailPage() {
         conjuge_email, conjuge_telefone, regime_casamento,
         current_spouse_client_id,
         observations, temperature, last_interaction_at, doc_status, created_at,
-        status, qualification_status, score, origin, origin_detail, buyer_profile, budget_min, budget_max,
+        status, qualification_status, score, score_breakdown, score_updated_at, origin, origin_detail, buyer_profile, budget_min, budget_max,
         purchase_timeline, payment_preference, interested_unit_type, interesse, interest_sources,
         lost_at, lost_reason, lost_reason_detail, reactivated_at, reactivation_count,
         assigned_to, assigned_at, assigned_by
@@ -627,7 +662,32 @@ export default function ClientDetailPage() {
         })()}
         <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>NEGOCIAÇÕES</div><div style={{ fontSize: 22, fontWeight: 700, color: T.chalk }}>{negotiations.length}</div></div>
         <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>SIMULAÇÕES</div><div style={{ fontSize: 22, fontWeight: 700, color: T.chalk }}>{simulations.length}</div></div>
-        <div style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px" }}><div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4 }}>SCORE</div><div style={{ fontSize: 22, fontWeight: 700, color: (client.score ?? 0) >= 70 ? T.sprout : (client.score ?? 0) >= 40 ? T.amber : T.chalk }}>{client.score ?? 0}<span style={{ fontSize: 12, fontWeight: 400, color: T.fog }}>/100</span></div></div>
+        {/* N3-UI · KPI SCORE real (nunca recalcula): valor + cor por faixa; null →
+            "—" (aguardando 1ª avaliação); clique abre o "por quê" (popover/sheet). */}
+        {(() => {
+          const band = scoreBand(client.score);
+          const hasScore = client.score != null;
+          const col = hasScore ? scoreBandColor(band) : T.slate;
+          return (
+            <div style={{ position: "relative" }}>
+              <div onClick={hasScore ? () => setScoreOpen((v) => !v) : undefined} title={hasScore ? "Ver por que" : "aguardando 1ª avaliação"} style={{ background: T.carbon, border: `1px solid ${scoreOpen ? col : T.stone}`, borderRadius: 10, padding: "12px 14px", cursor: hasScore ? "pointer" : "default", transition: "border-color 0.15s" }}>
+                <div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4, display: "flex", alignItems: "center", gap: 4 }}>SCORE{hasScore && <span style={{ marginLeft: "auto", color: T.slate }}>›</span>}</div>
+                {hasScore
+                  ? <div style={{ fontSize: 22, fontWeight: 700, color: col }}>{client.score}<span style={{ fontSize: 12, fontWeight: 400, color: T.fog }}>/100</span></div>
+                  : <div style={{ fontSize: 22, fontWeight: 700, color: T.slate }}>—</div>}
+              </div>
+              {/* Desktop: popover ancorado abaixo do KPI */}
+              {scoreOpen && hasScore && !screen.isMobile && (
+                <>
+                  <div onClick={() => setScoreOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 190 }} />
+                  <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 200, width: 300, maxWidth: "86vw", background: "var(--surface-elevated, #1C1B18)", border: `1px solid ${T.stone}`, borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.5)", padding: 16 }}>
+                    <ScoreBreakdownContent score={client.score!} band={band} breakdown={client.score_breakdown} updatedAt={client.score_updated_at} />
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })()}
         {/* Ficha Viva · FASE 2 — KPI vira RESUMO clicável (não editor). Fim dos
             dois editores: edição do tipo/budget vive na aba Interesse. */}
         {(() => {
@@ -1293,6 +1353,10 @@ export default function ClientDetailPage() {
       {activityModalOpen && accountId && development?.developmentId && userId && client && (
         <QuickActivityModal clientId={client.id} clientName={client.full_name || client.name} accountId={accountId} developmentId={development.developmentId} profileId={userId} onClose={() => setActivityModalOpen(false)} onSaved={() => { setToast("Atendimento registrado"); load(true); }} />
       )}
+      {/* N3-UI · mobile: o "por quê" do score em bottom sheet (padrão MobileSheet) */}
+      <MobileSheet open={scoreOpen && screen.isMobile && client.score != null} onClose={() => setScoreOpen(false)} title="Por que este score" ariaLabel="Detalhe do score">
+        {client.score != null && <ScoreBreakdownContent score={client.score} band={scoreBand(client.score)} breakdown={client.score_breakdown} updatedAt={client.score_updated_at} />}
+      </MobileSheet>
 
       {/* Engrenagem de Partes v1 — modal para vincular/cadastrar cônjuge */}
       {client ? (
