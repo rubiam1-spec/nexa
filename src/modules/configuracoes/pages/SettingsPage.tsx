@@ -15,6 +15,7 @@ import { supabase } from "../../../infra/supabase/supabaseClient";
 import UploadImagem from "../../../shared/components/UploadImagem";
 import EditorMapaPins from "../components/EditorMapaPins";
 import PermissionsPanel from "../components/PermissionsPanel";
+import DocumentThemeSection from "../components/DocumentThemeSection";
 import { useUnits } from "../../units/hooks/useUnits";
 import { NexaSelect } from "../../../shared/ui/NexaSelect";
 import { NexaModal } from "../../../shared/ui/NexaModal";
@@ -496,6 +497,12 @@ export default function SettingsPage() {
           {aba === "documentos" ? (
             <div>
               <PageTitle title="Personalização dos Documentos" sub="Configure como as simulações e propostas são apresentadas ao cliente" />
+
+              {/* Documentos Temáveis v3 — a pele do documento (a mesma porta p/ qualquer conta). */}
+              <div style={{ marginBottom: 28 }}>
+                <Sec title="Tema do documento" />
+                <DocumentThemeSection accountId={actx.account?.accountId ?? null} userId={authenticatedProfile?.id ?? null} role={actx.account?.role ?? null} />
+              </div>
 
               <Card>
                 <Sec title="Aparência do PDF" />

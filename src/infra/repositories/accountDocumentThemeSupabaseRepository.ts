@@ -40,6 +40,13 @@ export async function saveDocumentTheme(accountId: string, patch: DocumentThemeP
   return data as DocumentThemeRow;
 }
 
+// Restaurar padrão NEXA: apaga a linha da conta → resolvedor volta ao neutro.
+export async function deleteDocumentTheme(accountId: string): Promise<void> {
+  const supabase = getSupabaseClientOrThrow("document theme repository");
+  const { error } = await supabase.from("account_document_themes").delete().eq("account_id", accountId);
+  if (error) throw new Error(error.message);
+}
+
 // Upload de logo no bucket público `logos` (path por conta). Retorna o path.
 export async function uploadDocumentLogo(accountId: string, kind: "primary" | "product", file: File): Promise<string> {
   const supabase = getSupabaseClientOrThrow("document theme repository");
