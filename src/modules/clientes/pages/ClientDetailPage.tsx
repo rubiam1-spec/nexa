@@ -82,18 +82,18 @@ const INTERESSE_LABELS: Record<string, string> = { lote_urbano: "Lote Urbano", l
 // Input rápido (sem OCR nesta onda — OCR/cookbook fica como evolução futura:
 // ler o número do documento aprovado e pré-preencher). Módulo-escopo → identidade
 // estável (não remonta e perde foco no re-render da ficha).
-function QuickFillInvite({ docLabel, mask, maxLen, inputStyle, onSave }: { docLabel: string; mask: (v: string) => string; maxLen: number; inputStyle: React.CSSProperties; onSave: (raw: string) => Promise<void> }) {
+function QuickFillInvite({ prompt, placeholder, mask, maxLen, inputStyle, onSave }: { prompt: string; placeholder: string; mask: (v: string) => string; maxLen: number; inputStyle: React.CSSProperties; onSave: (raw: string) => Promise<void> }) {
   const [open, setOpen] = useState(false);
   const [v, setV] = useState("");
   const [busy, setBusy] = useState(false);
   if (!open) return (
     <button type="button" onClick={() => setOpen(true)} style={{ marginTop: 5, fontSize: 11, color: "#F5A623", background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.3)", borderRadius: 6, padding: "4px 9px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 }}>
-      <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#F5A623" }} />{docLabel} aprovado nos documentos — preencher número?
+      <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#F5A623" }} />{prompt}
     </button>
   );
   return (
     <div style={{ marginTop: 6, display: "flex", gap: 6 }}>
-      <input autoFocus value={mask(v)} onChange={(e) => setV(e.target.value.replace(/\D/g, "").slice(0, maxLen))} placeholder="Digite o número" style={{ ...inputStyle, flex: 1 }} />
+      <input autoFocus value={mask(v)} onChange={(e) => setV(e.target.value.replace(/\D/g, "").slice(0, maxLen))} placeholder={placeholder} style={{ ...inputStyle, flex: 1 }} />
       <button type="button" disabled={busy || !v} onClick={async () => { setBusy(true); try { await onSave(v); } finally { setBusy(false); setOpen(false); } }} style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: "#F5A623", color: "#12110F", fontSize: 12, fontWeight: 700, cursor: busy || !v ? "default" : "pointer", opacity: busy || !v ? 0.5 : 1 }}>Salvar</button>
     </div>
   );
@@ -447,6 +447,22 @@ export default function ClientDetailPage() {
       const data = await res.json();
       if (!data.erro) { setF("endereco", data.logradouro || ""); setF("bairro", data.bairro || ""); setF("city", data.localidade || ""); setF("uf", data.uf || ""); }
     } catch {}
+  }
+
+  // Ficha Viva · FASE 4 — entrada rápida de endereço pelo CEP (reusa ViaCEP).
+  // Grava direto (sem entrar no modo edição da aba inteira).
+  async function quickFillAddressByCep(rawCep: string) {
+    const cep = rawCep.replace(/\D/g, "");
+    if (cep.length !== 8 || !supabase || !client) return;
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+      const data = await res.json();
+      if (data.erro) { setToast("CEP não encontrado"); return; }
+      const patch = { cep, endereco: data.logradouro || null, bairro: data.bairro || null, city: data.localidade || null, uf: data.uf || null };
+      await supabase.from("clients").update(patch).eq("id", client.id);
+      setClient((prev) => (prev ? ({ ...prev, ...patch } as ClientData) : prev));
+      setToast("Endereço preenchido pelo CEP");
+    } catch { setToast("Falha ao consultar o CEP"); }
   }
 
   const canRemoveDoc = (doc: ClientDoc) => {
@@ -946,8 +962,8 @@ export default function ClientDetailPage() {
       {tab === "dados" && (
         <div style={{ display: "grid", gridTemplateColumns: fluidGrid(230), gap: 14 }}>
           <div style={{ gridColumn: "span 2" }}><label style={LBL}>Nome completo</label>{editing ? <input style={IS} value={f("full_name") || f("name")} onChange={(e) => setF("full_name", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.full_name || client.name || "—"}</div>}</div>
-          <div><label style={LBL}>CPF</label>{editing ? <input style={IS} value={maskCPF(f("cpf"))} onChange={(e) => setF("cpf", e.target.value.replace(/\D/g, "").slice(0, 11))} maxLength={14} /> : <SensitiveField label="CPF" maskedValue={secureMaskCPF(client.cpf)} fullValue={client.cpf ? maskCPF(client.cpf) : ""} entityType="client" entityId={client.id} field="cpf" />}{!editing && !client.cpf && docsByType["cpf"]?.status === "approved" && <QuickFillInvite docLabel="CPF" mask={maskCPF} maxLen={11} inputStyle={IS} onSave={async (raw) => { if (!supabase) return; await supabase.from("clients").update({ cpf: raw }).eq("id", client.id); setClient((prev) => prev ? ({ ...prev, cpf: raw } as ClientData) : prev); setToast("CPF preenchido"); }} />}</div>
-          <div><label style={LBL}>RG</label>{editing ? <input style={IS} value={maskRG(f("rg"))} onChange={(e) => setF("rg", maskRG(e.target.value))} maxLength={12} /> : <SensitiveField label="RG" maskedValue={secureMaskRG(client.rg)} fullValue={client.rg || ""} entityType="client" entityId={client.id} field="rg" />}{!editing && !client.rg && docsByType["rg_frente"]?.status === "approved" && <QuickFillInvite docLabel="RG" mask={maskRG} maxLen={12} inputStyle={IS} onSave={async (raw) => { if (!supabase) return; const val = maskRG(raw); await supabase.from("clients").update({ rg: val }).eq("id", client.id); setClient((prev) => prev ? ({ ...prev, rg: val } as ClientData) : prev); setToast("RG preenchido"); }} />}</div>
+          <div><label style={LBL}>CPF</label>{editing ? <input style={IS} value={maskCPF(f("cpf"))} onChange={(e) => setF("cpf", e.target.value.replace(/\D/g, "").slice(0, 11))} maxLength={14} /> : <SensitiveField label="CPF" maskedValue={secureMaskCPF(client.cpf)} fullValue={client.cpf ? maskCPF(client.cpf) : ""} entityType="client" entityId={client.id} field="cpf" />}{!editing && !client.cpf && docsByType["cpf"]?.status === "approved" && <QuickFillInvite prompt="CPF aprovado nos documentos — preencher número?" placeholder="Digite o número" mask={maskCPF} maxLen={11} inputStyle={IS} onSave={async (raw) => { if (!supabase) return; await supabase.from("clients").update({ cpf: raw }).eq("id", client.id); setClient((prev) => prev ? ({ ...prev, cpf: raw } as ClientData) : prev); setToast("CPF preenchido"); }} />}</div>
+          <div><label style={LBL}>RG</label>{editing ? <input style={IS} value={maskRG(f("rg"))} onChange={(e) => setF("rg", maskRG(e.target.value))} maxLength={12} /> : <SensitiveField label="RG" maskedValue={secureMaskRG(client.rg)} fullValue={client.rg || ""} entityType="client" entityId={client.id} field="rg" />}{!editing && !client.rg && docsByType["rg_frente"]?.status === "approved" && <QuickFillInvite prompt="RG aprovado nos documentos — preencher número?" placeholder="Digite o número" mask={maskRG} maxLen={12} inputStyle={IS} onSave={async (raw) => { if (!supabase) return; const val = maskRG(raw); await supabase.from("clients").update({ rg: val }).eq("id", client.id); setClient((prev) => prev ? ({ ...prev, rg: val } as ClientData) : prev); setToast("RG preenchido"); }} />}</div>
           <div><label style={LBL}>Órgão emissor</label>{editing ? <input style={IS} value={f("rg_orgao")} onChange={(e) => setF("rg_orgao", e.target.value)} placeholder="SSP/PR" /> : <div style={{ fontSize: 14, color: T.bone }}>{client.rg_orgao || "—"}</div>}</div>
           <div><label style={LBL}>Data nascimento</label>{editing ? <input type="date" style={IS} value={f("data_nascimento")} onChange={(e) => setF("data_nascimento", e.target.value)} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.data_nascimento ? formatDateBRT(client.data_nascimento + "T12:00:00") : "—"}</div>}</div>
           <div><label style={LBL}>Estado civil</label>{editing ? <NexaSelect value={f("marital_status")} onChange={(v) => setF("marital_status", v)} placeholder="Selecione" ariaLabel="Estado civil" options={ESTADO_CIVIL_OPTS.map((o) => ({ value: o.v, label: o.l }))} /> : <div style={{ fontSize: 14, color: T.bone }}>{ESTADO_CIVIL_OPTS.find((o) => o.v === client.marital_status)?.l || client.marital_status || "—"}</div>}</div>
@@ -977,6 +993,12 @@ export default function ClientDetailPage() {
       {/* Tab: Endereço */}
       {tab === "endereco" && (
         <div style={{ display: "grid", gridTemplateColumns: fluidGrid(230), gap: 14 }}>
+          {/* Ficha Viva · FASE 4 — endereço vazio ganha entrada rápida por CEP (ViaCEP). */}
+          {!editing && !client.cep && !client.endereco && (
+            <div style={{ gridColumn: "1 / -1" }}>
+              <QuickFillInvite prompt="Endereço vazio — preencher pelo CEP?" placeholder="00000-000" mask={maskCEP} maxLen={8} inputStyle={IS} onSave={quickFillAddressByCep} />
+            </div>
+          )}
           <div style={{ display: "flex", gap: 8 }}>
             <div style={{ flex: 1 }}><label style={LBL}>CEP</label>{editing ? <input style={IS} value={maskCEP(f("cep"))} onChange={(e) => { const masked = maskCEP(e.target.value); setF("cep", masked.replace(/\D/g, "")); if (masked.replace(/\D/g, "").length === 8) buscarCep(); }} maxLength={9} placeholder="00000-000" /> : <div style={{ fontSize: 14, color: T.bone }}>{client.cep ? maskCEP(client.cep) : "—"}</div>}</div>
             {editing && <button type="button" onClick={buscarCep} style={{ alignSelf: "flex-end", padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.stone}`, background: "transparent", color: T.fog, fontSize: 12, cursor: "pointer", marginBottom: 0 }}>🔍</button>}
