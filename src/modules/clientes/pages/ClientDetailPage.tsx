@@ -17,7 +17,7 @@ import SpouseLinkModal from "../components/SpouseLinkModal";
 import SpousePeek from "../components/SpousePeek";
 import type { Client, LegalRegime, MaritalStatus } from "../../../shared/types/client";
 import { getClientWithSpouse, unlinkSpouses, registerContactInteraction } from "../../../infra/repositories/clientsSupabaseRepository";
-import { buildFichaTimeline } from "../timelineMerge";
+import { buildFichaTimeline, timelineCategory } from "../timelineMerge";
 import { deriveInterestFromSimulation, planInterestSuggestion, declareField, interestSourceOf, type InterestSources } from "../interestDerivation";
 import { ConfirmacaoDestructiva } from "../../../shared/components/ConfirmacaoDestructiva";
 import { isNegotiationActive } from "../../../domain/status/negotiation";
@@ -71,12 +71,14 @@ interface ClientNeg { id: string; status: string; score: number | null; updated_
 interface ClientAct { id: string; type: string; title: string; status: string; activity_date: string; outcome: string | null; duration_minutes: number; profile_id: string | null; created_at: string | null }
 
 const T = { ink: "var(--surface-base)", carbon: "var(--surface-raised)", stone: "var(--border-default)", chalk: "var(--text-primary)", bone: "var(--text-secondary)", fog: "var(--text-muted)", slate: "var(--text-disabled)", sprout: "var(--interactive-primary)", blue: "#60A5FA", red: "#F87171", amber: "#FBBF24", purple: "#A78BFA" };
-const TYPE_LABELS: Record<string, string> = { visit_broker: "Visita corretor", visit_client: "Visita cliente", visit_development: "Visita empreend.", training: "Treinamento", phone_call: "Ligação", follow_up: "Follow-up", meeting_internal: "Reunião interna", meeting_external: "Reunião externa", other: "Outro" };
 
 // Ficha Viva · vocabulário canônico do TIPO (campo `interesse`). Urbano×rural é
 // linguagem do mercado de urbanizadoras — mantido. `interested_unit_type` está
 // DEPRECATED (a UI não lê/escreve mais; coluna preservada, nada destrutivo).
 const INTERESSE_LABELS: Record<string, string> = { lote_urbano: "Lote Urbano", lote_rural: "Lote Rural", terreno: "Terreno", apartamento: "Apartamento", casa: "Casa", outro: "Outro" };
+// Rótulos PT-BR de exibição (view mode) — zero snake_case/vocabulário de máquina.
+const PRAZO_LABELS: Record<string, string> = { immediate: "Imediato", "1_to_3_months": "1-3 meses", "3_to_6_months": "3-6 meses", "6_to_12_months": "6-12 meses", over_12_months: "+12 meses" };
+const PAGAMENTO_LABELS: Record<string, string> = { cash: "À vista", installment: "Parcelado", financing: "Financiamento", fgts: "FGTS" };
 
 // Ficha Viva · FASE 3 — convite inline "Doc aprovado — preencher número?".
 // Input rápido (sem OCR nesta onda — OCR/cookbook fica como evolução futura:
@@ -99,10 +101,19 @@ function QuickFillInvite({ prompt, placeholder, mask, maxLen, inputStyle, onSave
   );
 }
 
-// Badge de origem: campo derivado (não declarado) leva "sugerido · simulação de DD/MM".
+// Chip de categoria — MESMO estilo nas duas molduras (Interações e Histórico).
+function TimelineChip({ label, color }: { label: string; color: string }) {
+  return <span style={{ fontSize: 10.5, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: color + "1F", color, whiteSpace: "nowrap", letterSpacing: "0.01em" }}>{label}</span>;
+}
+
+// Badge de origem — SUSSURRO: linha própria abaixo do valor (nunca inline com o
+// label). Hierarquia: label overline > VALOR (herói) > badge (sussurro). Formato
+// curto "sugerido · DD/MM"; o title carrega o longo. Âmbar suave, só texto.
 function SuggestedBadge({ at }: { at: string }) {
-  const d = at && at.length >= 10 ? `${at.slice(8, 10)}/${at.slice(5, 7)}/${at.slice(0, 4)}` : at;
-  return <span title="Valor sugerido pela simulação — edite para confirmar (vira declarado)" style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "#F5A623", background: "rgba(245,166,35,0.12)", padding: "1px 6px", borderRadius: 4, marginLeft: 6, whiteSpace: "nowrap", verticalAlign: "middle" }}>sugerido · simulação de {d}</span>;
+  const ok = at && at.length >= 10;
+  const short = ok ? `${at.slice(8, 10)}/${at.slice(5, 7)}` : at;
+  const long = ok ? `${at.slice(8, 10)}/${at.slice(5, 7)}/${at.slice(0, 4)}` : at;
+  return <div title={`derivado da simulação de ${long}`} style={{ marginTop: 4, fontSize: 10, lineHeight: 1.2, fontFamily: "var(--font-mono)", color: "rgba(245,166,35,0.72)", letterSpacing: "0.02em", textTransform: "lowercase", whiteSpace: "nowrap" }}>sugerido · {short}</div>;
 }
 const DOC_TYPES = [
   { key: "rg_frente", label: "RG (frente)" }, { key: "rg_verso", label: "RG (verso)" },
@@ -153,6 +164,7 @@ import { maskCPF, maskPhone, maskCurrency, currencyToNumber, maskRG, maskCEP, fo
 import { secureMaskCPF, secureMaskRG, secureMaskRenda } from "../../../lib/security";
 import SensitiveField from "../../../shared/components/SensitiveField";
 function fmtBRL(v: number | null) { return formatCurrency(v); }
+import { compactBRL } from "../../../shared/viz/format";
 
 const IS: React.CSSProperties = { width: "100%", background: "linear-gradient(168deg, rgba(34,33,28,0.5), rgba(18,17,14,0.15))", border: "1px solid rgba(61,58,48,0.15)", borderRadius: 8, padding: "10px 14px", color: T.chalk, fontSize: 14, outline: "none", boxSizing: "border-box", transition: "border-color 150ms ease" };
 const LBL: React.CSSProperties = { fontSize: 8, color: "#5C5647", fontFamily: "var(--font-mono)", letterSpacing: "0.12em", textTransform: "uppercase", display: "block", marginBottom: 6 };
@@ -607,14 +619,22 @@ export default function ClientDetailPage() {
         {/* Ficha Viva · FASE 2 — KPI vira RESUMO clicável (não editor). Fim dos
             dois editores: edição do tipo/budget vive na aba Interesse. */}
         {(() => {
+          // Resumo compacto: "Lote Urbano · R$ 862k" (compactBRL, sem "até"). Fonte
+          // com clamp; se não couber, quebra em 2 linhas curtas (spans nowrap) —
+          // nunca reticências no meio do valor. minWidth:0 → não estica os irmãos.
           const tipo = client.interesse ? (INTERESSE_LABELS[client.interesse] ?? client.interesse) : null;
-          const teto = client.budget_max ? fmtBRL(client.budget_max) : null;
-          const resumo = tipo && teto ? `${tipo} · até ${teto}` : tipo || (teto ? `até ${teto}` : "—");
+          const teto = client.budget_max ? compactBRL(client.budget_max) : null;
+          const vazio = !tipo && !teto;
           const sugerido = !!interestSourceOf(client.interest_sources, "interesse") || !!interestSourceOf(client.interest_sources, "budget_max");
           return (
-            <div onClick={() => setTab("interesse")} title="Abrir Interesse" style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px", cursor: "pointer" }}>
-              <div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4, display: "flex", alignItems: "center", gap: 4 }}>INTERESSE {sugerido && <span title="sugerido pela simulação" style={{ width: 5, height: 5, borderRadius: "50%", background: "#F5A623", display: "inline-block" }} />}<span style={{ marginLeft: "auto", color: T.slate }}>›</span></div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: resumo === "—" ? T.slate : T.bone, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{resumo}</div>
+            <div onClick={() => setTab("interesse")} title="Abrir Interesse" style={{ background: T.carbon, border: `1px solid ${T.stone}`, borderRadius: 10, padding: "12px 14px", cursor: "pointer", minWidth: 0 }}>
+              <div style={{ fontSize: 10, color: T.fog, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", marginBottom: 4, display: "flex", alignItems: "center", gap: 4 }}>INTERESSE {sugerido && <span title="sugerido pela simulação" style={{ width: 5, height: 5, borderRadius: "50%", background: "#F5A623", display: "inline-block", flexShrink: 0 }} />}<span style={{ marginLeft: "auto", color: T.slate }}>›</span></div>
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: 5, rowGap: 1, fontSize: "clamp(12px, 2.4vw, 14px)", fontWeight: 600, minWidth: 0 }}>
+                {vazio ? <span style={{ color: T.slate }}>—</span> : <>
+                  {tipo && <span style={{ color: T.bone, whiteSpace: "nowrap" }}>{tipo}</span>}
+                  {teto && <span style={{ color: tipo ? T.fog : T.bone, whiteSpace: "nowrap" }}>{tipo ? "· " : ""}{teto}</span>}
+                </>}
+              </div>
             </div>
           );
         })()}
@@ -905,7 +925,8 @@ export default function ClientDetailPage() {
             <div>
               {mergedTimeline.map((i) => {
                 const cfg: Record<string, { icon: string; label: string; bg: string; color: string }> = { phone_call: { icon: "📞", label: "Ligação", bg: "rgba(96,165,250,0.12)", color: "#60A5FA" }, whatsapp: { icon: "💬", label: "WhatsApp", bg: "rgba(74,222,128,0.12)", color: "#4ADE80" }, follow_up: { icon: "🔄", label: "Follow-up", bg: "rgba(167,139,250,0.12)", color: "#A78BFA" }, visit_client: { icon: "🏠", label: "Visita", bg: "rgba(251,191,36,0.12)", color: "#FBBF24" }, meeting_external: { icon: "👥", label: "Reunião", bg: "rgba(251,191,36,0.12)", color: "#FBBF24" }, email: { icon: "✉", label: "Email", bg: "rgba(96,165,250,0.12)", color: "#60A5FA" }, note: { icon: "📝", label: "Nota", bg: "rgba(156,150,134,0.12)", color: "#9C9686" }, status_change: { icon: "→", label: "Status", bg: "rgba(74,222,128,0.12)", color: "#4ADE80" }, assignment_change: { icon: "👤", label: "Reatribuição", bg: "rgba(167,139,250,0.12)", color: "#A78BFA" }, simulation: { icon: "◇", label: "Simulação", bg: "rgba(245,166,35,0.12)", color: "#F5A623" }, negotiation: { icon: "→", label: "Negociação", bg: "rgba(96,165,250,0.12)", color: "#60A5FA" }, registration: { icon: "●", label: "Cadastro", bg: "rgba(167,139,250,0.12)", color: "#A78BFA" } };
-                const tc = cfg[i.type] || { icon: "●", label: i.type, bg: T.stone, color: T.fog };
+                const tc = cfg[i.type] || { icon: "●", label: "Registro", bg: T.stone, color: T.fog };
+                const cat = timelineCategory(i.type); // vocabulário PT-BR único (chip)
                 const profile = Array.isArray(i.profiles) ? i.profiles[0] : i.profiles;
                 const isFromActivity = i._source === "activity";
                 const isAuto = !isFromActivity && (i.type === "status_change" || i.type === "assignment_change");
@@ -928,8 +949,8 @@ export default function ClientDetailPage() {
                           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
-                                <span style={{ fontSize: 13, fontWeight: 600, color: T.chalk }}>{i.title || tc.label}</span>
-                                <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, background: tc.bg, color: tc.color, fontWeight: 500 }}>{tc.label}</span>
+                                <span style={{ fontSize: 13, fontWeight: 600, color: T.chalk }} title={cat.known ? undefined : i.type}>{i.title || cat.label}</span>
+                                <TimelineChip label={cat.label} color={cat.color} />
                               </div>
                               {i.description && <p style={{ fontSize: 13, color: T.bone, margin: "4px 0 0", lineHeight: 1.5 }}>{i.description}</p>}
                               <div style={{ fontSize: 11, color: T.slate, marginTop: 4 }}>{formatDateBRT(i.performed_at)} às {formatTimeBRT(i.performed_at)} · {(profile as Record<string, unknown> | null)?.name as string || "Sistema"}</div>
@@ -982,11 +1003,11 @@ export default function ClientDetailPage() {
         <div style={{ display: "grid", gridTemplateColumns: fluidGrid(230), gap: 14 }}>
           <div><label style={LBL}>Perfil de comprador</label>{editing ? <NexaSelect value={(form.buyer_profile as string) ?? client.buyer_profile ?? ""} onChange={(v) => setForm((p) => ({ ...p, buyer_profile: v }))} placeholder="Selecione" ariaLabel="Perfil de comprador" options={[{ value: "investor", label: "Investidor" }, { value: "resident", label: "Morador" }, { value: "both", label: "Ambos" }]} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.buyer_profile === "investor" ? "Investidor" : client.buyer_profile === "resident" ? "Morador" : client.buyer_profile === "both" ? "Ambos" : "—"}</div>}</div>
           {/* Tipo canônico = `interesse` (vocabulário completo). interested_unit_type DEPRECATED. */}
-          <div><label style={LBL}>Tipo{interestSourceOf(client.interest_sources, "interesse") && <SuggestedBadge at={interestSourceOf(client.interest_sources, "interesse")!.at} />}</label>{editing ? <NexaSelect value={(form.interesse as string) ?? client.interesse ?? ""} onChange={(v) => setForm((p) => ({ ...p, interesse: v }))} placeholder="Selecione" ariaLabel="Tipo de interesse" options={Object.entries(INTERESSE_LABELS).map(([k, l]) => ({ value: k, label: l }))} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.interesse ? (INTERESSE_LABELS[client.interesse] ?? client.interesse) : "—"}</div>}</div>
-          <div><label style={LBL}>Prazo de compra</label>{editing ? <NexaSelect value={(form.purchase_timeline as string) ?? client.purchase_timeline ?? ""} onChange={(v) => setForm((p) => ({ ...p, purchase_timeline: v }))} placeholder="Selecione" ariaLabel="Prazo de compra" options={[{ value: "immediate", label: "Imediato" }, { value: "1_to_3_months", label: "1-3 meses" }, { value: "3_to_6_months", label: "3-6 meses" }, { value: "6_to_12_months", label: "6-12 meses" }, { value: "over_12_months", label: "+12 meses" }]} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.purchase_timeline || "—"}</div>}</div>
+          <div><label style={LBL}>Tipo</label>{editing ? <NexaSelect value={(form.interesse as string) ?? client.interesse ?? ""} onChange={(v) => setForm((p) => ({ ...p, interesse: v }))} placeholder="Selecione" ariaLabel="Tipo de interesse" options={Object.entries(INTERESSE_LABELS).map(([k, l]) => ({ value: k, label: l }))} /> : <div style={{ fontSize: 14, color: client.interesse ? T.bone : T.slate }}>{client.interesse ? (INTERESSE_LABELS[client.interesse] ?? client.interesse) : "—"}</div>}{interestSourceOf(client.interest_sources, "interesse") && <SuggestedBadge at={interestSourceOf(client.interest_sources, "interesse")!.at} />}</div>
+          <div><label style={LBL}>Prazo de compra</label>{editing ? <NexaSelect value={(form.purchase_timeline as string) ?? client.purchase_timeline ?? ""} onChange={(v) => setForm((p) => ({ ...p, purchase_timeline: v }))} placeholder="Selecione" ariaLabel="Prazo de compra" options={[{ value: "immediate", label: "Imediato" }, { value: "1_to_3_months", label: "1-3 meses" }, { value: "3_to_6_months", label: "3-6 meses" }, { value: "6_to_12_months", label: "6-12 meses" }, { value: "over_12_months", label: "+12 meses" }]} /> : <div style={{ fontSize: 14, color: client.purchase_timeline ? T.bone : T.slate }}>{client.purchase_timeline ? (PRAZO_LABELS[client.purchase_timeline] ?? client.purchase_timeline) : "—"}</div>}</div>
           <div><label style={LBL}>Budget mínimo</label>{editing ? <input type="number" style={IS} value={String((form as Record<string, unknown>).budget_min ?? client.budget_min ?? "")} onChange={(e) => setForm((p) => ({ ...p, budget_min: Number(e.target.value) || null } as Partial<ClientData>))} placeholder="0" /> : <div style={{ fontSize: 14, color: T.bone }}>{client.budget_min ? fmtBRL(client.budget_min) : "—"}</div>}</div>
-          <div><label style={LBL}>Budget máximo{interestSourceOf(client.interest_sources, "budget_max") && <SuggestedBadge at={interestSourceOf(client.interest_sources, "budget_max")!.at} />}</label>{editing ? <input type="number" style={IS} value={String((form as Record<string, unknown>).budget_max ?? client.budget_max ?? "")} onChange={(e) => setForm((p) => ({ ...p, budget_max: Number(e.target.value) || null } as Partial<ClientData>))} placeholder="0" /> : <div style={{ fontSize: 14, color: T.bone }}>{client.budget_max ? fmtBRL(client.budget_max) : "—"}</div>}</div>
-          <div><label style={LBL}>Preferência pagamento{interestSourceOf(client.interest_sources, "payment_preference") && <SuggestedBadge at={interestSourceOf(client.interest_sources, "payment_preference")!.at} />}</label>{editing ? <NexaSelect value={(form.payment_preference as string) ?? client.payment_preference ?? ""} onChange={(v) => setForm((p) => ({ ...p, payment_preference: v }))} placeholder="Selecione" ariaLabel="Preferência de pagamento" options={[{ value: "cash", label: "À vista" }, { value: "installment", label: "Parcelado" }, { value: "financing", label: "Financiamento" }, { value: "fgts", label: "FGTS" }]} /> : <div style={{ fontSize: 14, color: T.bone }}>{client.payment_preference || "—"}</div>}</div>
+          <div><label style={LBL}>Budget máximo</label>{editing ? <input type="number" style={IS} value={String((form as Record<string, unknown>).budget_max ?? client.budget_max ?? "")} onChange={(e) => setForm((p) => ({ ...p, budget_max: Number(e.target.value) || null } as Partial<ClientData>))} placeholder="0" /> : <div style={{ fontSize: 14, color: client.budget_max ? T.bone : T.slate }}>{client.budget_max ? fmtBRL(client.budget_max) : "—"}</div>}{interestSourceOf(client.interest_sources, "budget_max") && <SuggestedBadge at={interestSourceOf(client.interest_sources, "budget_max")!.at} />}</div>
+          <div><label style={LBL}>Preferência pagamento</label>{editing ? <NexaSelect value={(form.payment_preference as string) ?? client.payment_preference ?? ""} onChange={(v) => setForm((p) => ({ ...p, payment_preference: v }))} placeholder="Selecione" ariaLabel="Preferência de pagamento" options={[{ value: "cash", label: "À vista" }, { value: "installment", label: "Parcelado" }, { value: "financing", label: "Financiamento" }, { value: "fgts", label: "FGTS" }]} /> : <div style={{ fontSize: 14, color: client.payment_preference ? T.bone : T.slate }}>{client.payment_preference ? (PAGAMENTO_LABELS[client.payment_preference] ?? client.payment_preference) : "—"}</div>}{interestSourceOf(client.interest_sources, "payment_preference") && <SuggestedBadge at={interestSourceOf(client.interest_sources, "payment_preference")!.at} />}</div>
         </div>
       )}
 
@@ -1153,10 +1174,10 @@ export default function ClientDetailPage() {
       {/* Tab: Histórico — unified timeline */}
       {tab === "historico" && (() => {
         // Build unified timeline
-        type TItem = { id: string; type: string; date: string; title: string; desc: string; badge: string; badgeColor: string; linkTo?: string };
+        type TItem = { id: string; type: string; date: string; title: string; desc: string; badge: string; badgeColor: string; titleAttr?: string; linkTo?: string };
         // Ficha Viva · FASE 1 — MESMA fonte da aba Interações (buildFichaTimeline).
-        // Enquadramento Histórico: auditoria completa e compacta (read-only).
-        const typeColor: Record<string, string> = { phone_call: "#4ADE80", follow_up: "#60A5FA", visit_client: "#FBBF24", visit_broker: "#4ADE80", visit_development: "#FBBF24", meeting_internal: "#A78BFA", meeting_external: "#A78BFA", training: "#10B981", other: "#8A8985", whatsapp: "#4ADE80", email: "#60A5FA", note: "#9C9686", status_change: "#4ADE80", assignment_change: "#A78BFA", simulation: "#F5A623", negotiation: "#60A5FA", registration: "#A78BFA" };
+        // Enquadramento Histórico: auditoria completa e compacta (read-only). Chip
+        // via timelineCategory (PT-BR, mesmo vocabulário/estilo da aba Interações).
         const timeline: TItem[] = buildFichaTimeline({
           interactions: contactInteractions,
           activities,
@@ -1166,12 +1187,13 @@ export default function ClientDetailPage() {
           resolveActor: (uid) => teamMembers.find((m) => m.userId === uid)?.name ?? null,
           fmtValue: (v) => fmtBRL(v) ?? "—",
           statusLabel: (s) => getNegotiationStatusLabel(s.toUpperCase() as never),
-        }).map((it) => ({
+        }).map((it) => { const cat = timelineCategory(it.type); return {
           id: it.id, type: it.kind, date: it.date, title: it.title, desc: it.description ?? "",
-          badge: it.badgeLabel ?? (it.type === "simulation" ? "SIMULAÇÃO" : (TYPE_LABELS[it.type] || it.type)),
-          badgeColor: typeColor[it.type] || T.fog,
+          badge: it.kind === "negotiation" ? (it.badgeLabel ?? cat.label) : cat.label,
+          badgeColor: cat.color,
+          titleAttr: cat.known ? undefined : it.type,
           linkTo: it.linkTo ?? undefined,
-        }));
+        }; });
 
         // Group by date label
         const groups: [string, TItem[]][] = [];
@@ -1201,7 +1223,7 @@ export default function ClientDetailPage() {
                     {/* Content */}
                     <div style={{ flex: 1, paddingBottom: 16, cursor: item.linkTo ? "pointer" : "default" }} onClick={() => item.linkTo && navigate(item.linkTo)}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                        <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: item.badgeColor + "18", color: item.badgeColor }}>{item.badge}</span>
+                        <span title={item.titleAttr}><TimelineChip label={item.badge} color={item.badgeColor} /></span>
                         <span style={{ fontSize: 13, fontWeight: 500, color: T.bone }}>{item.title}</span>
                       </div>
                       {item.desc && <div style={{ fontSize: 12, color: T.fog, marginTop: 4 }}>{item.desc}</div>}

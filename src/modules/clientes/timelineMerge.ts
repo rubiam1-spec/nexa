@@ -105,6 +105,36 @@ export type FichaTimelineInput = {
   statusLabel: (status: string) => string;
 };
 
+// ── Vocabulário ÚNICO das categorias (PT-BR) — usado pelos chips das DUAS
+// molduras (Interações e Histórico). Zero snake_case visível. Desconhecida →
+// "Registro" (o raw vai no title da linha). Estende o serviço de display.
+const TIMELINE_CATEGORY: Record<string, { label: string; color: string }> = {
+  phone_call: { label: "Ligação", color: "#60A5FA" },
+  whatsapp: { label: "WhatsApp", color: "#4ADE80" },
+  follow_up: { label: "Follow-up", color: "#A78BFA" },
+  visit_client: { label: "Visita", color: "#FBBF24" },
+  visit_broker: { label: "Visita", color: "#4ADE80" },
+  visit_development: { label: "Visita", color: "#FBBF24" },
+  meeting_external: { label: "Reunião", color: "#FBBF24" },
+  meeting_internal: { label: "Reunião", color: "#A78BFA" },
+  email: { label: "Email", color: "#60A5FA" },
+  note: { label: "Nota", color: "#9C9686" },
+  status_change: { label: "Qualificação", color: "#4ADE80" },
+  qualification_change: { label: "Qualificação", color: "#4ADE80" },
+  assignment_change: { label: "Atribuição", color: "#A78BFA" },
+  system: { label: "Sistema", color: "#8A8985" },
+  training: { label: "Treinamento", color: "#10B981" },
+  other: { label: "Outro", color: "#8A8985" },
+  simulation: { label: "Simulação", color: "#F5A623" },
+  negotiation: { label: "Negociação", color: "#60A5FA" },
+  registration: { label: "Cadastro", color: "#A78BFA" },
+};
+
+export function timelineCategory(type: string): { label: string; color: string; known: boolean } {
+  const hit = TIMELINE_CATEGORY[type];
+  return hit ? { ...hit, known: true } : { label: "Registro", color: "#8A8985", known: false };
+}
+
 export function buildFichaTimeline(input: FichaTimelineInput): FichaTimelineItem[] {
   const items: FichaTimelineItem[] = [];
 

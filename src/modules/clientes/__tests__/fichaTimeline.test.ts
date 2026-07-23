@@ -1,6 +1,6 @@
 // Ficha Viva · FASE 1 — a timeline ÚNICA (buildFichaTimeline).
 import { describe, it, expect } from "vitest";
-import { buildFichaTimeline, type FichaTimelineInput } from "../timelineMerge";
+import { buildFichaTimeline, timelineCategory, type FichaTimelineInput } from "../timelineMerge";
 
 const base: FichaTimelineInput = {
   interactions: [],
@@ -82,5 +82,26 @@ describe("buildFichaTimeline — fonte única das duas abas", () => {
 
   it("lista vazia → []", () => {
     expect(buildFichaTimeline(base)).toEqual([]);
+  });
+});
+
+describe("timelineCategory — vocabulário PT-BR único (chips), zero snake_case", () => {
+  it("mapeia tipos conhecidos para PT-BR", () => {
+    expect(timelineCategory("phone_call").label).toBe("Ligação");
+    expect(timelineCategory("status_change").label).toBe("Qualificação");
+    expect(timelineCategory("assignment_change").label).toBe("Atribuição");
+    expect(timelineCategory("simulation").label).toBe("Simulação");
+    expect(timelineCategory("registration").label).toBe("Cadastro");
+    expect(timelineCategory("system").label).toBe("Sistema");
+  });
+  it("desconhecido → 'Registro' e known=false (raw vai no title)", () => {
+    const c = timelineCategory("algo_desconhecido");
+    expect(c.label).toBe("Registro");
+    expect(c.known).toBe(false);
+  });
+  it("todos os rótulos conhecidos são PT-BR sem snake_case", () => {
+    for (const t of ["phone_call", "whatsapp", "follow_up", "visit_client", "note", "status_change", "assignment_change", "simulation", "negotiation", "registration"]) {
+      expect(timelineCategory(t).label).not.toMatch(/_/);
+    }
   });
 });
