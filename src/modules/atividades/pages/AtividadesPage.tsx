@@ -12,7 +12,8 @@ import { type Participant } from "../../../shared/components/ParticipantInput";
 import ActivityDetailModal from "../../../shared/components/ActivityDetailModal";
 import WeeklyCalendar from "../components/WeeklyCalendar";
 import FilterChips, { type FilterChip } from "../components/FilterChips";
-import { isCommercialInternalRole } from "../constants/teamScope";
+import { isCommercialInternalRole, canManageScope, resolveScopeMode } from "../constants/teamScope";
+import { ScopeToggle } from "../../../shared/components/ScopeToggle";
 import { useActivityPeriod, type Period } from "../hooks/useActivityPeriod";
 import { useActivities } from "../hooks/useActivities";
 import {
@@ -1541,7 +1542,6 @@ export default function AtividadesPage() {
   const profileId = authenticatedProfile?.id ?? null;
   const role = account?.role ?? authenticatedProfile?.role ?? null;
   const isConsultant = role === "commercial_consultant";
-  const isManager = role === "manager";
   const isDirector = role === "director";
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -1551,7 +1551,7 @@ export default function AtividadesPage() {
   const [modalClientId, setModalClientId] = useState<string | undefined>(undefined);
   const [editingActivity, setEditingActivity] = useState<Activity | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const canManage = isDirector || isManager || (role as string) === "owner";
+  const canManage = canManageScope(role);
   const [statusFilter, setStatusFilter] = useState<"pending" | "completed" | "all">("pending");
   const [completingActivity, setCompletingActivity] = useState<Activity | null>(null);
   const [completeOutcome, setCompleteOutcome] = useState("");
@@ -1569,7 +1569,10 @@ export default function AtividadesPage() {
   const setPeriodFilter = (p: string) => periodCfg.setPeriod(p as Period);
   const [typeFilter, setTypeFilter] = useState("all");
   const [memberFilter, setMemberFilter] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<"mine" | "team">("team");
+  // Parte B · default "Minhas" para TODOS (gestão inclusa — abrir no pessoal é o
+  // comportamento honesto); só canManage (owner/director/manager) alterna p/ Equipe.
+  const [viewMode, setViewMode] = useState<"mine" | "team">("mine");
+  const scopeMode = resolveScopeMode(role, viewMode); // não-gestor sempre pessoal
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [consultantFilter, setConsultantFilter] = useState("all");
   // Onda 3.3: ordenação da lista de atividades.
@@ -1670,10 +1673,10 @@ export default function AtividadesPage() {
   } = useActivities<Activity>({
     accountId: accountId ?? "",
     profileId,
-    viewMode,
+    viewMode: scopeMode,
     consultantFilter,
     isConsultant,
-    isManager,
+    isManager: canManage,
     enabled: Boolean(accountId && developmentId),
   });
 
@@ -2026,7 +2029,7 @@ export default function AtividadesPage() {
   const yesterdayActs = useMemo(() => profileId ? activities.filter((a) => a.activity_date === yesterday && a.profile_id === profileId) : [], [activities, yesterday, profileId]);
   const yesterdayHours = useMemo(() => yesterdayActs.reduce((s, a) => s + a.duration_minutes, 0) / 60, [yesterdayActs]);
   const pendingActions = useMemo(() => profileId ? activities.filter((a) => a.profile_id === profileId && a.next_action && a.next_action_date && a.next_action_date <= today) : [], [activities, profileId, today]);
-  const showBrief = (isConsultant || isManager) && todayActs.length === 0 && (yesterdayActs.length > 0 || pendingActions.length > 0);
+  const showBrief = (isConsultant || canManage) && todayActs.length === 0 && (yesterdayActs.length > 0 || pendingActions.length > 0);
 
   // Bar chart (director)
   const chartData = useMemo(() => {
@@ -2394,10 +2397,10 @@ export default function AtividadesPage() {
   const loadArchived = useCallback(async () => {
     if (!accountId) { setArchivedActivities([]); return; }
     try {
-      const data = await repoFetchActivities<Activity>({ accountId, profileId, viewMode, consultantFilter, isConsultant, isManager, archivedOnly: true });
+      const data = await repoFetchActivities<Activity>({ accountId, profileId, viewMode: scopeMode, consultantFilter, isConsultant, isManager: canManage, archivedOnly: true });
       setArchivedActivities(data);
     } catch { setArchivedActivities([]); }
-  }, [accountId, profileId, viewMode, consultantFilter, isConsultant, isManager]);
+  }, [accountId, profileId, scopeMode, consultantFilter, isConsultant, canManage]);
   useEffect(() => { void loadArchived(); }, [loadArchived]);
 
   async function handleArchive(id: string) {
@@ -2492,7 +2495,7 @@ export default function AtividadesPage() {
     finally { setSkipping(false); }
   }
 
-  const showRegister = isConsultant || isManager;
+  const showRegister = isConsultant || canManage;
   const showAuthor = !isConsultant;
 
   // Atalhos globais do Quadro (n / busca / ? ajuda). Card-nav fica no board.
@@ -2535,7 +2538,7 @@ export default function AtividadesPage() {
             fontFamily: "'Instrument Serif', Georgia, serif",
             fontStyle: "italic", fontSize: 24, color: T.chalk,
             fontWeight: 400, margin: 0, lineHeight: 1.15,
-          }}>{isConsultant || (isManager && viewMode === "mine") ? "Minhas Atividades" : isDirector ? "Atividades da Operação" : "Atividades da Equipe"}</h1>
+          }}>{scopeMode === "mine" ? "Minhas Atividades" : isDirector ? "Atividades da Operação" : "Atividades da Equipe"}</h1>
           {isConsultant && authenticatedProfile ? (
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
               <span style={{ color: T.bone, fontSize: 13 }}>{authenticatedProfile.fullName}</span>
@@ -2803,7 +2806,7 @@ export default function AtividadesPage() {
 
       {/* KPIs — Onda 2.1: fita única compacta, libera viewport para a lista. */}
       {(() => {
-        const isPersonal = isConsultant || (isManager && viewMode === "mine");
+        const isPersonal = scopeMode === "mine";
         if (isPersonal) {
           const personalCompletedMonth = activities.filter((a) => a.status === "completed" && a.activity_date >= monthStart).length;
           const personalPending = activities.filter((a) => a.status === "scheduled").length;
@@ -2908,7 +2911,7 @@ export default function AtividadesPage() {
       )}
 
       {/* Inactivity alert */}
-      {inactiveMembers.length > 0 && (isManager || isDirector) && (
+      {inactiveMembers.length > 0 && canManage && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", background: T.amber + "10", border: `1px solid ${T.amber}30`, borderRadius: 8, fontSize: 13, color: T.amber, marginBottom: 20 }}>
           <span style={{ fontSize: 14, fontWeight: 700 }}>!</span>
           <span>{inactiveMembers.map((m) => m.name).join(", ")} não registrou atividades nos últimos 3 dias.</span>
@@ -2948,19 +2951,14 @@ export default function AtividadesPage() {
         };
         return (
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-            {isManager && (
-              <div style={{ display: "flex", borderRadius: 10, overflow: "hidden", border: "1px solid rgba(42,40,34,0.5)" }}>
-                {(["mine", "team"] as const).map((m) => (
-                  <button key={m} type="button" onClick={() => setViewMode(m)} style={{
-                    padding: "8px 20px",
-                    background: viewMode === m ? "rgba(74,222,128,0.1)" : "transparent",
-                    color: viewMode === m ? T.sprout : T.fog,
-                    border: "none", fontFamily: "var(--font-mono)", fontSize: 12,
-                    fontWeight: 700, cursor: "pointer", letterSpacing: "0.04em",
-                    transition: "background 0.15s, color 0.15s",
-                  }}>{m === "mine" ? "Minhas" : "Equipe"}</button>
-                ))}
-              </div>
+            {/* Parte B · toggle SÓ para owner/director/manager (padrão único ScopeToggle). */}
+            {canManage && (
+              <ScopeToggle
+                options={[{ value: "mine", label: "Minhas" }, { value: "team", label: "Equipe" }]}
+                value={viewMode}
+                onChange={(m) => setViewMode(m)}
+                ariaLabel="Escopo das atividades"
+              />
             )}
 
             {/* Onda 2.3: rótulo "Agendadas" deixa explícito o escopo da tab
@@ -3069,7 +3067,7 @@ export default function AtividadesPage() {
             />
           </div>
 
-          {(isManager && viewMode === "team" || isDirector) && teamProfiles.length > 0 && (
+          {scopeMode === "team" && teamProfiles.length > 0 && (
             <div style={{ width: 180 }}>
               <NexaSelect
                 value={consultantFilter}
@@ -3117,7 +3115,7 @@ export default function AtividadesPage() {
       )}
 
       {/* Ranking (manager/director) */}
-      {(isDirector || (isManager && viewMode === "team")) && ranking.length > 0 && (
+      {scopeMode === "team" && ranking.length > 0 && (
         <div style={{ marginBottom: 20 }}>
           {/*
             Onda 2.4: H3 alinhado ao Brand Book v7 — sans 11 caps tracking 4.
@@ -3160,7 +3158,7 @@ export default function AtividadesPage() {
       )}
 
       {/* Section label — activities list (Onda 2.4: H3 sans 11 caps tracking 4). */}
-      {(isDirector || (isManager && viewMode === "team")) && ranking.length > 0 && (
+      {scopeMode === "team" && ranking.length > 0 && (
         <h3 style={{
           fontFamily: "var(--font-sans)", fontSize: 11, color: T.fog,
           letterSpacing: "0.18em", marginTop: 16, marginBottom: 10, paddingTop: 12,

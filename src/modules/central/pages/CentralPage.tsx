@@ -5,6 +5,7 @@ import { useAccount } from "../../../app/contexts/AccountContext";
 import { useDevelopment } from "../../../app/contexts/DevelopmentContext";
 import { useScreen } from "../../../shared/hooks/useIsMobile";
 import { fluidGrid } from "../../../shared/responsive";
+import { canManageScope } from "../../atividades/constants/teamScope";
 import { useCentral } from "../hooks/useCentral";
 import { supabase } from "../../../infra/supabase/supabaseClient";
 import CentralAgenda from "../components/CentralAgenda";
@@ -784,7 +785,10 @@ export default function CentralPage() {
       {isVisible("birthdays") && role !== "concierge" && <BirthdaysCard accountId={accountId} />}
 
       {/* ═══ 8-9. Team ═══ */}
-      {(isVisible("internal_team") || isVisible("external_team")) && isManager && role !== "administrative" && (data.internalTeam.length > 0 || data.externalTeam.length > 0) && (
+      {/* Parte B · gate EXPLÍCITO owner/director/manager via canManageScope (era
+          isManager && !admin — funcionava por acidente; clareza é contrato).
+          Consultora não ranqueia colega. */}
+      {(isVisible("internal_team") || isVisible("external_team")) && canManageScope(role) && (data.internalTeam.length > 0 || data.externalTeam.length > 0) && (
         <>
           {isVisible("internal_team") && data.internalTeam.length > 0 && (
             <>
