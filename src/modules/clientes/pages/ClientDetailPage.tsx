@@ -17,7 +17,7 @@ import SpouseLinkModal from "../components/SpouseLinkModal";
 import SpousePeek from "../components/SpousePeek";
 import type { Client, LegalRegime, MaritalStatus } from "../../../shared/types/client";
 import { getClientWithSpouse, unlinkSpouses, registerContactInteraction } from "../../../infra/repositories/clientsSupabaseRepository";
-import { filterMirroredActivities, simulationTimelineItems } from "../timelineMerge";
+import { buildFichaTimeline } from "../timelineMerge";
 import { ConfirmacaoDestructiva } from "../../../shared/components/ConfirmacaoDestructiva";
 import { isNegotiationActive } from "../../../domain/status/negotiation";
 import { fromLeadQualificationDb, isLeadActive } from "../../../domain/status/leadQualification";
@@ -327,7 +327,7 @@ export default function ClientDetailPage() {
           setSimUnits(m);
         } else setSimUnits({});
       } catch { setSimulations([]); setSimUnits({}); }
-      const { data: acts } = await supabase.from("activities").select("id, type, title, status, activity_date, outcome, duration_minutes, profile_id, created_at").eq("client_id", id).eq("account_id", accountId).order("activity_date", { ascending: false }).limit(10);
+      const { data: acts } = await supabase.from("activities").select("id, type, title, status, activity_date, outcome, duration_minutes, profile_id, created_at").eq("client_id", id).eq("account_id", accountId).order("activity_date", { ascending: false }).limit(50);
       setActivities((acts ?? []) as ClientAct[]);
       // Documentos e checklist são carregados pelo hook useClientDocuments.
       const { data: ints } = await supabase.from("contact_interactions").select("id, type, direction, title, description, performed_by, performed_at, activity_id, profiles(name)").eq("client_id", id).order("performed_at", { ascending: false }).limit(50);
@@ -782,28 +782,32 @@ export default function ClientDetailPage() {
             </div>
           )}
 
-          {/* Timeline de interações (merged: contact_interactions + activities) */}
+          {/* Timeline ÚNICA (Ficha Viva · FASE 1) — MESMA fonte do Histórico
+              (buildFichaTimeline). Enquadramento Interações: opera com o registrador
+              (edita interação/activity); simulação/negociação/cadastro = marcos read-only. */}
           {(() => {
-            // Dedupe determinístico por vínculo (fallback heurístico p/ legado) — função pura.
-            const activityItems = filterMirroredActivities(activities, contactInteractions)
-              .map((a) => {
-                // Performer real vem DO DADO (activities.profile_id); só realmente nulo → "Sistema".
-                const perfName = teamMembers.find((m) => m.userId === a.profile_id)?.name ?? null;
-                return { id: `act-${a.id}`, type: a.type, direction: null as string | null, title: a.title, description: a.outcome || null, performed_by: a.profile_id, performed_at: a.created_at ?? (a.activity_date + "T12:00:00"), profiles: perfName ? { name: perfName } : null, _source: "activity" as const, _activityId: a.id };
-              });
-            // Simulação = evento real na história do contato (posição temporal). A
-            // SEÇÃO acima é a visão acionável (abrir/editar); aqui só o marco "criada
-            // · R$ X" — sobreposição mínima, papéis distintos.
-            const simItems = simulationTimelineItems(
+            const mergedTimeline = buildFichaTimeline({
+              interactions: contactInteractions,
+              activities,
               simulations,
-              (v) => fmtBRL(v) ?? "—",
-              (uid) => teamMembers.find((m) => m.userId === uid)?.name ?? null,
-            );
-            const mergedTimeline = [
-              ...contactInteractions.map((ci) => ({ ...ci, _source: "interaction" as const, _activityId: null as string | null })),
-              ...activityItems,
-              ...simItems,
-            ].sort((a, b) => new Date(b.performed_at).getTime() - new Date(a.performed_at).getTime());
+              negotiations,
+              registrationAt: client.created_at,
+              resolveActor: (uid) => teamMembers.find((m) => m.userId === uid)?.name ?? null,
+              fmtValue: (v) => fmtBRL(v) ?? "—",
+              statusLabel: (s) => getNegotiationStatusLabel(s.toUpperCase() as never),
+            }).map((it) => ({
+              id: it.interactionId ?? it.id,
+              type: it.type,
+              direction: null as string | null,
+              title: it.title,
+              description: it.description,
+              performed_by: it.actorId,
+              performed_at: it.date,
+              profiles: it.actorName ? { name: it.actorName } : null,
+              _source: (it.kind === "interaction" ? "interaction" : "activity") as "interaction" | "activity",
+              _activityId: it.activityId,
+              _kind: it.kind,
+            }));
 
             if (mergedTimeline.length === 0) return (
               <div style={{ textAlign: "center", padding: "40px 0", color: T.fog, fontSize: 14 }}>Nenhuma interação registrada. Clique em "+ Registrar interação" para começar.</div>
@@ -811,7 +815,7 @@ export default function ClientDetailPage() {
             return (
             <div>
               {mergedTimeline.map((i) => {
-                const cfg: Record<string, { icon: string; label: string; bg: string; color: string }> = { phone_call: { icon: "📞", label: "Ligação", bg: "rgba(96,165,250,0.12)", color: "#60A5FA" }, whatsapp: { icon: "💬", label: "WhatsApp", bg: "rgba(74,222,128,0.12)", color: "#4ADE80" }, follow_up: { icon: "🔄", label: "Follow-up", bg: "rgba(167,139,250,0.12)", color: "#A78BFA" }, visit_client: { icon: "🏠", label: "Visita", bg: "rgba(251,191,36,0.12)", color: "#FBBF24" }, meeting_external: { icon: "👥", label: "Reunião", bg: "rgba(251,191,36,0.12)", color: "#FBBF24" }, email: { icon: "✉", label: "Email", bg: "rgba(96,165,250,0.12)", color: "#60A5FA" }, note: { icon: "📝", label: "Nota", bg: "rgba(156,150,134,0.12)", color: "#9C9686" }, status_change: { icon: "→", label: "Status", bg: "rgba(74,222,128,0.12)", color: "#4ADE80" }, assignment_change: { icon: "👤", label: "Reatribuição", bg: "rgba(167,139,250,0.12)", color: "#A78BFA" } };
+                const cfg: Record<string, { icon: string; label: string; bg: string; color: string }> = { phone_call: { icon: "📞", label: "Ligação", bg: "rgba(96,165,250,0.12)", color: "#60A5FA" }, whatsapp: { icon: "💬", label: "WhatsApp", bg: "rgba(74,222,128,0.12)", color: "#4ADE80" }, follow_up: { icon: "🔄", label: "Follow-up", bg: "rgba(167,139,250,0.12)", color: "#A78BFA" }, visit_client: { icon: "🏠", label: "Visita", bg: "rgba(251,191,36,0.12)", color: "#FBBF24" }, meeting_external: { icon: "👥", label: "Reunião", bg: "rgba(251,191,36,0.12)", color: "#FBBF24" }, email: { icon: "✉", label: "Email", bg: "rgba(96,165,250,0.12)", color: "#60A5FA" }, note: { icon: "📝", label: "Nota", bg: "rgba(156,150,134,0.12)", color: "#9C9686" }, status_change: { icon: "→", label: "Status", bg: "rgba(74,222,128,0.12)", color: "#4ADE80" }, assignment_change: { icon: "👤", label: "Reatribuição", bg: "rgba(167,139,250,0.12)", color: "#A78BFA" }, simulation: { icon: "◇", label: "Simulação", bg: "rgba(245,166,35,0.12)", color: "#F5A623" }, negotiation: { icon: "→", label: "Negociação", bg: "rgba(96,165,250,0.12)", color: "#60A5FA" }, registration: { icon: "●", label: "Cadastro", bg: "rgba(167,139,250,0.12)", color: "#A78BFA" } };
                 const tc = cfg[i.type] || { icon: "●", label: i.type, bg: T.stone, color: T.fog };
                 const profile = Array.isArray(i.profiles) ? i.profiles[0] : i.profiles;
                 const isFromActivity = i._source === "activity";
@@ -841,7 +845,7 @@ export default function ClientDetailPage() {
                               {i.description && <p style={{ fontSize: 13, color: T.bone, margin: "4px 0 0", lineHeight: 1.5 }}>{i.description}</p>}
                               <div style={{ fontSize: 11, color: T.slate, marginTop: 4 }}>{formatDateBRT(i.performed_at)} às {formatTimeBRT(i.performed_at)} · {(profile as Record<string, unknown> | null)?.name as string || "Sistema"}</div>
                             </div>
-                            {!isAuto && canEditItem(i.performed_by) && (
+                            {!isAuto && (i._kind === "interaction" || i._kind === "activity") && canEditItem(i.performed_by) && (
                               <div style={{ position: "relative", flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
                                 <button type="button" onClick={(e) => { e.stopPropagation(); setActiveIntMenu(activeIntMenu === i.id ? null : i.id); }} style={{ background: "none", border: "none", cursor: "pointer", padding: "4px 8px", color: T.slate, borderRadius: 4, fontSize: 18, lineHeight: 1 }} title="Opções">⋮</button>
                                 {activeIntMenu === i.id && (
@@ -1054,17 +1058,24 @@ export default function ClientDetailPage() {
       {tab === "historico" && (() => {
         // Build unified timeline
         type TItem = { id: string; type: string; date: string; title: string; desc: string; badge: string; badgeColor: string; linkTo?: string };
-        const timeline: TItem[] = [];
-        for (const a of activities) {
-          const typeColor: Record<string, string> = { phone_call: "#4ADE80", follow_up: "#60A5FA", visit_client: "#FBBF24", visit_broker: "#4ADE80", visit_development: "#FBBF24", meeting_internal: "#A78BFA", meeting_external: "#A78BFA", training: "#10B981", other: "#8A8985" };
-          timeline.push({ id: a.id, type: "activity", date: a.activity_date, title: a.title, desc: a.outcome || "", badge: TYPE_LABELS[a.type] || a.type, badgeColor: typeColor[a.type] || T.fog });
-        }
-        for (const n of negotiations) {
-          timeline.push({ id: n.id, type: "negotiation", date: n.updated_at, title: `Negociação — Q${n.unit_quadra}/L${n.unit_lote}`, desc: `${fmtBRL(n.unit_valor)} · ${n.broker_name || "—"}`, badge: getNegotiationStatusLabel(n.status.toUpperCase() as never), badgeColor: "#60A5FA", linkTo: `/negociacoes/${n.id}` });
-        }
-        // Registration event
-        timeline.push({ id: "reg", type: "registration", date: client.created_at, title: "Cliente cadastrado", desc: "", badge: "CADASTRO", badgeColor: "#A78BFA" });
-        timeline.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        // Ficha Viva · FASE 1 — MESMA fonte da aba Interações (buildFichaTimeline).
+        // Enquadramento Histórico: auditoria completa e compacta (read-only).
+        const typeColor: Record<string, string> = { phone_call: "#4ADE80", follow_up: "#60A5FA", visit_client: "#FBBF24", visit_broker: "#4ADE80", visit_development: "#FBBF24", meeting_internal: "#A78BFA", meeting_external: "#A78BFA", training: "#10B981", other: "#8A8985", whatsapp: "#4ADE80", email: "#60A5FA", note: "#9C9686", status_change: "#4ADE80", assignment_change: "#A78BFA", simulation: "#F5A623", negotiation: "#60A5FA", registration: "#A78BFA" };
+        const timeline: TItem[] = buildFichaTimeline({
+          interactions: contactInteractions,
+          activities,
+          simulations,
+          negotiations,
+          registrationAt: client.created_at,
+          resolveActor: (uid) => teamMembers.find((m) => m.userId === uid)?.name ?? null,
+          fmtValue: (v) => fmtBRL(v) ?? "—",
+          statusLabel: (s) => getNegotiationStatusLabel(s.toUpperCase() as never),
+        }).map((it) => ({
+          id: it.id, type: it.kind, date: it.date, title: it.title, desc: it.description ?? "",
+          badge: it.badgeLabel ?? (it.type === "simulation" ? "SIMULAÇÃO" : (TYPE_LABELS[it.type] || it.type)),
+          badgeColor: typeColor[it.type] || T.fog,
+          linkTo: it.linkTo ?? undefined,
+        }));
 
         // Group by date label
         const groups: [string, TItem[]][] = [];
